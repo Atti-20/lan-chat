@@ -1,9 +1,9 @@
 package com.lanchat.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.lanchat.entity.User;
+import com.lanchat.entity.FriendRequest;
 import org.apache.ibatis.annotations.Mapper;
 
 @Mapper
-public interface UserMapper extends BaseMapper<User> {
+public interface FriendRequestMapper extends BaseMapper<FriendRequest> {
 }

@@ -3,20 +3,43 @@ server:
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false
+    url: jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  # Redis 缓存
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 5000ms
+
   servlet:
     multipart:
-      max-file-size: 500MB
-      max-request-size: 500MB
+      max-file-size: 100MB
+      max-request-size: 100MB
 
+# MyBatis Plus
 mybatis-plus:
   mapper-locations: classpath:/mapper/*.xml
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
 
+# JWT 配置
+jwt:
+  secret: lan-chat-secret-key-2026-very-long-for-hmac-sha256-algorithm
+  expiration: 7200000          # Token 有效期 2 小时（毫秒）
+  refresh-expiration: 604800000 # 刷新令牌有效期 7 天（毫秒）
+
+# 文件存储
 file:
   path: D:/lan-chat/uploads/
+  allowed-types: jpg,jpeg,png,gif,bmp,webp,doc,docx,xls,xlsx,ppt,pptx,pdf,txt,zip,rar,7z,mp4,mp3,wav
+  max-size: 104857600          # 100MB
+
+logging:
+  level:
+    com.lanchat: info
