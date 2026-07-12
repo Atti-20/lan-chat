@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>LanChat — 登录</title>
+  <link rel="stylesheet" href="/css/design.css">
+  <link rel="stylesheet" href="/css/auth.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231A1D21'/><text x='50' y='68' font-size='56' text-anchor='middle' fill='%23059669'>L</text></svg>">
+</head>
+<body>
+  <div class="auth-page">
+    <!-- Left Branding Panel -->
+    <div class="auth-brand">
+      <div class="brand-logo">
+        <svg viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="10" fill="#059669"/>
+          <path d="M12 14C12 12.8954 12.8954 12 14 12H26C27.1046 12 28 12.8954 28 14V22C28 23.1046 27.1046 24 26 24H20L14 29V24H14C12.8954 24 12 23.1046 12 22V14Z" fill="white"/>
+        </svg>
+        <span class="brand-name">LanChat</span>
+      </div>
+      <div class="brand-tagline">对话，不止于文字</div>
+      <div class="brand-desc">一个轻量、私密的即时通讯平台，支持私聊、群聊、文件共享与阅后即焚。</div>
+      <div class="brand-features">
+        <div class="brand-feature">
+          <div class="brand-feature-dot"></div>
+          <span>实时 WebSocket 消息推送</span>
+        </div>
+        <div class="brand-feature">
+          <div class="brand-feature-dot"></div>
+          <span>端到端阅后即焚与多端同步</span>
+        </div>
+        <div class="brand-feature">
+          <div class="brand-feature-dot"></div>
+          <span>文件秒传与签名预览</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Form Panel -->
+    <div class="auth-form-panel">
+      <div class="auth-form-wrap">
+        <div class="auth-tabs">
+          <div class="auth-tab active" data-tab="login" onclick="switchTab('login')">登录</div>
+          <div class="auth-tab" data-tab="register" onclick="switchTab('register')">注册</div>
+        </div>
+
+        <!-- Login Form -->
+        <form class="auth-form" id="loginForm" onsubmit="handleLogin(event)">
+          <div class="auth-error" id="loginError"></div>
+          <div class="input-group">
+            <label class="input-label" for="loginUsername">用户名</label>
+            <input type="text" id="loginUsername" class="input-field" placeholder="输入用户名" required autocomplete="username">
+          </div>
+          <div class="input-group">
+            <label class="input-label" for="loginPassword">密码</label>
+            <input type="password" id="loginPassword" class="input-field" placeholder="输入密码" required autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn btn-primary auth-submit" id="loginBtn">登录</button>
+          <div class="auth-hint">测试账号：admin / alice / bob，密码均为 123456</div>
+        </form>
+
+        <!-- Register Form -->
+        <form class="auth-form hidden" id="registerForm" onsubmit="handleRegister(event)">
+          <div class="auth-error" id="registerError"></div>
+          <div class="input-group">
+            <label class="input-label" for="regUsername">用户名</label>
+            <input type="text" id="regUsername" class="input-field" placeholder="手机号或邮箱" required>
+          </div>
+          <div class="input-group">
+            <label class="input-label" for="regPassword">密码</label>
+            <input type="password" id="regPassword" class="input-field" placeholder="8-20位，含字母和数字" required>
+            <div class="input-helper">长度 8-20 位，需包含字母和数字</div>
+          </div>
+          <div class="input-group">
+            <label class="input-label" for="regNickname">昵称</label>
+            <input type="text" id="regNickname" class="input-field" placeholder="2-16 个字符" required>
+          </div>
+          <button type="submit" class="btn btn-primary auth-submit" id="registerBtn">注册</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+</body>
+</html>

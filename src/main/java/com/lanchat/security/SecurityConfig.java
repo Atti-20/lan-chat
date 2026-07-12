@@ -45,7 +45,13 @@ public class SecurityConfig {
                     "/api/v1/auth/**",
                     "/ws/**",
                     "/file/**",
-                    "/error"
+                    "/error",
+                    "/",
+                    "/index.html",
+                    "/chat.html",
+                    "/css/**",
+                    "/js/**",
+                    "/favicon.ico"
                 ).permitAll()
                 // 其他接口需要认证
                 .anyRequest().authenticated()
