@@ -67,4 +67,17 @@ public class AdminController {
         return success ? Result.success("禁言时段设置成功") : Result.error("操作失败");
     }
 
+    /**
+     * 4、删除用户
+     */
+    @DeleteMapping("/user/{userId}")
+    public Result deleteUser(@PathVariable Long userId) {
+        checkAdminPermission();
+        try {
+            userService.deleteUserByAdmin(userId);
+            return Result.success("用户已删除");
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
 }

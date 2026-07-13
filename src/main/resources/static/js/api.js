@@ -178,6 +178,10 @@ const API = {
 
     getMuteStatus() {
       return API.request('GET', '/user/mute-status');
+    },
+
+    changePassword(oldPassword, newPassword) {
+      return API.request('PUT', '/user/password', { oldPassword, newPassword });
     }
   },
 
@@ -318,6 +322,14 @@ const API = {
 
     generatePreviewUrl(fileName) {
       return API.request('POST', `/file/preview-url?fileName=${encodeURIComponent(fileName)}`);
+    }
+  },
+
+  // ==================== 管理接口 ====================
+
+  admin: {
+    deleteUser(userId) {
+      return API.request('DELETE', `/admin/user/${userId}`);
     }
   }
 };

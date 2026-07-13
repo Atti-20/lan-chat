@@ -1512,6 +1512,9 @@ const App = {
           <div class="info-action" onclick="App.showDevices()">
             <span class="info-action-label">设备管理</span>
           </div>
+          <div class="info-action" onclick="App.showChangePassword()">
+            <span class="info-action-label">修改密码</span>
+          </div>
           <div class="info-action" onclick="App.logout()">
             <span class="info-action-label text-danger">退出登录</span>
           </div>
@@ -1545,6 +1548,56 @@ const App = {
       </div>
     `;
     this.showInfoPanel('设备管理', bodyHTML);
+  },
+
+  showChangePassword() {
+    const bodyHTML = `
+      <div style="padding: 1rem;">
+        <div class="input-group" style="margin-bottom: 1rem;">
+          <label class="input-label" for="oldPasswordInput">原密码</label>
+          <input type="password" id="oldPasswordInput" class="input-field" placeholder="输入原密码">
+        </div>
+        <div class="input-group" style="margin-bottom: 1rem;">
+          <label class="input-label" for="newPasswordInput">新密码</label>
+          <input type="password" id="newPasswordInput" class="input-field" placeholder="8-20位，含字母和数字">
+        </div>
+        <div class="input-group" style="margin-bottom: 1rem;">
+          <label class="input-label" for="confirmPasswordInput">确认新密码</label>
+          <input type="password" id="confirmPasswordInput" class="input-field" placeholder="再次输入新密码">
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="App.doChangePassword()">确认修改</button>
+      </div>
+    `;
+    this.showInfoPanel('修改密码', bodyHTML);
+  },
+
+  async doChangePassword() {
+    const oldPwd = document.getElementById('oldPasswordInput')?.value;
+    const newPwd = document.getElementById('newPasswordInput')?.value;
+    const confirmPwd = document.getElementById('confirmPasswordInput')?.value;
+
+    if (!oldPwd || !newPwd || !confirmPwd) {
+      Utils.toast('请填写所有字段', 'error');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      Utils.toast('两次输入的新密码不一致', 'error');
+      return;
+    }
+    if (newPwd.length < 8 || newPwd.length > 20) {
+      Utils.toast('密码长度需为8-20位', 'error');
+      return;
+    }
+
+    const success = await API.user.changePassword(oldPwd, newPwd);
+    if (success) {
+      Utils.toast('密码修改成功，请重新登录', 'success');
+      setTimeout(() => {
+        WS.disconnect();
+        Utils.storage.clear();
+        window.location.href = '/index.html';
+      }, 1500);
+    }
   },
 
   async logoutDevice(deviceId) {

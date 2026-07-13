@@ -1,6 +1,7 @@
 package com.lanchat.controller;
 
 import com.lanchat.common.Result;
+import com.lanchat.dto.ChangePasswordDTO;
 import com.lanchat.entity.DeviceLogin;
 import com.lanchat.entity.User;
 import com.lanchat.security.UserContextHolder;
@@ -91,5 +92,18 @@ public class UserController {
             return Result.unauthorized("请先登录");
         }
         return Result.success(userService.isInMutePeriod(userId));
+    }
+
+    /**
+     * 修改密码
+     */
+    @PutMapping("/password")
+    public Result<Void> changePassword(@RequestBody ChangePasswordDTO dto) {
+        try {
+            userService.changePassword(dto);
+            return Result.success();
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
     }
 }

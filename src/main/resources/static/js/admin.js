@@ -101,6 +101,7 @@ const AdminModule = {
                         ${user.username === 'admin' ? '<span class="text-muted small">系统根权限受保护</span>' : actionButton}
                         ${user.username === 'admin' ? '' : `
                             <button class="btn btn-sm btn-outline-secondary" onclick="AdminModule.showMutePrompt(${user.id})">时段禁言</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="AdminModule.deleteUser(${user.id})">删除</button>
                         `}
                     </div>
                 </td>
@@ -153,6 +154,17 @@ const AdminModule = {
         const success = await API.request('POST', '/admin/user/mute', formData, true);
         if (success) {
             Utils.toast("全局时段设置成功", "success");
+            this.loadUserList();
+        }
+    },
+    // 删除用户
+    async deleteUser(userId) {
+        if (!confirm("⚠️ 确定要永久删除该用户吗？\n\n该操作不可撤销，该用户的所有数据（好友、群组、消息、文件等）将被一并清除。")) return;
+        if (!confirm("再次确认：删除后数据无法恢复，是否继续？")) return;
+
+        const success = await API.admin.deleteUser(userId);
+        if (success) {
+            Utils.toast("用户已永久删除", "success");
             this.loadUserList();
         }
     }

@@ -3,12 +3,14 @@ package com.lanchat.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.lanchat.dto.ChangePasswordDTO;
 import com.lanchat.dto.LoginDTO;
 import com.lanchat.dto.LoginVO;
 import com.lanchat.dto.RegisterDTO;
 import com.lanchat.dto.TokenRefreshDTO;
 import com.lanchat.entity.DeviceLogin;
 import com.lanchat.entity.User;
+import com.lanchat.security.UserContextHolder;
 import com.lanchat.mapper.DeviceLoginMapper;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.security.JwtUtil;
@@ -18,7 +20,22 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.transaction.annotation.Transactional;
 
+import com.lanchat.mapper.FriendshipMapper;
+import com.lanchat.mapper.FriendRequestMapper;
+import com.lanchat.mapper.GroupMemberMapper;
+import com.lanchat.mapper.ChatMessageMapper;
+import com.lanchat.mapper.FileMetadataMapper;
+import com.lanchat.mapper.MessageRecallMapper;
+import com.lanchat.mapper.ChatGroupMapper;
+import com.lanchat.entity.Friendship;
+import com.lanchat.entity.FriendRequest;
+import com.lanchat.entity.GroupMember;
+import com.lanchat.entity.ChatMessage;
+import com.lanchat.entity.MessageRecall;
+import com.lanchat.entity.FileMetadata;
+import com.lanchat.entity.ChatGroup;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -39,6 +56,27 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Autowired
     private LoginAttemptService loginAttemptService;
+
+    @Autowired
+    private FriendshipMapper friendshipMapper;
+
+    @Autowired
+    private FriendRequestMapper friendRequestMapper;
+
+    @Autowired
+    private GroupMemberMapper groupMemberMapper;
+
+    @Autowired
+    private ChatMessageMapper chatMessageMapper;
+
+    @Autowired
+    private FileMetadataMapper fileMetadataMapper;
+
+    @Autowired
+    private MessageRecallMapper messageRecallMapper;
+
+    @Autowired
+    private ChatGroupMapper chatGroupMapper;
 
     @Override
     public boolean register(RegisterDTO dto) {
@@ -297,5 +335,85 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             // 跨天（如 22:00 - 08:00）
             return !now.isBefore(start) || now.isBefore(end);
         }
+    }
+
+    @Override
+    @Transactional
+    public boolean deleteUserByAdmin(Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在");
+        }
+        if ("admin".equals(user.getUsername())) {
+            throw new IllegalArgumentException("不能删除管理员账号");
+        }
+
+        // 清理用户相关的所有关联数据
+        // 1. 好友关系（作为用户 或 作为好友）
+        friendshipMapper.delete(new LambdaQueryWrapper<Friendship>()
+                .eq(Friendship::getUserId, userId)
+                .or()
+                .eq(Friendship::getFriendId, userId));
+        // 2. 好友请求（发出方 或 接收方）
+        friendRequestMapper.delete(new LambdaQueryWrapper<FriendRequest>()
+                .eq(FriendRequest::getFromUserId, userId)
+                .or()
+                .eq(FriendRequest::getToUserId, userId));
+        // 3. 群成员关系
+        groupMemberMapper.delete(new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getUserId, userId));
+        // 4. 设备登录记录
+        deviceLoginMapper.delete(new LambdaQueryWrapper<DeviceLogin>()
+                .eq(DeviceLogin::getUserId, userId));
+        // 5. 聊天消息
+        chatMessageMapper.delete(new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getFromUserId, userId)
+                .or()
+                .eq(ChatMessage::getToUserId, userId));
+        // 6. 消息撤回记录
+        messageRecallMapper.delete(new LambdaQueryWrapper<MessageRecall>()
+                .eq(MessageRecall::getOperatorId, userId));
+        // 7. 文件元数据
+        fileMetadataMapper.delete(new LambdaQueryWrapper<FileMetadata>()
+                .eq(FileMetadata::getUploadUserId, userId));
+        // 8. 用户创建的群组（转移群主或解散；简单处理：删除用户创建的群组及相关成员）
+        chatGroupMapper.delete(new LambdaQueryWrapper<ChatGroup>()
+                .eq(ChatGroup::getOwnerId, userId));
+        // 9. 删除用户本身
+        userMapper.deleteById(userId);
+        return true;
+    }
+
+    @Override
+    public boolean changePassword(ChangePasswordDTO dto) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) {
+            throw new RuntimeException("用户未登录");
+        }
+
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在");
+        }
+
+        // 校验旧密码
+        if (!passwordEncoder.matches(dto.getOldPassword(), user.getPassword())) {
+            throw new IllegalArgumentException("原密码错误");
+        }
+
+        // 校验新密码强度（复用注册时的密码校验逻辑）
+        String newPassword = dto.getNewPassword();
+        if (newPassword.length() < 8 || newPassword.length() > 20) {
+            throw new IllegalArgumentException("密码长度需为8-20位");
+        }
+        if (!newPassword.matches(".*[a-zA-Z]+.*") || !newPassword.matches(".*\\d+.*")) {
+            throw new IllegalArgumentException("密码必须包含字母和数字");
+        }
+
+        // 更新密码
+        LambdaUpdateWrapper<User> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(User::getId, userId)
+                .set(User::getPassword, passwordEncoder.encode(newPassword));
+        return userMapper.update(null, wrapper) > 0;
     }
 }

@@ -55,3 +55,8 @@ spring.devtools:
 logging:
   level:
     com.lanchat: info
+
+# ==================== Cloudflare Tunnel ====================
+tunnel:
+  enabled: true
+  hostname: chat.atti.cc.cd

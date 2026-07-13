@@ -1,6 +1,7 @@
 package com.lanchat.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.lanchat.dto.ChangePasswordDTO;
 import com.lanchat.dto.LoginDTO;
 import com.lanchat.dto.LoginVO;
 import com.lanchat.dto.RegisterDTO;
@@ -47,4 +48,10 @@ public interface UserService extends IService<User> {
 
     /** 检查用户当前是否处于免打扰时段 */
     boolean isInMutePeriod(Long userId);
+
+    /** 管理员删除用户（连带清理关联数据） */
+    boolean deleteUserByAdmin(Long userId);
+
+    /** 用户修改密码 */
+    boolean changePassword(ChangePasswordDTO dto);
 }

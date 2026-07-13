@@ -77,7 +77,6 @@
 .brand-desc {
   font-size: var(--fs-md);
   color: var(--color-stone);
-  max-width: 20rem;
   line-height: 1.7;
   position: relative;
   z-index: 1;
