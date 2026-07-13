@@ -44,9 +44,9 @@ public class GroupController {
     }
 
     @GetMapping("/my")
-    public Result<List<ChatGroup>> getMyGroups() {
+    public Result<List<Map<String, Object>>> getMyGroups() {
         Long userId = UserContextHolder.getCurrentUserId();
-        return Result.success(groupService.getUserGroups(userId));
+        return Result.success(groupService.getUserGroupsWithLastMessage(userId));
     }
 
     @GetMapping("/{groupId}/members")

@@ -5,9 +5,11 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lanchat.dto.GroupCreateDTO;
 import com.lanchat.dto.GroupUpdateDTO;
 import com.lanchat.entity.ChatGroup;
+import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.GroupMember;
 import com.lanchat.entity.User;
 import com.lanchat.mapper.ChatGroupMapper;
+import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.GroupMemberMapper;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.service.GroupService;
@@ -29,6 +31,9 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private ChatMessageMapper chatMessageMapper;
 
     /** 最大管理员数量 */
     private static final int MAX_ADMINS = 3;
@@ -117,6 +122,50 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
         LambdaQueryWrapper<ChatGroup> groupWrapper = new LambdaQueryWrapper<>();
         groupWrapper.in(ChatGroup::getId, groupIds);
         return groupMapper.selectList(groupWrapper);
+    }
+
+    @Override
+    public List<Map<String, Object>> getUserGroupsWithLastMessage(Long userId) {
+        List<ChatGroup> groups = getUserGroups(userId);
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (ChatGroup g : groups) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", g.getId());
+            map.put("groupName", g.getGroupName());
+            map.put("avatar", g.getAvatar());
+            map.put("announcement", g.getAnnouncement());
+            map.put("ownerId", g.getOwnerId());
+            map.put("maxMembers", g.getMaxMembers());
+            map.put("joinMode", g.getJoinMode());
+            map.put("createTime", g.getCreateTime());
+            map.put("updateTime", g.getUpdateTime());
+
+            // 查询该群最后一条消息
+            LambdaQueryWrapper<ChatMessage> msgWrapper = new LambdaQueryWrapper<>();
+            msgWrapper.eq(ChatMessage::getGroupId, g.getId())
+                    .orderByDesc(ChatMessage::getCreateTime)
+                    .last("LIMIT 1");
+            ChatMessage lastMsg = chatMessageMapper.selectOne(msgWrapper);
+
+            map.put("lastMessageTime", lastMsg != null ? lastMsg.getCreateTime() : null);
+            map.put("lastMessage", lastMsg != null ? lastMsg.getContent() : null);
+            map.put("lastMessageType", lastMsg != null ? lastMsg.getType() : null);
+
+            result.add(map);
+        }
+
+        // 按最后消息时间倒序
+        result.sort((a, b) -> {
+            java.time.LocalDateTime timeA = (java.time.LocalDateTime) a.get("lastMessageTime");
+            java.time.LocalDateTime timeB = (java.time.LocalDateTime) b.get("lastMessageTime");
+            if (timeA == null && timeB == null) return 0;
+            if (timeA == null) return 1;
+            if (timeB == null) return -1;
+            return timeB.compareTo(timeA);
+        });
+
+        return result;
     }
 
     @Override

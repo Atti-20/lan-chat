@@ -23,6 +23,9 @@ public interface GroupService extends IService<ChatGroup> {
     /** 获取用户加入的群组列表 */
     List<ChatGroup> getUserGroups(Long userId);
 
+    /** 获取用户加入的群组列表（含最后一条消息） */
+    List<Map<String, Object>> getUserGroupsWithLastMessage(Long userId);
+
     /** 获取群成员列表 */
     List<Map<String, Object>> getGroupMembers(Long groupId);
 

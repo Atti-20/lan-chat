@@ -48,6 +48,7 @@ public class SecurityConfig {
                     "/error",
                     "/",
                     "/index.html",
+                    "/welcome.html",
                     "/chat.html",
                     "/css/**",
                     "/js/**",

@@ -54,4 +54,7 @@ public interface UserService extends IService<User> {
 
     /** 用户修改密码 */
     boolean changePassword(ChangePasswordDTO dto);
+
+    /** 更新用户个人资料（昵称、头像） */
+    boolean updateProfile(Long userId, String nickname, String avatar);
 }

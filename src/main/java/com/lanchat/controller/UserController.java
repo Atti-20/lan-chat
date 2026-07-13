@@ -95,6 +95,26 @@ public class UserController {
     }
 
     /**
+     * 修改个人资料（昵称、头像）
+     */
+    @PutMapping("/profile")
+    public Result<User> updateProfile(@RequestBody java.util.Map<String, String> body) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) {
+            return Result.unauthorized("请先登录");
+        }
+        try {
+            String nickname = body.get("nickname");
+            String avatar = body.get("avatar");
+            userService.updateProfile(userId, nickname, avatar);
+            // 返回更新后的用户信息
+            return Result.success(userService.getUserInfo(userId));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
      * 修改密码
      */
     @PutMapping("/password")

@@ -6,7 +6,7 @@
   <title>LanChat — 聊天</title>
   <link rel="stylesheet" href="/css/design.css">
   <link rel="stylesheet" href="/css/chat.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231A1D21'/><text x='50' y='68' font-size='56' text-anchor='middle' fill='%23059669'>L</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%23007AFF'/><text x='50' y='68' font-size='56' text-anchor='middle' fill='white'>L</text></svg>">
 </head>
 <body>
   <div class="chat-app" id="chatApp">
@@ -14,7 +14,7 @@
     <nav class="nav-rail">
       <div class="nav-rail-logo">
         <svg viewBox="0 0 40 40" fill="none">
-          <rect width="40" height="40" rx="10" fill="#059669"/>
+          <rect width="40" height="40" rx="12" fill="#007AFF"/>
           <path d="M12 14C12 12.8954 12.8954 12 14 12H26C27.1046 12 28 12.8954 28 14V22C28 23.1046 27.1046 24 26 24H20L14 29V24H14C12.8954 24 12 23.1046 12 22V14Z" fill="white"/>
         </svg>
       </div>
@@ -94,14 +94,7 @@
       <div class="sidebar-list" id="sidebarList">
         <!-- 动态填充 -->
       </div>
-      <div class="sidebar-footer" id="adminFooter">
-        <button id="admin-console-btn" class="btn admin-btn" style="display: none;">
-          <svg width="1rem" height="1rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z"/>
-          </svg>
-          <span>管理控制台</span>
-        </button>
-      </div>
+      <!-- 管理控制台按钮已移至"我的"面板操作列表中 -->
     </aside>
 
     <!-- ============ Chat Panel ============ -->
@@ -257,46 +250,44 @@
     </div>
   </div>
 
-  <div id="adminConsoleModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:9999; background:rgba(0,0,0,0.5); overflow-y:auto;">
-    <div style="margin: 1.75rem auto; max-width: 1140px; padding: 0 15px;">
-      <div style="background: white; border-radius: 8px; box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15);">
-        <!-- 头部 -->
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:1rem 1.5rem; border-bottom:1px solid #dee2e6; background-color: #dc3545; color: white; border-radius: 8px 8px 0 0;">
-          <h5 style="margin:0;">🛡️ 局域网聊天室 - 超级管理员控制台</h5>
-          <button onclick="document.getElementById('adminConsoleModal').style.display='none'"
-                  style="background:transparent; border:none; color:white; font-size:1.5rem; cursor:pointer;">&times;</button>
+  <div id="adminConsoleModal" class="admin-console-overlay" style="display:none;">
+    <div class="admin-console-wrap">
+      <div class="admin-console-card">
+        <div class="admin-console-header">
+          <h5 class="admin-console-title">管理控制台</h5>
+          <button class="admin-console-close" onclick="document.getElementById('adminConsoleModal').style.display='none'">&times;</button>
         </div>
-        <!-- 身体 -->
-        <div style="padding: 1.5rem;">
-          <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 200px; padding: 1rem; background: #f8f9fa; border-left: 4px solid #dc3545; border-radius: 8px;">
-              <div style="font-size: 0.875rem; color: #6c757d;">全站注册总人数</div>
-              <div id="admin-total-users" style="font-size: 1.5rem; font-weight: bold;">0 人</div>
-            </div>
-            <div style="flex: 2; min-width: 200px; padding: 1rem; background: #f8f9fa; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+        <div class="admin-console-body">
+          <div class="admin-stats-row">
+            <div class="admin-stat-card">
               <div>
-                <div style="font-weight: bold;">全局系统控制提示</div>
-                <div style="font-size: 0.875rem; color: #6c757d;">封禁操作将即时写入数据库，被封禁用户重新登录时将被强行拦截。</div>
+                <div class="admin-stat-label">全站注册总人数</div>
+                <div id="admin-total-users" class="admin-stat-value">0 人</div>
               </div>
-              <button onclick="AdminModule.loadUserList()"
-                      style="background: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">刷新数据</button>
+            </div>
+            <div class="admin-stat-card">
+              <div>
+                <div class="admin-stat-note">全局系统控制提示</div>
+                <div class="admin-stat-desc">封禁操作将即时写入数据库，被封禁用户重新登录时将被强行拦截。</div>
+              </div>
+              <button class="admin-refresh-btn" onclick="AdminModule.loadUserList()">刷新数据</button>
             </div>
           </div>
 
-          <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left;">
-              <thead style="background-color: #212529; color: white;">
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
               <tr>
-                <th style="padding: 12px;">用户ID</th>
-                <th style="padding: 12px;">用户名</th>
-                <th style="padding: 12px;">昵称</th>
-                <th style="padding: 12px;">当前状态</th>
-                <th style="padding: 12px;">免打扰/禁言时段</th>
-                <th style="padding: 12px;">操作</th>
+                <th>用户ID</th>
+                <th>用户名</th>
+                <th>昵称</th>
+                <th>当前状态</th>
+                <th>免打扰/禁言时段</th>
+                <th>操作</th>
               </tr>
               </thead>
               <tbody id="admin-user-table-body">
-              <tr><td colspan="6" style="padding: 2rem; text-align: center; color: #6c757d;">正在加载全站用户数据...</td></tr>
+              <tr><td colspan="6" class="admin-table-loading">正在加载全站用户数据...</td></tr>
               </tbody>
             </table>
           </div>

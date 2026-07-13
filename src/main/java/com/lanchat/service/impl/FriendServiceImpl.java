@@ -221,6 +221,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
                 map.put("lastLoginAt", user.getLastLoginAt());
                 map.put("lastMessageTime", lastMsg != null ? lastMsg.getCreateTime() : null);
                 map.put("lastMessage", lastMsg != null ? lastMsg.getContent() : null);
+                map.put("lastMessageType", lastMsg != null ? lastMsg.getType() : null);
                 result.add(map);
             }
         }

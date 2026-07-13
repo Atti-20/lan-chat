@@ -385,6 +385,31 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    public boolean updateProfile(Long userId, String nickname, String avatar) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在");
+        }
+
+        LambdaUpdateWrapper<User> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(User::getId, userId);
+
+        if (nickname != null) {
+            String trimmed = nickname.trim();
+            if (trimmed.length() < 1 || trimmed.length() > 16) {
+                throw new IllegalArgumentException("昵称长度需为1-16字符");
+            }
+            wrapper.set(User::getNickname, trimmed);
+        }
+
+        if (avatar != null) {
+            wrapper.set(User::getAvatar, avatar);
+        }
+
+        return userMapper.update(null, wrapper) > 0;
+    }
+
+    @Override
     public boolean changePassword(ChangePasswordDTO dto) {
         Long userId = UserContextHolder.getCurrentUserId();
         if (userId == null) {

@@ -213,6 +213,25 @@ const App = {
   },
 
   /**
+   * 格式化最后一条消息用于会话列表预览
+   */
+  formatLastMessage(content, type) {
+    if (!content) return '开始聊天';
+    switch (type) {
+      case 'image': return '[图片]';
+      case 'file': {
+        try {
+          const data = JSON.parse(content);
+          return `[文件] ${data.fileName || ''}`;
+        } catch { return '[文件]'; }
+      }
+      case 'voice': return '[语音]';
+      case 'video': return '[视频]';
+      default: return Utils.escapeHTML(content);
+    }
+  },
+
+  /**
    * 渲染会话列表（消息视图）
    */
   renderConversationList(container, keyword) {
@@ -229,6 +248,7 @@ const App = {
         avatar: f.avatar,
         online: this.onlineUserIds.has(f.friendId),
         lastMsg: f.lastMessage || '',
+        lastMsgType: f.lastMessageType || 'text',
         lastTime: f.lastMessageTime || '',
         isPinned: f.isPinned === 1,
         isMuted: f.isMuted === 1,
@@ -244,8 +264,9 @@ const App = {
         name: g.groupName,
         avatar: g.avatar,
         online: false,
-        lastMsg: '',
-        lastTime: '',
+        lastMsg: g.lastMessage || '',
+        lastMsgType: g.lastMessageType || 'text',
+        lastTime: g.lastMessageTime || '',
         isPinned: false,
         isMuted: false
       });
@@ -258,14 +279,13 @@ const App = {
     });
 
     if (convos.length === 0) {
-      container.innerHTML = `<div style="padding:2rem 1rem;text-align:center;color:var(--color-stone);font-size:var(--fs-sm);">暂无会话</div>`;
+      container.innerHTML = `<div class="empty-state">暂无会话</div>`;
       return;
     }
 
     container.innerHTML = convos.map(c => `
-      <div class="conv-item ${this.currentChat && this.currentChat.type === c.type && this.currentChat.id === c.id ? 'active' : ''}"
-           onclick="App.openConversation('${c.type}', ${c.id}, '${Utils.escapeHTML(c.name)}', '${c.avatar || ''}', ${c.online})"
-           style="animation:fadeInUp 200ms ease forwards;">
+      <div class="conv-item ${this.currentChat && this.currentChat.type === c.type && this.currentChat.id === c.id ? 'active' : ''} stagger-item"
+           onclick="App.openConversation('${c.type}', ${c.id}, '${Utils.escapeHTML(c.name)}', '${c.avatar || ''}', ${c.online})">
         ${Utils.avatarHTML(c.name, c.avatar, 'md', c.online)}
         <div class="conv-item-info">
           <div class="conv-item-top">
@@ -273,7 +293,7 @@ const App = {
             ${c.lastTime ? `<div class="conv-item-time">${Utils.formatTime(c.lastTime, false)}</div>` : ''}
           </div>
           <div class="conv-item-bottom">
-            <div class="conv-item-msg ${c.isBlocked ? 'burn' : ''}">${c.isBlocked ? '已拉黑' : (c.lastMsg ? Utils.escapeHTML(c.lastMsg) : '开始聊天')}</div>
+            <div class="conv-item-msg ${c.isBlocked ? 'burn' : ''}">${c.isBlocked ? '已拉黑' : App.formatLastMessage(c.lastMsg, c.lastMsgType)}</div>
             <div style="display:flex;gap:0.25rem;align-items:center;">
               ${c.isPinned ? '<span class="conv-item-pin"><svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg></span>' : ''}
               ${c.isMuted ? '<span class="conv-item-muted"><svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg></span>' : ''}
@@ -297,7 +317,7 @@ const App = {
     }
 
     if (friends.length === 0) {
-      container.innerHTML = `<div style="padding:2rem 1rem;text-align:center;color:var(--color-stone);font-size:var(--fs-sm);">${keyword ? '未找到匹配的好友' : '暂无好友，点击右上角搜索添加'}</div>`;
+      container.innerHTML = `<div class="empty-state">${keyword ? '未找到匹配的好友' : '暂无好友，点击右上角搜索添加'}</div>`;
       return;
     }
 
@@ -305,7 +325,7 @@ const App = {
       const name = f.remark || f.nickname || f.username;
       const online = this.onlineUserIds.has(f.friendId);
       return `
-        <div class="list-item" style="animation:fadeInUp 200ms ease ${i * 30}ms forwards;opacity:0;"
+        <div class="list-item stagger-item" style="animation-delay:${i * 30}ms"
              onclick="App.openConversation('private', ${f.friendId}, '${Utils.escapeHTML(name)}', '${f.avatar || ''}', ${online})">
           ${Utils.avatarHTML(name, f.avatar, 'md', online)}
           <div class="list-item-info">
@@ -332,12 +352,12 @@ const App = {
     }
 
     if (groups.length === 0) {
-      container.innerHTML = `<div style="padding:2rem 1rem;text-align:center;color:var(--color-stone);font-size:var(--fs-sm);">${keyword ? '未找到匹配的群组' : '暂无群组，去好友列表创建一个吧'}</div>`;
+      container.innerHTML = `<div class="empty-state">${keyword ? '未找到匹配的群组' : '暂无群组，去好友列表创建一个吧'}</div>`;
       return;
     }
 
     container.innerHTML = groups.map((g, i) => `
-      <div class="list-item" style="animation:fadeInUp 200ms ease ${i * 30}ms forwards;opacity:0;"
+      <div class="list-item stagger-item" style="animation-delay:${i * 30}ms"
            onclick="App.openConversation('group', ${g.id}, '${Utils.escapeHTML(g.groupName)}', '${g.avatar || ''}', false)">
         ${Utils.avatarHTML(g.groupName, g.avatar, 'md', false)}
         <div class="list-item-info">
@@ -354,21 +374,21 @@ const App = {
   renderRequestsList(container, keyword) {
     let requests = this.friendRequests;
     if (requests.length === 0) {
-      container.innerHTML = `<div style="padding:2rem 1rem;text-align:center;color:var(--color-stone);font-size:var(--fs-sm);">暂无好友申请</div>`;
+      container.innerHTML = `<div class="empty-state">暂无好友申请</div>`;
       return;
     }
 
     container.innerHTML = requests.map((r, i) => `
-      <div class="list-item" style="animation:fadeInUp 200ms ease ${i * 30}ms forwards;opacity:0;">
+      <div class="list-item stagger-item" style="animation-delay:${i * 30}ms">
         ${Utils.avatarHTML(r.fromUsername || '用户', null, 'md', false)}
         <div class="list-item-info">
           <div class="list-item-name">${Utils.escapeHTML(r.fromUsername || '未知用户')}</div>
           <div class="list-item-desc">${Utils.escapeHTML(r.message || '请求添加你为好友')}</div>
         </div>
         <div style="display:flex;gap:0.5rem;">
-          <button class="btn btn-primary" style="padding:0.375rem 0.75rem;min-height:auto;font-size:var(--fs-sm);"
+          <button class="btn btn-primary btn-sm"
                   onclick="App.handleFriendRequest(${r.id}, true)">接受</button>
-          <button class="btn btn-secondary" style="padding:0.375rem 0.75rem;min-height:auto;font-size:var(--fs-sm);"
+          <button class="btn btn-secondary btn-sm"
                   onclick="App.handleFriendRequest(${r.id}, false)">拒绝</button>
         </div>
       </div>
@@ -547,15 +567,9 @@ const App = {
         <div style="position:relative;display:inline-block;">
             <img src="${displayUrl}" 
                  alt="图片" 
-                 onclick="App.previewImage('${originalUrl}')"
-                 style="max-width:300px;max-height:300px;border-radius:8px;cursor:pointer;">
+                 onclick="App.previewImage('${originalUrl}')">
             ${displayUrl !== originalUrl ? `
-                <div style="position:absolute;bottom:4px;right:4px;
-                            background:rgba(0,0,0,0.6);color:white;
-                            padding:2px 8px;border-radius:4px;font-size:10px;
-                            pointer-events:none;">
-                    查看原图
-                </div>
+                <div class="image-overlay-badge">查看原图</div>
             ` : ''}
         </div>
     `;
@@ -870,7 +884,7 @@ const App = {
       users.forEach(u => this.onlineUserIds.add(u.id));
       this.renderSidebar();
     } catch (e) {
-      console.error('Failed to parse online list:', e);
+      // 静默处理在线列表解析失败
     }
   },
 
@@ -1026,8 +1040,8 @@ const App = {
     modal.className = 'modal-overlay';
     modal.onclick = () => modal.remove();
     modal.innerHTML = `
-      <div style="max-width:90vw;max-height:90vh;" onclick="event.stopPropagation()">
-        <img src="${url}" alt="预览" style="max-width:90vw;max-height:90vh;border-radius:var(--r-xl);">
+      <div class="image-preview-overlay" onclick="event.stopPropagation()">
+        <img src="${url}" alt="预览">
       </div>
     `;
     document.body.appendChild(modal);
@@ -1146,7 +1160,7 @@ const App = {
               <input type="text" id="searchUserInput" placeholder="输入用户名搜索" oninput="App.searchUsers(this.value)">
             </div>
             <div id="searchResults" style="min-height:4rem;">
-              <div class="text-slate text-center" style="padding:1rem;font-size:var(--fs-sm);">输入用户名开始搜索</div>
+              <div class="empty-state">输入用户名开始搜索</div>
             </div>
           </div>
         </div>
@@ -1157,13 +1171,13 @@ const App = {
 
   searchUsers: Utils.debounce(async function(keyword) {
     if (!keyword || keyword.trim().length < 1) {
-      document.getElementById('searchResults').innerHTML = '<div class="text-slate text-center" style="padding:1rem;font-size:var(--fs-sm);">输入用户名开始搜索</div>';
+      document.getElementById('searchResults').innerHTML = '<div class="empty-state">输入用户名开始搜索</div>';
       return;
     }
     const users = await API.user.search(keyword.trim());
     const container = document.getElementById('searchResults');
     if (!users || users.length === 0) {
-      container.innerHTML = '<div class="text-slate text-center" style="padding:1rem;font-size:var(--fs-sm);">未找到用户</div>';
+      container.innerHTML = '<div class="empty-state">未找到用户</div>';
       return;
     }
     container.innerHTML = users.map(u => {
@@ -1179,7 +1193,7 @@ const App = {
           </div>
           ${isSelf ? '<span class="text-stone" style="font-size:var(--fs-sm);">自己</span>' :
             isSelf || isFriend ? '<span class="text-stone" style="font-size:var(--fs-sm);">已是好友</span>' :
-            `<button class="btn btn-primary" style="padding:0.375rem 0.75rem;min-height:auto;font-size:var(--fs-sm);" onclick="App.sendFriendRequest(${u.id}, '${Utils.escapeHTML(name)}')">添加</button>`}
+            `<button class="btn btn-primary btn-sm" onclick="App.sendFriendRequest(${u.id}, '${Utils.escapeHTML(name)}')">添加</button>`}
         </div>
       `;
     }).join('');
@@ -1267,7 +1281,7 @@ const App = {
             <div class="input-group">
               <label class="input-label">选择成员</label>
               <div style="max-height:16rem;overflow-y:auto;border:1px solid var(--color-border);border-radius:var(--r-lg);padding:0.25rem;">
-                ${friendOptions || '<div class="text-slate text-center" style="padding:1rem;font-size:var(--fs-sm);">暂无好友可选择</div>'}
+                ${friendOptions || '<div class="empty-state">暂无好友可选择</div>'}
               </div>
             </div>
           </div>
@@ -1450,7 +1464,7 @@ const App = {
           </div>
           <div class="modal-body">
             <div style="max-height:16rem;overflow-y:auto;">
-              ${friendOptions || '<div class="text-slate text-center" style="padding:1rem;font-size:var(--fs-sm);">暂无可添加的好友</div>'}
+              ${friendOptions || '<div class="empty-state">暂无可添加的好友</div>'}
             </div>
           </div>
           <div class="modal-footer">
@@ -1500,11 +1514,29 @@ const App = {
 
   showProfile() {
     const name = this.currentUser.nickname || this.currentUser.username;
+    const isAdmin = this.currentUser.username === 'admin';
     const bodyHTML = `
       <div class="info-profile">
-        ${Utils.avatarHTML(name, this.currentUser.avatar, 'lg', true)}
+        <div style="position:relative;cursor:pointer;" onclick="App.showChangeAvatar()" title="点击修改头像">
+          ${Utils.avatarHTML(name, this.currentUser.avatar, 'lg', true)}
+          <div style="position:absolute;bottom:0;right:0;width:1.5rem;height:1.5rem;background:var(--color-accent);border-radius:var(--r-full);display:flex;align-items:center;justify-content:center;border:2px solid white;">
+            <svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+        </div>
         <div class="info-profile-name">${Utils.escapeHTML(name)}</div>
         <div class="info-profile-signature">@${Utils.escapeHTML(this.currentUser.username)}</div>
+      </div>
+      <div>
+        <div class="info-section-title">个人信息</div>
+        <div class="info-action-list">
+          <div class="info-action" onclick="App.showChangeNickname()">
+            <span class="info-action-label">修改昵称</span>
+            <span style="color:var(--color-stone);font-size:var(--fs-sm);">${Utils.escapeHTML(name)}</span>
+          </div>
+          <div class="info-action" onclick="App.showChangeAvatar()">
+            <span class="info-action-label">修改头像</span>
+          </div>
+        </div>
       </div>
       <div>
         <div class="info-section-title">操作</div>
@@ -1515,6 +1547,10 @@ const App = {
           <div class="info-action" onclick="App.showChangePassword()">
             <span class="info-action-label">修改密码</span>
           </div>
+          ${isAdmin ? `
+          <div class="info-action" onclick="App.openAdminConsole()">
+            <span class="info-action-label" style="color:var(--color-accent);">管理控制台</span>
+          </div>` : ''}
           <div class="info-action" onclick="App.logout()">
             <span class="info-action-label text-danger">退出登录</span>
           </div>
@@ -1522,6 +1558,134 @@ const App = {
       </div>
     `;
     this.showInfoPanel('我的', bodyHTML);
+  },
+
+  openAdminConsole() {
+    this.closeInfoPanel();
+    document.getElementById('adminConsoleModal').style.display = 'block';
+    AdminModule.loadUserList();
+  },
+
+  async showChangeNickname() {
+    const current = this.currentUser.nickname || this.currentUser.username;
+    const bodyHTML = `
+      <div style="padding:var(--sp-2) 0;">
+        <div class="input-group">
+          <label class="input-label">新昵称</label>
+          <input type="text" id="newNicknameInput" class="input-field" value="${Utils.escapeHTML(current)}" maxlength="16" placeholder="请输入昵称（1-16字符）">
+        </div>
+        <div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-5);">
+          <button class="btn btn-secondary" style="flex:1;" onclick="App.showProfile()">取消</button>
+          <button class="btn btn-primary" style="flex:1;" onclick="App.submitNickname()">保存</button>
+        </div>
+      </div>
+    `;
+    this.showInfoPanel('修改昵称', bodyHTML);
+    setTimeout(() => {
+      const input = document.getElementById('newNicknameInput');
+      if (input) { input.focus(); input.select(); }
+    }, 100);
+  },
+
+  async submitNickname() {
+    const input = document.getElementById('newNicknameInput');
+    if (!input) return;
+    const nickname = input.value.trim();
+    if (!nickname || nickname.length < 1 || nickname.length > 16) {
+      Utils.toast('昵称长度需为1-16字符', 'error');
+      return;
+    }
+    const result = await API.user.updateProfile({ nickname });
+    if (result) {
+      this.currentUser.nickname = result.nickname;
+      this.currentUser.avatar = result.avatar;
+      Utils.storage.set('userInfo', this.currentUser);
+      Utils.storage.set('lanchat_userInfo', JSON.stringify(this.currentUser));
+      this.renderNavAvatar();
+      this.renderSidebarUserAvatar();
+      Utils.toast('昵称已更新', 'success');
+      this.showProfile();
+    }
+  },
+
+  showChangeAvatar() {
+    const name = this.currentUser.nickname || this.currentUser.username;
+    const bodyHTML = `
+      <div style="padding:var(--sp-2) 0;text-align:center;">
+        <div style="margin-bottom:var(--sp-5);">
+          <div id="avatarPreview">${Utils.avatarHTML(name, this.currentUser.avatar, 'lg', true)}</div>
+        </div>
+        <input type="file" id="avatarFileInput" accept="image/*" style="display:none;" onchange="App.previewAvatar(event)">
+        <div style="display:flex;flex-direction:column;gap:var(--sp-3);">
+          <button class="btn btn-secondary" onclick="document.getElementById('avatarFileInput').click()">
+            <svg width="1rem" height="1rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            选择图片
+          </button>
+          <div id="avatarActions" style="display:none;gap:var(--sp-2);">
+            <button class="btn btn-secondary" style="flex:1;" onclick="App.showProfile()">取消</button>
+            <button class="btn btn-primary" style="flex:1;" onclick="App.submitAvatar()">保存</button>
+          </div>
+        </div>
+      </div>
+    `;
+    this.showInfoPanel('修改头像', bodyHTML);
+  },
+
+  _pendingAvatarFile: null,
+
+  previewAvatar(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      Utils.toast('请选择图片文件', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      Utils.toast('图片大小不能超过5MB', 'error');
+      return;
+    }
+    this._pendingAvatarFile = file;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const preview = document.getElementById('avatarPreview');
+      if (preview) {
+        preview.innerHTML = `<div class="avatar avatar-lg" style="width:4rem;height:4rem;margin:0 auto;"><img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--r-full);"></div>`;
+      }
+      const actions = document.getElementById('avatarActions');
+      if (actions) {
+        actions.style.display = 'flex';
+      }
+    };
+    reader.readAsDataURL(file);
+  },
+
+  async submitAvatar() {
+    if (!this._pendingAvatarFile) {
+      Utils.toast('请先选择图片', 'error');
+      return;
+    }
+    // 先上传文件
+    const formData = new FormData();
+    formData.append('file', this._pendingAvatarFile);
+    const uploadResult = await API.file.upload(formData);
+    if (!uploadResult) {
+      Utils.toast('头像上传失败', 'error');
+      return;
+    }
+    // 用返回的文件URL更新头像
+    const avatarUrl = uploadResult.url || uploadResult.fileUrl || uploadResult;
+    const result = await API.user.updateProfile({ avatar: typeof avatarUrl === 'string' ? avatarUrl : '' });
+    if (result) {
+      this.currentUser.nickname = result.nickname;
+      this.currentUser.avatar = result.avatar;
+      Utils.storage.set('userInfo', this.currentUser);
+      Utils.storage.set('lanchat_userInfo', JSON.stringify(this.currentUser));
+      this.renderNavAvatar();
+      this.renderSidebarUserAvatar();
+      this._pendingAvatarFile = null;
+      Utils.toast('头像已更新', 'success');
+      this.showProfile();
+    }
   },
 
   async showDevices() {
@@ -1544,7 +1708,7 @@ const App = {
     const bodyHTML = `
       <div>
         <div class="info-section-title">登录设备</div>
-        <div class="member-list">${deviceHTML || '<div class="text-slate text-center" style="padding:1rem;font-size:var(--fs-sm);">暂无设备记录</div>'}</div>
+        <div class="member-list">${deviceHTML || '<div class="empty-state">暂无设备记录</div>'}</div>
       </div>
     `;
     this.showInfoPanel('设备管理', bodyHTML);
@@ -1552,16 +1716,16 @@ const App = {
 
   showChangePassword() {
     const bodyHTML = `
-      <div style="padding: 1rem;">
-        <div class="input-group" style="margin-bottom: 1rem;">
+      <div style="padding:var(--sp-5);">
+        <div class="input-group" style="margin-bottom:var(--sp-5);">
           <label class="input-label" for="oldPasswordInput">原密码</label>
           <input type="password" id="oldPasswordInput" class="input-field" placeholder="输入原密码">
         </div>
-        <div class="input-group" style="margin-bottom: 1rem;">
+        <div class="input-group" style="margin-bottom:var(--sp-5);">
           <label class="input-label" for="newPasswordInput">新密码</label>
           <input type="password" id="newPasswordInput" class="input-field" placeholder="8-20位，含字母和数字">
         </div>
-        <div class="input-group" style="margin-bottom: 1rem;">
+        <div class="input-group" style="margin-bottom:var(--sp-5);">
           <label class="input-label" for="confirmPasswordInput">确认新密码</label>
           <input type="password" id="confirmPasswordInput" class="input-field" placeholder="再次输入新密码">
         </div>
@@ -1639,7 +1803,7 @@ const App = {
 
   renderNavAvatar() {
     const name = this.currentUser.nickname || this.currentUser.username;
-    document.getElementById('navAvatar').innerHTML = Utils.avatarHTML(name, this.currentUser.avatar, 'sm', true).replace('avatar avatar-sm', 'avatar avatar-sm');
+    document.getElementById('navAvatar').innerHTML = Utils.avatarHTML(name, this.currentUser.avatar, 'sm', true);
   },
 
   handleSidebarSearch() {
@@ -1652,8 +1816,29 @@ const App = {
   },
 
   updateConversationPreview(msg) {
-    // 更新会话列表中的预览消息
-    // 后续可优化为只更新对应项
+    const content = msg.content || '';
+    const msgType = msg.contentType || 'text';
+    const time = msg.timestamp || new Date().toISOString();
+
+    if (msg.groupId) {
+      // 群聊消息：更新 groups 数据源
+      const group = this.groups.find(g => g.id === msg.groupId);
+      if (group) {
+        group.lastMessage = content;
+        group.lastMessageType = msgType;
+        group.lastMessageTime = time;
+      }
+    } else {
+      // 私聊消息：更新 friends 数据源
+      const peerId = msg.fromUserId === this.currentUser.userId ? msg.toUserId : msg.fromUserId;
+      const friend = this.friends.find(f => f.friendId === peerId);
+      if (friend) {
+        friend.lastMessage = content;
+        friend.lastMessageType = msgType;
+        friend.lastMessageTime = time;
+      }
+    }
+
     this.renderSidebar();
   },
 

@@ -43,7 +43,6 @@ const WS = {
       this.socket = new WebSocket(url);
       this.bindEvents();
     } catch (err) {
-      console.error('WebSocket connection failed:', err);
       this.scheduleReconnect();
     }
   },
@@ -53,7 +52,6 @@ const WS = {
    */
   bindEvents() {
     this.socket.onopen = (event) => {
-      console.log('WebSocket connected');
       this.reconnectAttempts = 0;
       this.startHeartbeat();
       if (this.handlers.onOpen) this.handlers.onOpen(event);
@@ -64,12 +62,11 @@ const WS = {
         const msg = JSON.parse(event.data);
         this.handleMessage(msg);
       } catch (err) {
-        console.error('Failed to parse WebSocket message:', err);
+        // 静默处理消息解析失败
       }
     };
 
     this.socket.onclose = (event) => {
-      console.log('WebSocket closed:', event.code, event.reason);
       this.stopHeartbeat();
       if (this.handlers.onClose) this.handlers.onClose(event);
 
@@ -79,7 +76,6 @@ const WS = {
     };
 
     this.socket.onerror = (event) => {
-      console.error('WebSocket error:', event);
       if (this.handlers.onError) this.handlers.onError(event);
     };
   },
@@ -223,7 +219,6 @@ const WS = {
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * this.reconnectAttempts;
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
     setTimeout(() => {
       if (!this.isManualClose) {

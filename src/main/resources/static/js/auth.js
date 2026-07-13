@@ -104,12 +104,28 @@ async function handleRegister(event) {
   try {
     const result = await API.auth.register(username, password, nickname);
     if (result !== null) {
+      // 注册成功，自动登录
+      btn.textContent = '正在进入...';
+      const loginData = await API.auth.login(username, password);
+      if (loginData) {
+        Utils.storage.set('token', loginData.token);
+        Utils.storage.set('refreshToken', loginData.refreshToken);
+        Utils.storage.set('userId', loginData.userId);
+        Utils.storage.set('userInfo', {
+          userId: loginData.userId,
+          username: loginData.username,
+          nickname: loginData.nickname,
+          avatar: loginData.avatar
+        });
+        Utils.storage.set('expiresIn', loginData.expiresIn);
+        Utils.toast('注册成功！', 'success', 1500);
+        setTimeout(() => {
+          window.location.href = '/welcome.html';
+        }, 500);
+        return;
+      }
+      // 自动登录失败则回退到手动登录
       Utils.toast('注册成功，请登录', 'success');
-      // 清空注册表单
-      document.getElementById('regUsername').value = '';
-      document.getElementById('regPassword').value = '';
-      document.getElementById('regNickname').value = '';
-      // 切换到登录
       switchTab('login');
       document.getElementById('loginUsername').value = username;
       document.getElementById('loginPassword').focus();

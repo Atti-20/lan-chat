@@ -59,7 +59,6 @@ const API = {
 
       return this.handleResponse(response);
     } catch (err) {
-      console.error('API request error:', err);
       Utils.toast('网络请求失败，请检查连接', 'error');
       return null;
     }
@@ -82,7 +81,6 @@ const API = {
     }
 
     const result = await response.json();
-    console.log('📌 API 响应:', result);
 
     if (result.code === 200) {
       return result.data !== null ? result.data : true;
@@ -113,7 +111,7 @@ const API = {
         return true;
       }
     } catch (err) {
-      console.error('Token refresh failed:', err);
+      // 静默处理 token 刷新失败
     }
     return false;
   },
@@ -182,6 +180,10 @@ const API = {
 
     changePassword(oldPassword, newPassword) {
       return API.request('PUT', '/user/password', { oldPassword, newPassword });
+    },
+
+    updateProfile(data) {
+      return API.request('PUT', '/user/profile', data);
     }
   },
 
