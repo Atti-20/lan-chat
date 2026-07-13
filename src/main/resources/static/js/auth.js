@@ -57,7 +57,7 @@ async function handleLogin(event) {
       Utils.storage.set('expiresIn', data.expiresIn);
       Utils.toast('登录成功', 'success', 1500);
       setTimeout(() => {
-        window.location.href = '/chat.html';
+        window.location.href = '/chat';
       }, 500);
     } else {
       showAuthError('login', '用户名或密码错误');
@@ -120,7 +120,7 @@ async function handleRegister(event) {
         Utils.storage.set('expiresIn', loginData.expiresIn);
         Utils.toast('注册成功！', 'success', 1500);
         setTimeout(() => {
-          window.location.href = '/welcome.html';
+          window.location.href = '/welcome';
         }, 500);
         return;
       }

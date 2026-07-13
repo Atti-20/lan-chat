@@ -31,7 +31,7 @@ const App = {
     // 检查登录状态
     const token = Utils.storage.get('token');
     if (!token) {
-      window.location.href = '/index.html';
+      window.location.href = '/';
       return;
     }
 
@@ -39,7 +39,7 @@ const App = {
     if (!this.currentUser) {
       const userInfo = await API.user.getInfo();
       if (!userInfo) {
-        window.location.href = '/index.html';
+        window.location.href = '/';
         return;
       }
       this.currentUser = {
@@ -1759,7 +1759,7 @@ const App = {
       setTimeout(() => {
         WS.disconnect();
         Utils.storage.clear();
-        window.location.href = '/index.html';
+        window.location.href = '/';
       }, 1500);
     }
   },
@@ -1788,7 +1788,7 @@ const App = {
     if (!confirm('确定退出登录吗？')) return;
     WS.disconnect();
     Utils.storage.clear();
-    window.location.href = '/index.html';
+    window.location.href = '/';
   },
 
   async logout() {
@@ -1796,7 +1796,7 @@ const App = {
     WS.disconnect();
     await API.auth.logout();
     API.clearAuth();
-    window.location.href = '/index.html';
+    window.location.href = '/';
   },
 
   // ==================== 工具方法 ====================

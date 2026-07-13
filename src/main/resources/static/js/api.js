@@ -53,7 +53,7 @@ const API = {
         }
         // 刷新失败，跳转登录
         this.clearAuth();
-        window.location.href = '/index.html';
+        window.location.href = '/';
         return null;
       }
 
@@ -70,7 +70,7 @@ const API = {
   async handleResponse(response) {
     if (response.status === 401) {
       this.clearAuth();
-      window.location.href = '/index.html';
+      window.location.href = '/';
       return null;
     }
 
