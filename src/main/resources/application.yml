@@ -36,9 +36,21 @@ jwt:
 
 # 文件存储
 file:
-  path: D:/lan-chat/uploads/
+  path: ./uploads/
   allowed-types: jpg,jpeg,png,gif,bmp,webp,doc,docx,xls,xlsx,ppt,pptx,pdf,txt,zip,rar,7z,mp4,mp3,wav
   max-size: 104857600          # 100MB
+
+
+# ==================== Devtools (热加载) ====================
+spring.devtools:
+  restart:
+    enabled: true
+    additional-paths: src/main/java
+    poll-interval: 2s
+    quiet-period: 1s
+  livereload:
+    enabled: true
+    port: 35729
 
 logging:
   level:

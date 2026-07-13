@@ -12,6 +12,8 @@ import com.lanchat.mapper.FriendRequestMapper;
 import com.lanchat.mapper.FriendshipMapper;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.service.FriendService;
+import com.lanchat.websocket.ChatWebSocketHandler;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +45,10 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
 
     @Autowired
     private ChatMessageMapper chatMessageMapper;
+
+    @Autowired
+    @Lazy
+    private ChatWebSocketHandler webSocketHandler;
 
     @Override
     public boolean sendFriendRequest(Long fromUserId, Long toUserId, String message) {
@@ -129,6 +135,13 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
         friendRequestMapper.update(null, updateWrapper);
 
         if (accept) {
+            // 发送 WebSocket 通知给原申请者
+            User acceptor = userMapper.selectById(currentUserId);
+            if (acceptor != null) {
+                String notification = acceptor.getNickname() + " 已接受你的好友请求";
+                webSocketHandler.sendFriendNotification(request.getFromUserId(), notification);
+            }
+
             // 双向添加好友关系
             Friendship f1 = new Friendship();
             f1.setUserId(request.getFromUserId());

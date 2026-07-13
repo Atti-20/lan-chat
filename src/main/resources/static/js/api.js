@@ -82,8 +82,10 @@ const API = {
     }
 
     const result = await response.json();
+    console.log('📌 API 响应:', result);
+
     if (result.code === 200) {
-      return result.data;
+      return result.data !== null ? result.data : true;
     } else {
       Utils.toast(result.msg || '操作失败', 'error');
       return null;

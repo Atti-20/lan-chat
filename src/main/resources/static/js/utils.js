@@ -140,6 +140,7 @@ const Utils = {
    */
   parseMentions(content, mentionIds, userMap) {
     if (!content) return '';
+    // 先转义 HTML，然后处理 @提及
     let html = this.escapeHTML(content);
     if (mentionIds && mentionIds.length > 0) {
       mentionIds.forEach(id => {
@@ -148,6 +149,12 @@ const Utils = {
         html = html.replace(regex, `<span class="mention-tag">@${this.escapeHTML(name)}</span>`);
       });
     }
+    // 自动识别 URL 并转为可点击链接（在新标签页打开）
+    const urlRegex = /(https?:\/\/[^\s<]+|(?:www\.)[^\s<]+)/gi;
+    html = html.replace(urlRegex, (url) => {
+      const href = url.startsWith('www.') ? 'http://' + url : url;
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="msg-link" onclick="event.stopPropagation()">${url}</a>`;
+    });
     return html;
   },
 

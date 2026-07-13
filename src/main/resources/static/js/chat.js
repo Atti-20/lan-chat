@@ -53,6 +53,7 @@ const App = {
 
     // 渲染导航栏头像
     this.renderNavAvatar();
+    this.renderSidebarUserAvatar();
 
     // 设置 WebSocket
     this.setupWebSocket();
@@ -113,6 +114,16 @@ const App = {
 
     WS.on('onlineList', (msg) => {
       this.handleOnlineList(msg);
+    });
+
+    WS.on('friend', async (msg) => {
+      // 好友相关事件：刷新好友列表和申请列表
+      await this.loadFriends();
+      await this.loadFriendRequests();
+      this.renderSidebar();
+      if (msg.content) {
+        Utils.toast(msg.content, 'success', 4000);
+      }
     });
 
     WS.on('error', (msg) => {
@@ -520,16 +531,47 @@ const App = {
     } else {
       const contentType = msg.type || 'text';
       if (contentType === 'image') {
+
+        let imageData;
+        try {
+          imageData = JSON.parse(msg.content);
+        } catch (e) {
+          imageData = { url: msg.content, originalUrl: msg.content };
+        }
+
+        // 显示缩略图（如果有），点击查看原图
+        const displayUrl = imageData.thumbnailUrl || imageData.url;
+        const originalUrl = imageData.originalUrl || imageData.url;
+
+        bubbleHTML = `
+        <div style="position:relative;display:inline-block;">
+            <img src="${displayUrl}" 
+                 alt="图片" 
+                 onclick="App.previewImage('${originalUrl}')"
+                 style="max-width:300px;max-height:300px;border-radius:8px;cursor:pointer;">
+            ${displayUrl !== originalUrl ? `
+                <div style="position:absolute;bottom:4px;right:4px;
+                            background:rgba(0,0,0,0.6);color:white;
+                            padding:2px 8px;border-radius:4px;font-size:10px;
+                            pointer-events:none;">
+                    查看原图
+                </div>
+            ` : ''}
+        </div>
+    `;
+
         bubbleClass = 'type-image';
-        bubbleHTML = `<img src="${msg.content}" alt="图片" onclick="App.previewImage('${msg.content}')">`;
       } else if (contentType === 'file') {
         bubbleClass = 'type-file';
         const fileInfo = JSON.parse(msg.content || '{}');
+        const downloadUrl = fileInfo.url || '';
         bubbleHTML = `
-          <div class="msg-file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg></div>
-          <div class="msg-file-info">
-            <div class="msg-file-name">${Utils.escapeHTML(fileInfo.name || '文件')}</div>
-            <div class="msg-file-size">${Utils.formatFileSize(fileInfo.size)}</div>
+          <div class="msg-file-bubble" onclick="App.downloadFile('${Utils.escapeHTML(downloadUrl)}', '${Utils.escapeHTML(fileInfo.name || '文件')}')" title="点击下载">
+            <div class="msg-file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+            <div class="msg-file-info">
+              <div class="msg-file-name">${Utils.escapeHTML(fileInfo.name || '文件')}</div>
+              <div class="msg-file-size">${Utils.formatFileSize(fileInfo.size)}</div>
+            </div>
           </div>
         `;
       } else {
@@ -627,7 +669,7 @@ const App = {
    * 处理按键
    */
   handleKeyDown(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       this.sendMessage();
     }
@@ -681,13 +723,15 @@ const App = {
    * 处理收到的聊天消息
    */
   handleIncomingMessage(msg) {
-    if (!this.currentChat) return;
-
     // 判断是否属于当前会话
-    const isCurrentChat =
-      (msg.groupId && this.currentChat.type === 'group' && msg.groupId === this.currentChat.id) ||
-      (!msg.groupId && this.currentChat.type === 'private' &&
-       ((msg.fromUserId === this.currentChat.id) || (msg.toUserId === this.currentChat.id && msg.fromUserId === this.currentUser.userId)));
+    let isCurrentChat = false;
+    const hasChat = this.currentChat && this.currentChat.id;
+    if (hasChat) {
+      isCurrentChat =
+        (msg.groupId && this.currentChat.type === 'group' && msg.groupId === this.currentChat.id) ||
+        (!msg.groupId && this.currentChat.type === 'private' &&
+         ((msg.fromUserId === this.currentChat.id) || (msg.toUserId === this.currentChat.id && msg.fromUserId === this.currentUser.userId)));
+    }
 
     if (isCurrentChat) {
       // 转换为 ChatMessage 格式
@@ -726,7 +770,8 @@ const App = {
       }
     }
 
-    // 更新会话列表
+    // 无论是否在当前会话，都更新侧边栏会话列表
+    // 确保用户能看到新消息的预览和未读提示
     this.updateConversationPreview(msg);
   },
 
@@ -949,7 +994,7 @@ const App = {
         const messageId = Utils.uuid();
         const contentType = type === 'image' ? 'image' : 'file';
         const content = type === 'image'
-          ? (result.thumbnailUrl || result.url)
+          ? JSON.stringify({ url: result.url, thumbnailUrl: result.thumbnailUrl, originalUrl: result.url })
           : JSON.stringify(fileInfo);
 
         const msgData = {
@@ -1508,6 +1553,27 @@ const App = {
     this.showDevices();
   },
 
+  /**
+   * 渲染侧边栏头部小头像
+   */
+  renderSidebarUserAvatar() {
+    const name = this.currentUser.nickname || this.currentUser.username;
+    const container = document.getElementById('sidebarUserAvatar');
+    if (container) {
+      container.innerHTML = Utils.avatarHTML(name, this.currentUser.avatar, 'sm', true);
+    }
+  },
+
+  /**
+   * 快速退出登录（从侧边栏头部按钮触发）
+   */
+  async quickLogout() {
+    if (!confirm('确定退出登录吗？')) return;
+    WS.disconnect();
+    Utils.storage.clear();
+    window.location.href = '/index.html';
+  },
+
   async logout() {
     if (!confirm('确定退出登录吗？')) return;
     WS.disconnect();
@@ -1538,6 +1604,24 @@ const App = {
     this.renderSidebar();
   },
 
+  /**
+   * 下载文件
+   */
+  downloadFile(url, fileName) {
+    if (!url) {
+      Utils.toast('文件地址无效', 'error');
+      return;
+    }
+    // 创建隐藏的下载链接，指定原始文件名
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName || '下载';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  },
+
   detectMobile() {
     const checkMobile = () => {
       const isMobile = window.innerWidth <= 768;
@@ -1560,5 +1644,8 @@ const App = {
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
+  if (typeof AdminModule !== 'undefined') {
+    AdminModule.init();
+  }
   App.init();
 });

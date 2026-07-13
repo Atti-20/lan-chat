@@ -1,19 +1,26 @@
 package com.lanchat.config;
 
+import com.lanchat.service.impl.FileServiceImpl;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.io.File;
+
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 
-    @Value("${file.path}")
-    private String filePath;
+//    @Value("${file.path}")
+//    private String filePath;
+    private String filePath = System.getProperty("user.dir") + "/uploads/";
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // 将 /file/** 映射到本地文件目录，实现上传文件的访问
+        File dir = new File(filePath);
+        if(!dir.exists()) {
+            dir.mkdirs();
+        }
         registry.addResourceHandler("/file/**")
                 .addResourceLocations("file:" + filePath);
     }

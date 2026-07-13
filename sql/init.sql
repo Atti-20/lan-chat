@@ -147,7 +147,7 @@ CREATE TABLE `file_metadata` (
     `file_name`     VARCHAR(255) NOT NULL COMMENT '原始文件名',
     `file_path`     VARCHAR(500) NOT NULL COMMENT '存储路径',
     `file_size`     BIGINT       NOT NULL COMMENT '文件大小（字节）',
-    `file_type`     VARCHAR(50)  DEFAULT '' COMMENT '文件MIME类型',
+    `file_type`     VARCHAR(255) DEFAULT '' COMMENT '文件MIME类型',
     `file_suffix`   VARCHAR(20)  DEFAULT '' COMMENT '文件后缀',
     `upload_user_id` BIGINT      NOT NULL COMMENT '上传者ID',
     `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -77,9 +78,15 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
     @Override
     @Transactional
     public boolean recallMessage(String messageId, Long operatorId) {
+
         ChatMessage message = getByMessageId(messageId);
         if (message == null) {
             throw new RuntimeException("消息不存在");
+        }
+
+        if (message.getIsRecalled() == 1) {
+            log.info("消息 {} 已经被撤回过，忽略本次重复操作", messageId);
+            return true;
         }
 
         // 只有发送者本人才能撤回（群聊中管理员不可撤回他人消息）

@@ -406,6 +406,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * 发送好友相关事件通知（公开方法，供控制器调用）
+     */
+    public void sendFriendNotification(Long targetUserId, String content) {
+        WebSocketMessage msg = new WebSocketMessage();
+        msg.setType("friend");
+        msg.setContent(content);
+        msg.setTimestamp(LocalDateTime.now());
+        String json = JSONUtil.toJsonStr(msg);
+        sendToUser(targetUserId, json);
+    }
+
     public static List<User> getOnlineUsers() {
         return new ArrayList<>(ONLINE_USERS.values());
     }

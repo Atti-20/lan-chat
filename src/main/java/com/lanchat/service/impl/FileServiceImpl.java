@@ -44,8 +44,9 @@ public class FileServiceImpl implements FileService {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
-    @Value("${file.path}")
-    private String filePath;
+//    @Value("${file.path}")
+//    private String filePath;
+    private String filePath = System.getProperty("user.dir") + "/uploads/";
 
     @Value("${file.allowed-types}")
     private String allowedTypes;

@@ -117,6 +117,31 @@
   letter-spacing: -0.02em;
 }
 
+
+/* Sidebar header action buttons */
+.sidebar-user-actions {
+  display: flex;
+  gap: 0.125rem;
+  align-items: center;
+}
+
+.sidebar-user-actions .btn-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+/* Small avatar in sidebar header */
+#sidebarUserAvatar .avatar {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: var(--fs-xs, 0.75rem);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
 .sidebar-search {
   padding: 0 var(--sp-5) var(--sp-3);
 }
@@ -160,6 +185,41 @@
   padding: 0 var(--sp-2) var(--sp-4);
 }
 
+
+
+/* Sidebar Footer (admin button area) */
+.sidebar-footer {
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.admin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-3);
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-600);
+  transition: background var(--dur-fast) var(--ease-smooth);
+}
+
+.admin-btn:hover {
+  background: #b91c1c;
+}
+
+.admin-btn svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
 /* Conversation List Item */
 .conv-item {
   display: flex;
@@ -472,6 +532,29 @@
   cursor: pointer;
 }
 
+
+
+/* 消息中的链接样式 */
+.msg-link {
+  color: var(--color-accent, #059669);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.msg-link:hover {
+  color: #047857;
+  text-decoration: underline;
+}
+
+/* 消息中的提及标签 */
+.mention-tag {
+  display: inline-block;
+  padding: 0 4px;
+  background: rgba(5, 150, 105, 0.1);
+  color: var(--color-accent, #059669);
+  border-radius: 4px;
+  font-weight: 500;
+}
 .msg-bubble.type-file {
   display: flex;
   align-items: center;
@@ -983,4 +1066,55 @@
 
 .mobile-nav {
   display: none;
+}
+
+
+/* 文件消息气泡 - 可点击下载 */
+.msg-file-bubble {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 12rem;
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-smooth);
+}
+
+.msg-file-bubble:hover {
+  opacity: 0.8;
+}
+
+.msg-file-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-canvas, #f5f5f5);
+  border-radius: var(--r-lg);
+  flex-shrink: 0;
+}
+
+.msg-file-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--color-accent, #059669);
+}
+
+.msg-file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-file-name {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.125rem;
+}
+
+.msg-file-size {
+  font-size: var(--fs-xs);
+  color: var(--color-stone);
 }

@@ -3,14 +3,6 @@
  * 登录/注册逻辑
  */
 
-// 检查是否已登录
-(function checkAuth() {
-  const token = Utils.storage.get('token');
-  if (token) {
-    window.location.href = '/chat.html';
-  }
-})();
-
 /**
  * 切换登录/注册标签
  */
