@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>LanChat — 欢迎</title>
+  <link rel="stylesheet" href="/css/design.css">
+  <link rel="stylesheet" href="/css/welcome.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%23007AFF'/><text x='50' y='68' font-size='56' text-anchor='middle' fill='white'>L</text></svg>">
+</head>
+<body>
+  <div class="welcome-page">
+    <!-- Progress dots -->
+    <div class="welcome-dots">
+      <div class="welcome-dot active" data-page="0"></div>
+      <div class="welcome-dot" data-page="1"></div>
+      <div class="welcome-dot" data-page="2"></div>
+      <div class="welcome-dot" data-page="3"></div>
+    </div>
+
+    <!-- Page container -->
+    <div class="welcome-slider-wrap">
+    <div class="welcome-slider" id="welcomeSlider">
+
+      <!-- Page 1: 欢迎 -->
+      <div class="welcome-slide" data-page="0">
+        <div class="slide-content">
+          <div class="slide-icon slide-icon-hero">
+            <svg viewBox="0 0 80 80" fill="none">
+              <rect width="80" height="80" rx="20" fill="#007AFF"/>
+              <path d="M24 28C24 25.8 25.8 24 28 24H52C54.2 24 56 25.8 56 28V44C56 46.2 54.2 48 52 48H40L28 58V48C25.8 48 24 46.2 24 44V28Z" fill="white"/>
+            </svg>
+          </div>
+          <h1 class="slide-title">欢迎来到 LanChat</h1>
+          <p class="slide-desc">一个轻量、私密的即时通讯平台<br>在这里，对话不止于文字</p>
+        </div>
+      </div>
+
+      <!-- Page 2: 即时通讯 -->
+      <div class="welcome-slide" data-page="1">
+        <div class="slide-content">
+          <div class="slide-icon">
+            <svg viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="32" r="28" fill="rgba(0,122,255,0.1)" stroke="#007AFF" stroke-width="2"/>
+              <path d="M20 24h24M20 32h16M20 40h20" stroke="#007AFF" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="48" cy="40" r="4" fill="#34C759"/>
+            </svg>
+          </div>
+          <h2 class="slide-title">实时消息</h2>
+          <p class="slide-desc">基于 WebSocket 的即时消息推送<br>支持私聊、群聊，消息实时送达</p>
+          <div class="slide-features">
+            <div class="slide-feature">
+              <div class="slide-feature-icon">💬</div>
+              <span>私聊 & 群聊</span>
+            </div>
+            <div class="slide-feature">
+              <div class="slide-feature-icon">🔔</div>
+              <span>实时推送通知</span>
+            </div>
+            <div class="slide-feature">
+              <div class="slide-feature-icon">📱</div>
+              <span>多端同步在线</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Page 3: 安全与隐私 -->
+      <div class="welcome-slide" data-page="2">
+        <div class="slide-content">
+          <div class="slide-icon">
+            <svg viewBox="0 0 64 64" fill="none">
+              <path d="M32 6L8 18v16c0 14.4 10.24 27.84 24 32 13.76-4.16 24-17.6 24-32V18L32 6z" fill="rgba(52,199,89,0.1)" stroke="#34C759" stroke-width="2"/>
+              <path d="M24 32l6 6 12-12" stroke="#34C759" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h2 class="slide-title">安全与隐私</h2>
+          <p class="slide-desc">你的每一条消息都受到保护<br>阅后即焚让隐私更有保障</p>
+          <div class="slide-features">
+            <div class="slide-feature">
+              <div class="slide-feature-icon">🔥</div>
+              <span>阅后即焚</span>
+            </div>
+            <div class="slide-feature">
+              <div class="slide-feature-icon">📎</div>
+              <span>文件秒传 & 签名预览</span>
+            </div>
+            <div class="slide-feature">
+              <div class="slide-feature-icon">🔒</div>
+              <span>消息撤回</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Page 4: 设置头像 & 开始 -->
+      <div class="welcome-slide" data-page="3">
+        <div class="slide-content">
+          <h2 class="slide-title">设置你的头像</h2>
+          <p class="slide-desc">选一个喜欢的头像，让好友更容易找到你</p>
+
+          <!-- 当前头像预览 -->
+          <div class="avatar-preview-wrap" id="avatarPreviewWrap">
+            <div class="avatar-preview" id="welcomeAvatarPreview"></div>
+          </div>
+
+          <!-- 默认头像网格 -->
+          <div class="default-avatars" id="defaultAvatars"></div>
+
+          <!-- 自定义上传 -->
+          <input type="file" id="welcomeAvatarFile" accept="image/*" style="display:none">
+          <button class="btn btn-secondary upload-btn" onclick="document.getElementById('welcomeAvatarFile').click()">
+            <svg width="1rem" height="1rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            上传自定义头像
+          </button>
+
+          <div class="welcome-enter-wrap">
+            <div class="welcome-greeting" id="welcomeGreeting"></div>
+            <button class="btn btn-primary welcome-enter-btn" onclick="enterApp()">
+              开始使用 LanChat
+              <svg width="1.125rem" height="1.125rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    </div>
+
+    <!-- Navigation buttons -->
+    <div class="welcome-nav">
+      <button class="btn btn-ghost welcome-skip" id="skipBtn" onclick="skipToLast()">跳过</button>
+      <button class="btn btn-primary welcome-next" id="nextBtn" onclick="nextPage()">
+        继续
+        <svg width="1rem" height="1rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/api.js"></script>
+  <script>
+    // ==================== 欢迎页逻辑 ====================
+
+    let currentPage = 0;
+    const totalPages = 4;
+    let selectedAvatar = '';
+    let customAvatarFile = null;
+
+    // 默认 SVG 头像列表（内联 data URI）—— 全局可用
+    const defaultAvatars = window.DEFAULT_AVATARS = [
+      { name: '小猫', color: '#FF9500', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FFB347"/><stop offset="100%" stop-color="#FF9500"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c1)"/><path d="M30 50 L42 22 L54 44" fill="#FF8C00" opacity="0.8"/><path d="M90 50 L78 22 L66 44" fill="#FF8C00" opacity="0.8"/><circle cx="46" cy="62" r="5" fill="#5D3A1A"/><circle cx="74" cy="62" r="5" fill="#5D3A1A"/><ellipse cx="60" cy="74" rx="4" ry="3" fill="#E8756D"/><path d="M56 78 Q60 84 64 78" stroke="#5D3A1A" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="28" y1="68" x2="42" y2="70" stroke="#5D3A1A" stroke-width="1.5" opacity="0.5"/><line x1="28" y1="74" x2="42" y2="73" stroke="#5D3A1A" stroke-width="1.5" opacity="0.5"/><line x1="78" y1="70" x2="92" y2="68" stroke="#5D3A1A" stroke-width="1.5" opacity="0.5"/><line x1="78" y1="73" x2="92" y2="74" stroke="#5D3A1A" stroke-width="1.5" opacity="0.5"/></svg>` },
+      { name: '鲸鱼', color: '#5AC8FA', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#B8E4F9"/><stop offset="100%" stop-color="#5AC8FA"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c2)"/><ellipse cx="60" cy="68" rx="36" ry="26" fill="#4AB8E8"/><circle cx="46" cy="62" r="4" fill="#1A3A5C"/><path d="M52 78 Q60 84 68 78" stroke="#1A3A5C" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M54 38 Q58 26 62 38" stroke="#4AB8E8" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="58" cy="28" r="3" fill="#4AB8E8"/><ellipse cx="88" cy="72" rx="6" ry="10" fill="#4AB8E8" transform="rotate(20 88 72)"/></svg>` },
+      { name: '兔子', color: '#FF2D55', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FFB6C8"/><stop offset="100%" stop-color="#FF2D55"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c3)"/><ellipse cx="46" cy="28" rx="8" ry="22" fill="#FFD6E0" transform="rotate(-8 46 28)"/><ellipse cx="46" cy="28" rx="4" ry="16" fill="#FF8FAB" transform="rotate(-8 46 28)"/><ellipse cx="74" cy="28" rx="8" ry="22" fill="#FFD6E0" transform="rotate(8 74 28)"/><ellipse cx="74" cy="28" rx="4" ry="16" fill="#FF8FAB" transform="rotate(8 74 28)"/><circle cx="60" cy="72" r="28" fill="#FFD6E0"/><circle cx="48" cy="66" r="4.5" fill="#5D3A1A"/><circle cx="72" cy="66" r="4.5" fill="#5D3A1A"/><ellipse cx="60" cy="76" rx="3.5" ry="3" fill="#FF8FAB"/><circle cx="42" cy="78" r="6" fill="#FF8FAB" opacity="0.4"/><circle cx="78" cy="78" r="6" fill="#FF8FAB" opacity="0.4"/></svg>` },
+      { name: '青蛙', color: '#34C759', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c4" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#A8F0C0"/><stop offset="100%" stop-color="#34C759"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c4)"/><circle cx="42" cy="46" r="16" fill="#E8F8EE"/><circle cx="78" cy="46" r="16" fill="#E8F8EE"/><circle cx="42" cy="46" r="9" fill="#2D8E42"/><circle cx="78" cy="46" r="9" fill="#2D8E42"/><circle cx="44" cy="44" r="3.5" fill="white"/><circle cx="80" cy="44" r="3.5" fill="white"/><path d="M44 82 Q60 92 76 82" stroke="#2D6E38" stroke-width="2.5" fill="none" stroke-linecap="round"/><circle cx="58" cy="72" r="1.5" fill="#2D6E38"/><circle cx="64" cy="72" r="1.5" fill="#2D6E38"/></svg>` },
+      { name: '猫头鹰', color: '#AF52DE', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c5" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#D4A5F5"/><stop offset="100%" stop-color="#AF52DE"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c5)"/><path d="M34 40 L26 20 L46 36" fill="#9340BF"/><path d="M86 40 L94 20 L74 36" fill="#9340BF"/><circle cx="44" cy="60" r="16" fill="#E8D4F5"/><circle cx="76" cy="60" r="16" fill="#E8D4F5"/><circle cx="44" cy="60" r="9" fill="#3D1A5C"/><circle cx="76" cy="60" r="9" fill="#3D1A5C"/><circle cx="47" cy="57" r="3.5" fill="white"/><circle cx="79" cy="57" r="3.5" fill="white"/><path d="M56 74 L60 80 L64 74" fill="#FF9500"/></svg>` },
+      { name: '小鸡', color: '#FFCC00', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c6" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FFF3B0"/><stop offset="100%" stop-color="#FFCC00"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c6)"/><circle cx="60" cy="64" r="32" fill="#FFE066"/><circle cx="48" cy="58" r="4" fill="#5D3A1A"/><circle cx="72" cy="58" r="4" fill="#5D3A1A"/><path d="M56 68 L60 74 L64 68" fill="#FF9500"/><circle cx="40" cy="72" r="7" fill="#FFB3B3" opacity="0.5"/><circle cx="80" cy="72" r="7" fill="#FFB3B3" opacity="0.5"/><path d="M50 32 Q56 22 60 30 Q64 22 70 32" fill="#FFD633"/></svg>` },
+      { name: '狐狸', color: '#00C7BE', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c7" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#80E8E0"/><stop offset="100%" stop-color="#00C7BE"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c7)"/><path d="M30 56 L38 22 L52 48" fill="#00B0A8" opacity="0.8"/><path d="M90 56 L82 22 L68 48" fill="#00B0A8" opacity="0.8"/><ellipse cx="60" cy="72" rx="30" ry="24" fill="#E0FAF8"/><path d="M38 68 Q60 58 82 68 Q82 90 60 94 Q38 90 38 68" fill="#E0FAF8"/><circle cx="48" cy="66" r="3" fill="#1A4A46"/><circle cx="72" cy="66" r="3" fill="#1A4A46"/><ellipse cx="60" cy="76" rx="4" ry="3" fill="#1A4A46"/><path d="M50 66 Q48 62 44 64" stroke="#1A4A46" stroke-width="1" fill="none"/><path d="M70 66 Q72 62 76 64" stroke="#1A4A46" stroke-width="1" fill="none"/></svg>` },
+      { name: '小熊', color: '#FF6B6B', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c8" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FFB0A0"/><stop offset="100%" stop-color="#FF6B6B"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c8)"/><circle cx="34" cy="40" r="14" fill="#FF8F80"/><circle cx="34" cy="40" r="8" fill="#FFC0B8"/><circle cx="86" cy="40" r="14" fill="#FF8F80"/><circle cx="86" cy="40" r="8" fill="#FFC0B8"/><circle cx="60" cy="68" r="30" fill="#FFC0B8"/><circle cx="48" cy="62" r="4.5" fill="#5D3A1A"/><circle cx="72" cy="62" r="4.5" fill="#5D3A1A"/><ellipse cx="60" cy="72" rx="6" ry="5" fill="#E88080"/><circle cx="60" cy="70" r="3" fill="#5D3A1A"/></svg>` },
+      { name: '企鹅', color: '#5856D6', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c9" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7B7AE8"/><stop offset="100%" stop-color="#5856D6"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c9)"/><ellipse cx="60" cy="70" rx="32" ry="36" fill="#3D3BB0"/><ellipse cx="60" cy="78" rx="20" ry="24" fill="#E8E8F8"/><circle cx="48" cy="58" r="4" fill="white"/><circle cx="48" cy="58" r="2.5" fill="#1A1A3C"/><circle cx="72" cy="58" r="4" fill="white"/><circle cx="72" cy="58" r="2.5" fill="#1A1A3C"/><path d="M56 70 L60 76 L64 70" fill="#FF9500"/></svg>` },
+      { name: '火烈鸟', color: '#FF2D55', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c10" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF6B8A"/><stop offset="100%" stop-color="#C8214A"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c10)"/><circle cx="66" cy="42" r="18" fill="#FFB0C4"/><path d="M66 60 Q58 80 54 98" stroke="#FFB0C4" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M54 98 Q50 102 46 98" stroke="#FFB0C4" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="72" cy="38" r="3" fill="#3D1A28"/><path d="M78 44 L86 40 L78 48" fill="#FF9500"/></svg>` },
+      { name: '考拉', color: '#8E8E93', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c11" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#C8C8CC"/><stop offset="100%" stop-color="#8E8E93"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c11)"/><circle cx="34" cy="48" r="18" fill="#B0B0B5"/><circle cx="34" cy="48" r="10" fill="#D8D8DC"/><circle cx="86" cy="48" r="18" fill="#B0B0B5"/><circle cx="86" cy="48" r="10" fill="#D8D8DC"/><circle cx="60" cy="68" r="28" fill="#D8D8DC"/><path d="M50 60 Q48 56 52 58" stroke="#3A3A3C" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M70 60 Q72 56 68 58" stroke="#3A3A3C" stroke-width="2" fill="none" stroke-linecap="round"/><ellipse cx="60" cy="72" rx="8" ry="6" fill="#3A3A3C"/></svg>` },
+      { name: '狮子', color: '#FF9F0A', svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="c12" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FFD060"/><stop offset="100%" stop-color="#FF9F0A"/></linearGradient></defs><rect width="120" height="120" rx="28" fill="url(#c12)"/><circle cx="60" cy="62" r="36" fill="#E8960A"/><circle cx="60" cy="68" r="26" fill="#FFD680"/><circle cx="48" cy="62" r="4" fill="#5D3A1A"/><circle cx="72" cy="62" r="4" fill="#5D3A1A"/><ellipse cx="60" cy="72" rx="4" ry="3" fill="#5D3A1A"/><path d="M52 78 Q60 84 68 78" stroke="#5D3A1A" stroke-width="2" fill="none" stroke-linecap="round"/></svg>` }
+    ];
+
+    function init() {
+      const token = Utils.storage.get('token');
+      if (!token) {
+        window.location.href = '/';
+        return;
+      }
+
+      const userInfo = Utils.storage.get('userInfo');
+      if (!userInfo) {
+        window.location.href = '/';
+        return;
+      }
+
+      // 渲染欢迎语
+      const greeting = document.getElementById('welcomeGreeting');
+      greeting.textContent = `你好，${userInfo.nickname || userInfo.username}！`;
+
+      // 渲染当前头像预览
+      renderAvatarPreview(userInfo.nickname || userInfo.username, userInfo.avatar);
+
+      // 渲染默认头像网格
+      renderDefaultAvatars(userInfo.nickname || userInfo.username);
+
+      // 绑定文件上传
+      document.getElementById('welcomeAvatarFile').addEventListener('change', handleAvatarUpload);
+
+      updateNavigation();
+    }
+
+    function renderAvatarPreview(name, avatar) {
+      const container = document.getElementById('welcomeAvatarPreview');
+      if (avatar && avatar.startsWith('http')) {
+        container.innerHTML = `<img src="${avatar}" alt="头像" class="avatar-preview-img">`;
+      } else if (avatar && avatar.startsWith('data:')) {
+        container.innerHTML = `<img src="${avatar}" alt="头像" class="avatar-preview-img">`;
+      } else if (avatar && avatar.startsWith('svg:')) {
+        const idx = parseInt(avatar.split(':')[1]) || 0;
+        const av = defaultAvatars[idx] || defaultAvatars[0];
+        container.innerHTML = `<div class="avatar-preview-svg">${av.svg}</div>`;
+      } else if (avatar && avatar.startsWith('emoji:')) {
+        const emoji = avatar.split(':')[1];
+        const color = avatar.split(':')[2] || '#007AFF';
+        container.innerHTML = `<div class="avatar-preview-emoji" style="background:${color}">${emoji}</div>`;
+      } else {
+        const initial = (name || '?').charAt(0).toUpperCase();
+        container.innerHTML = `<div class="avatar-preview-letter">${initial}</div>`;
+      }
+    }
+
+    function renderDefaultAvatars(name) {
+      const grid = document.getElementById('defaultAvatars');
+      grid.innerHTML = defaultAvatars.map((av, i) => {
+        return `<div class="default-avatar-item" onclick="selectDefaultAvatar(${i})" title="${av.name}">
+                  ${av.svg}
+                </div>`;
+      }).join('');
+    }
+
+    function selectDefaultAvatar(index) {
+      const av = defaultAvatars[index];
+      selectedAvatar = `svg:${index}`;
+      customAvatarFile = null;
+
+      // 更新预览
+      const container = document.getElementById('welcomeAvatarPreview');
+      container.innerHTML = `<div class="avatar-preview-svg">${av.svg}</div>`;
+
+      // 高亮选中项
+      document.querySelectorAll('.default-avatar-item').forEach(el => el.classList.remove('selected'));
+      event.currentTarget.classList.add('selected');
+    }
+
+    function handleAvatarUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        Utils.toast('请选择图片文件', 'error');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        Utils.toast('图片不能超过 5MB', 'error');
+        return;
+      }
+
+      customAvatarFile = file;
+      selectedAvatar = '';
+
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const container = document.getElementById('welcomeAvatarPreview');
+        container.innerHTML = `<img src="${ev.target.result}" alt="头像" class="avatar-preview-img">`;
+
+        // 清除默认选中
+        document.querySelectorAll('.default-avatar-item').forEach(el => el.classList.remove('selected'));
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // ==================== 页面导航 ====================
+
+    function goToPage(page) {
+      if (page < 0 || page >= totalPages) return;
+      currentPage = page;
+
+      const slider = document.getElementById('welcomeSlider');
+      slider.style.transform = `translateX(-${page * 100}%)`;
+
+      // 更新圆点
+      document.querySelectorAll('.welcome-dot').forEach((dot, i) => {
+        dot.classList.toggle('active', i === page);
+      });
+
+      updateNavigation();
+    }
+
+    function nextPage() {
+      if (currentPage < totalPages - 1) {
+        goToPage(currentPage + 1);
+      }
+    }
+
+    function skipToLast() {
+      goToPage(totalPages - 1);
+    }
+
+    function updateNavigation() {
+      const skipBtn = document.getElementById('skipBtn');
+      const nextBtn = document.getElementById('nextBtn');
+
+      if (currentPage === totalPages - 1) {
+        // 最后一页：隐藏导航按钮
+        skipBtn.style.display = 'none';
+        nextBtn.style.display = 'none';
+      } else {
+        skipBtn.style.display = '';
+        nextBtn.style.display = '';
+      }
+    }
+
+    // ==================== 进入应用 ====================
+
+    async function enterApp() {
+      const btn = document.querySelector('.welcome-enter-btn');
+      btn.disabled = true;
+      btn.innerHTML = '正在准备...'
+
+      try {
+        // 如果选择了自定义头像，先上传
+        if (customAvatarFile) {
+          const formData = new FormData();
+          formData.append('file', customAvatarFile);
+          const uploadResult = await API.file.upload(formData);
+          if (uploadResult) {
+            const avatarUrl = uploadResult.url || uploadResult.fileUrl || uploadResult;
+            if (typeof avatarUrl === 'string') {
+              await API.user.updateProfile({ avatar: avatarUrl });
+            }
+          }
+        } else if (selectedAvatar) {
+          // 保存 emoji 头像标识
+          await API.user.updateProfile({ avatar: selectedAvatar });
+        }
+
+        // 刷新用户信息
+        const freshInfo = await API.user.getInfo();
+        if (freshInfo) {
+          Utils.storage.set('userInfo', {
+            userId: freshInfo.id,
+            username: freshInfo.username,
+            nickname: freshInfo.nickname,
+            avatar: freshInfo.avatar
+          });
+        }
+      } catch (e) {
+        // 即使头像保存失败也继续进入
+      }
+
+      window.location.href = '/chat';
+    }
+
+    // ==================== 初始化 ====================
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
