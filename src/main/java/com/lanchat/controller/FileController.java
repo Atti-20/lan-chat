@@ -69,7 +69,7 @@ public class FileController {
         if (!fileService.canAccessFile(fileName, userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        return buildFileResponse(fileName, false);
+        return buildFileResponse(fileName, false, false);
     }
 
     /**
@@ -79,14 +79,33 @@ public class FileController {
     @GetMapping("/preview/{signToken}")
     public ResponseEntity<Resource> previewFile(@PathVariable String signToken,
                                                 @RequestParam(defaultValue = "false") boolean download) {
+        return streamPreview(signToken, null, download);
+    }
+
+    /**
+     * The display name is intentionally cosmetic. The signed token remains the
+     * source of truth, while the extension makes the URL eligible for the
+     * default extension-based CDN cache rules.
+     */
+    @GetMapping("/preview/{signToken}/{displayName:.+}")
+    public ResponseEntity<Resource> previewFileWithDisplayName(@PathVariable String signToken,
+                                                               @PathVariable String displayName,
+                                                               @RequestParam(defaultValue = "false") boolean download) {
+        return streamPreview(signToken, displayName, download);
+    }
+
+    private ResponseEntity<Resource> streamPreview(String signToken, String displayName, boolean download) {
         String fileName = fileService.getFileNameFromToken(signToken);
         if (fileName == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        return buildFileResponse(fileName, download);
+        if (displayName != null && !displayName.equals(fileName)) {
+            return ResponseEntity.notFound().build();
+        }
+        return buildFileResponse(fileName, download, true);
     }
 
-    private ResponseEntity<Resource> buildFileResponse(String fileName, boolean download) {
+    private ResponseEntity<Resource> buildFileResponse(String fileName, boolean download, boolean signedPreview) {
         FileMetadata metadata = fileService.getByStoredName(fileName);
         if (metadata == null) return ResponseEntity.notFound().build();
 
@@ -115,13 +134,21 @@ public class FileController {
         ContentDisposition disposition = (download ? ContentDisposition.attachment() : ContentDisposition.inline())
                 .filename(metadata.getFileName(), StandardCharsets.UTF_8)
                 .build();
-        return ResponseEntity.ok()
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
                 .contentType(mediaType)
                 .contentLength(contentLength)
-                .cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePrivate())
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
-                .header("X-Content-Type-Options", "nosniff")
-                .body(resource);
+                .header("X-Content-Type-Options", "nosniff");
+        if (signedPreview) {
+            // Authorization has already happened while creating the short-lived
+            // bearer URL. Keep the public cache lifetime within token lifetime.
+            response.header(HttpHeaders.CACHE_CONTROL, "public, max-age=600, s-maxage=600");
+            response.header("CDN-Cache-Control", "public, max-age=600");
+        } else {
+            // Authorization-header responses must remain private.
+            response.cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePrivate());
+        }
+        return response.body(resource);
     }
 }

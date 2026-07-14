@@ -3,6 +3,7 @@ package com.lanchat.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.lanchat.common.FileReferenceUtil;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.MessageRecall;
@@ -26,10 +27,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
-import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Service
 public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage> implements ChatMessageService {
@@ -50,9 +48,6 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
 
     /** 撤回时限：2分钟 */
     private static final long RECALL_LIMIT_SECONDS = 120;
-
-    private static final Pattern STORED_FILE_PATTERN = Pattern.compile(
-            "(?:thumb_)?([0-9a-fA-F]{32}\\.[a-zA-Z0-9]{1,10})");
 
     @Override
     public List<ChatMessage> getGroupHistory(Long groupId, int limit) {
@@ -218,14 +213,12 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
      */
     private void cleanupFileIfNoReferences(String messageContent) {
         try {
-            Matcher matcher = STORED_FILE_PATTERN.matcher(messageContent);
-            Set<String> fileNames = new LinkedHashSet<>();
-            while (matcher.find()) fileNames.add(matcher.group(1));
+            Set<String> fileNames = FileReferenceUtil.extractStoredNames(messageContent);
 
             Path root = Paths.get(filePath).toAbsolutePath().normalize();
             for (String fileName : fileNames) {
                 LambdaQueryWrapper<ChatMessage> refWrapper = new LambdaQueryWrapper<>();
-                refWrapper.like(ChatMessage::getContent, fileName)
+                refWrapper.eq(ChatMessage::getFilePath, fileName)
                         .eq(ChatMessage::getIsRecalled, 0);
                 if (count(refWrapper) > 0) continue;
 

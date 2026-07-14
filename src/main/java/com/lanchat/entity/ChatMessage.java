@@ -28,6 +28,9 @@ public class ChatMessage {
     /** 消息类型：text/image/file/voice/video */
     private String type;
 
+    /** 附件对应的原始存储文件名，用于精确权限查询 */
+    private String filePath;
+
     /** 消息内容 */
     private String content;
 

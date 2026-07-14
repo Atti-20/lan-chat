@@ -42,6 +42,9 @@ public class FileServiceImpl implements FileService {
     /** 预览URL有效期：10分钟 */
     private static final long PREVIEW_URL_EXPIRE_MINUTES = 10;
 
+    /** 同一用户/文件在令牌有效期内复用同一个签名 URL，确保 CDN 缓存键稳定 */
+    private static final String PREVIEW_URL_INDEX_PREFIX = "preview-url:";
+
     /** 图片文件后缀集合 */
     private static final Set<String> IMAGE_SUFFIXES = Set.of("jpg", "jpeg", "png", "gif", "bmp", "webp");
 
@@ -185,7 +188,7 @@ public class FileServiceImpl implements FileService {
 
         String storedName = metadata.getFilePath();
         LambdaQueryWrapper<ChatMessage> privateWrapper = new LambdaQueryWrapper<>();
-        privateWrapper.like(ChatMessage::getContent, storedName)
+        privateWrapper.eq(ChatMessage::getFilePath, storedName)
                 .and(w -> w.eq(ChatMessage::getFromUserId, userId)
                         .or()
                         .eq(ChatMessage::getToUserId, userId));
@@ -198,7 +201,7 @@ public class FileServiceImpl implements FileService {
 
         List<Long> groupIds = memberships.stream().map(GroupMember::getGroupId).toList();
         LambdaQueryWrapper<ChatMessage> groupWrapper = new LambdaQueryWrapper<>();
-        groupWrapper.like(ChatMessage::getContent, storedName)
+        groupWrapper.eq(ChatMessage::getFilePath, storedName)
                 .in(ChatMessage::getGroupId, groupIds);
         return chatMessageMapper.selectCount(groupWrapper) > 0;
     }
@@ -230,12 +233,25 @@ public class FileServiceImpl implements FileService {
         if (normalized == null || !canAccessFile(normalized, userId)) {
             throw new IllegalArgumentException("文件不存在或无权访问");
         }
+
+        String indexKey = PREVIEW_URL_INDEX_PREFIX + userId + ":" + normalized;
+        String existingToken = redisTemplate.opsForValue().get(indexKey);
+        if (existingToken != null && existingToken.matches("(?i)^[0-9a-f]{32}$")) {
+            String existingValue = redisTemplate.opsForValue().get("preview:" + existingToken);
+            if ((normalized + ":" + userId).equals(existingValue)) {
+                return "/api/v1/file/preview/" + existingToken + "/" + normalized;
+            }
+            redisTemplate.delete(indexKey);
+        }
+
         // 生成签名 token 并存入 Redis，10分钟后自动过期
         String signToken = UUID.randomUUID().toString().replace("-", "");
         String redisKey = "preview:" + signToken;
         redisTemplate.opsForValue().set(redisKey, normalized + ":" + userId,
                 PREVIEW_URL_EXPIRE_MINUTES, TimeUnit.MINUTES);
-        return "/api/v1/file/preview/" + signToken;
+        redisTemplate.opsForValue().set(indexKey, signToken,
+                PREVIEW_URL_EXPIRE_MINUTES, TimeUnit.MINUTES);
+        return "/api/v1/file/preview/" + signToken + "/" + normalized;
     }
 
     /**

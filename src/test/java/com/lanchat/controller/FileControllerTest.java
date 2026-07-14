@@ -44,6 +44,7 @@ class FileControllerTest {
         assertEquals(12, response.getHeaders().getContentLength());
         assertTrue(response.getHeaders().getContentDisposition().isAttachment());
         assertEquals("report.xlsx", response.getHeaders().getContentDisposition().getFilename());
+        assertEquals("public, max-age=600, s-maxage=600", response.getHeaders().getFirst("Cache-Control"));
     }
 
     @Test

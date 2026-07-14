@@ -1,6 +1,7 @@
 package com.lanchat.websocket;
 
 import cn.hutool.json.JSONUtil;
+import com.lanchat.common.FileReferenceUtil;
 import com.lanchat.dto.WebSocketMessage;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.User;
@@ -262,6 +263,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         chatMessage.setToUserId(wsMsg.getToUserId());
         chatMessage.setGroupId(wsMsg.getGroupId());
         chatMessage.setType(wsMsg.getContentType());
+        if (!"text".equals(wsMsg.getContentType())) {
+            chatMessage.setFilePath(FileReferenceUtil.extractFirstStoredName(wsMsg.getContent()));
+        }
         chatMessage.setContent(wsMsg.getContent());
         chatMessage.setReplyToId(wsMsg.getReplyToId());
         chatMessage.setMentionUserIds(wsMsg.getMentionUserIds());

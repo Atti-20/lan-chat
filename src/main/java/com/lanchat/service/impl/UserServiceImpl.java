@@ -485,7 +485,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         for (FileMetadata metadata : uploadedFiles) {
             String storedName = metadata.getFilePath();
             long references = storedName == null ? 0 : chatMessageMapper.selectCount(
-                    new LambdaQueryWrapper<ChatMessage>().like(ChatMessage::getContent, storedName));
+                    new LambdaQueryWrapper<ChatMessage>()
+                            .eq(ChatMessage::getFilePath, storedName)
+                            .eq(ChatMessage::getIsRecalled, 0));
             if (references > 0) continue;
             if (storedName != null && storedName.matches("^[0-9a-fA-F]{32}\\.[a-zA-Z0-9]{1,10}$")) {
                 try {

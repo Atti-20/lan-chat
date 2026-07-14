@@ -197,6 +197,11 @@ cd lan-chat
 mysql -u root -p < sql/init.sql
 ```
 
+已有数据库升级到文件权限索引和 CDN 缓存支持时，执行：
+```bash
+mysql -u root -p lan_chat < sql/migration-v1.1-file-access-cache.sql
+```
+
 3. 设置运行环境（生产环境务必设置独立的 `JWT_SECRET`）
 ```bash
 export DB_URL='jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true'

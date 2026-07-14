@@ -108,6 +108,7 @@ CREATE TABLE `chat_message` (
     `to_user_id`      BIGINT       DEFAULT NULL COMMENT '接收者用户ID（私聊）',
     `group_id`        BIGINT       DEFAULT NULL COMMENT '群组ID（群聊）',
     `type`            VARCHAR(20)  DEFAULT 'text' COMMENT '消息类型：text/image/file/voice/video',
+    `file_path`       VARCHAR(100) DEFAULT NULL COMMENT '附件原始存储文件名（用于权限查询）',
     `content`         MEDIUMTEXT   COMMENT '消息内容',
     `reply_to_id`     VARCHAR(64)  DEFAULT NULL COMMENT '引用回复的消息ID',
     `mention_user_ids` VARCHAR(500) DEFAULT NULL COMMENT '@提及的用户ID列表（逗号分隔）',
@@ -121,6 +122,7 @@ CREATE TABLE `chat_message` (
     KEY `idx_from_user` (`from_user_id`),
     KEY `idx_to_user` (`to_user_id`),
     KEY `idx_group` (`group_id`),
+    KEY `idx_file_path` (`file_path`),
     KEY `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天消息表';
 
