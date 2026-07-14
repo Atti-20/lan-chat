@@ -14,17 +14,41 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   change: [section: ChatSection]
+  admin: []
   profile: []
 }>()
 
-const items: { id: ChatSection; label: string; path: string }[] = [
+interface RailItem {
+  id: ChatSection | 'admin'
+  label: string
+  path: string
+}
+
+const items: RailItem[] = [
   { id: 'messages', label: '消息', path: 'M5 6.5A3.5 3.5 0 0 1 8.5 3h7A3.5 3.5 0 0 1 19 6.5v5a3.5 3.5 0 0 1-3.5 3.5H11l-4.5 4v-4A3.5 3.5 0 0 1 5 11.5v-5Z' },
   { id: 'contacts', label: '好友', path: 'M12 12a4 4 0 1 0 0 -8 4 4 0 0 0 0 8Zm7 8a7 7 0 0 0 -14 0' },
   { id: 'groups', label: '群组', path: 'M16 11a3 3 0 1 0 0 -6m-8 6a3 3 0 1 0 0 -6m8 15v-1a5 5 0 0 0 -5 -5H8a5 5 0 0 0 -5 5v1m18 0v-1a5 5 0 0 0 -3 -4.58' },
   { id: 'requests', label: '申请', path: 'M9 12a4 4 0 1 0 0 -8 4 4 0 0 0 0 8Zm-6 8a6 6 0 0 1 12 0m4 -8v6m3 -3h-6' },
 ]
+const adminItem: RailItem = {
+  id: 'admin',
+  label: '管理',
+  path: 'M12 3 4.5 6v5.5c0 4.7 3.2 7.8 7.5 9.5 4.3-1.7 7.5-4.8 7.5-9.5V6L12 3Zm-2.5 9 1.7 1.7 3.5-3.7',
+}
+const navigationItems = computed(() => props.user.username === 'admin' ? [...items, adminItem] : items)
 const activeIndex = computed(() => Math.max(0, items.findIndex((item) => item.id === props.section)))
-const lensStyle = computed(() => ({ '--active-index': activeIndex.value }))
+const lensStyle = computed(() => ({
+  '--active-index': activeIndex.value,
+  '--item-count': navigationItems.value.length,
+}))
+
+function activateItem(item: RailItem): void {
+  if (item.id === 'admin') {
+    emit('admin')
+    return
+  }
+  emit('change', item.id)
+}
 </script>
 
 <template>
@@ -39,14 +63,14 @@ const lensStyle = computed(() => ({ '--active-index': activeIndex.value }))
     <div class="rail-items">
       <span class="liquid-lens" aria-hidden="true" />
       <button
-        v-for="item in items"
+        v-for="item in navigationItems"
         :key="item.id"
         class="rail-item"
         :class="{ 'rail-item--active': section === item.id }"
         type="button"
         :aria-current="section === item.id ? 'page' : undefined"
         :aria-label="item.label"
-        @click="emit('change', item.id)"
+        @click="activateItem(item)"
       >
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path :d="item.path" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
@@ -128,9 +152,9 @@ const lensStyle = computed(() => ({ '--active-index': activeIndex.value }))
   }
   .rail-brand,
   .rail-profile { display: none; }
-  .rail-items { grid-template-columns: repeat(4, 1fr); margin: 0; gap: 4px; }
+  .rail-items { grid-template-columns: repeat(var(--item-count), 1fr); margin: 0; gap: 4px; }
   .rail-item { height: 56px; }
-  .liquid-lens { left: 0; width: 25%; height: 56px; transform: translateX(calc(var(--active-index) * 100%)); }
+  .liquid-lens { left: 0; width: calc(100% / var(--item-count)); height: 56px; transform: translateX(calc(var(--active-index) * 100%)); }
 }
 
 /* Liquid Glass 只留在导航层，内容区域保持安静。 */
@@ -196,7 +220,7 @@ const lensStyle = computed(() => ({ '--active-index': activeIndex.value }))
   .rail-item { height: 50px; }
   .liquid-lens {
     left: 0;
-    width: 25%;
+    width: calc(100% / var(--item-count));
     height: 50px;
     transform: translateX(calc(var(--active-index) * 100%));
   }

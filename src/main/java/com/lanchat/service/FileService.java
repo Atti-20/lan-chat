@@ -28,15 +28,12 @@ public interface FileService {
     /** 校验文件类型是否允许 */
     boolean isAllowedType(String fileName);
 
-    /** 生成临时签名预览URL（有效期10分钟，与用户Token绑定） */
+    /** 生成临时签名文件URL（有效期10分钟，生成前校验用户权限） */
     String generatePreviewUrl(String fileName, Long userId);
 
     /** 生成图片缩略图 */
     String generateThumbnail(String fileName);
 
-    /** 验证预览签名是否有效 */
-    boolean validatePreviewToken(String signToken, Long userId);
-
-    /** 根据签名获取文件名 */
+    /** 校验签名并获取文件名，无效或过期时返回 null */
     String getFileNameFromToken(String signToken);
 }

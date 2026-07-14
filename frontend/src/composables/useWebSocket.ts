@@ -1,4 +1,4 @@
-import { onBeforeUnmount, readonly, ref } from 'vue'
+import { onBeforeUnmount, readonly, shallowRef } from 'vue'
 import type { WsEnvelope } from '../types'
 import { readSession } from '../utils/storage'
 
@@ -8,17 +8,22 @@ interface UseWebSocketOptions {
 }
 
 export function useWebSocket(options: UseWebSocketOptions) {
-  const connected = ref(false)
-  const reconnecting = ref(false)
+  const connected = shallowRef(false)
+  const reconnecting = shallowRef(false)
   let socket: WebSocket | null = null
   let reconnectTimer: number | null = null
   let heartbeatTimer: number | null = null
   let attempts = 0
   let manuallyClosed = false
+  const maxReconnectAttempts = 6
 
   function connect(): void {
     const token = readSession()?.token
-    if (!token || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return
+    if (!token) {
+      reconnecting.value = false
+      return
+    }
+    if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return
     manuallyClosed = false
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${protocol}//${window.location.host}/ws/chat?token=${encodeURIComponent(token)}`
@@ -49,8 +54,10 @@ export function useWebSocket(options: UseWebSocketOptions) {
   }
 
   function scheduleReconnect(): void {
-    if (attempts >= 6 || reconnectTimer !== null) {
-      if (attempts >= 6) options.onError?.('实时连接已断开，请刷新页面')
+    if (reconnectTimer !== null) return
+    if (attempts >= maxReconnectAttempts) {
+      reconnecting.value = false
+      options.onError?.('实时连接已断开，请刷新页面')
       return
     }
     reconnecting.value = true
@@ -79,7 +86,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
     stopHeartbeat()
     socket?.close()
     socket = null
+    attempts = 0
     connected.value = false
+    reconnecting.value = false
   }
 
   onBeforeUnmount(disconnect)

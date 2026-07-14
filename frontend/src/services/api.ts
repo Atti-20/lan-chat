@@ -1,4 +1,5 @@
 import type {
+  AdminUser,
   AuthSession,
   ChatGroup,
   ChatMessage,
@@ -95,17 +96,9 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   return result.data
 }
 
-async function fetchFileBlob(rawUrl: string, retry = true): Promise<Blob> {
-  const fileName = rawUrl.split('/').pop() || ''
-  const url = rawUrl.startsWith('/file/')
-    ? `/api/v1/file/content/${encodeURIComponent(fileName)}`
-    : rawUrl
-  const response = await fetch(url, { headers: authHeaders() })
-  if (response.status === 401 && retry && await refreshAccessToken()) {
-    return fetchFileBlob(rawUrl, false)
-  }
-  if (!response.ok) throw new ApiError('文件不可用或你没有访问权限', response.status)
-  return response.blob()
+function storedFileName(rawUrl: string): string {
+  const pathname = new URL(rawUrl, window.location.origin).pathname
+  return decodeURIComponent(pathname.split('/').pop() || '')
 }
 
 export const api = {
@@ -179,6 +172,21 @@ export const api = {
       form.append('file', file)
       return request<FileUpload>('/file/upload', { method: 'POST', body: form })
     },
-    blob: fetchFileBlob,
+    temporaryUrl: (rawUrl: string) => request<string>(
+      `/file/preview-url?fileName=${encodeURIComponent(storedFileName(rawUrl))}`,
+      { method: 'POST' },
+    ),
+  },
+  admin: {
+    users: () => request<AdminUser[]>('/admin/users'),
+    setStatus: (userId: number, status: 0 | 1) => request<string>(
+      `/admin/user/status?userId=${userId}&status=${status}`,
+      { method: 'POST' },
+    ),
+    setMutePeriod: (userId: number, muteStart: string, muteEnd: string) => request<string>(
+      `/admin/user/mute?userId=${userId}&muteStart=${encodeURIComponent(muteStart)}&muteEnd=${encodeURIComponent(muteEnd)}`,
+      { method: 'POST' },
+    ),
+    deleteUser: (userId: number) => request<string>(`/admin/user/${userId}`, { method: 'DELETE' }),
   },
 }

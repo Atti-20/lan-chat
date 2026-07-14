@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
+import AdminConsoleModal from '../components/admin/AdminConsoleModal.vue'
 import AppRail from '../components/chat/AppRail.vue'
 import ContextPanel from '../components/chat/ContextPanel.vue'
 import ConversationSidebar from '../components/chat/ConversationSidebar.vue'
@@ -9,6 +10,7 @@ import MessageThread from '../components/chat/MessageThread.vue'
 import ProfileModal from '../components/chat/ProfileModal.vue'
 import SearchPeopleModal from '../components/chat/SearchPeopleModal.vue'
 import UserAvatar from '../components/base/UserAvatar.vue'
+import { useAdmin } from '../composables/useAdmin'
 import { useAuth } from '../composables/useAuth'
 import { useChat, type ChatSection } from '../composables/useChat'
 import { useToast } from '../composables/useToast'
@@ -17,6 +19,7 @@ import type { ChatMessage, Conversation, User } from '../types'
 
 const auth = useAuth()
 const chat = useChat()
+const admin = useAdmin()
 const toast = useToast()
 const {
   friends,
@@ -33,9 +36,15 @@ const {
   connected,
   reconnecting,
 } = chat
+const {
+  users: adminUsers,
+  loading: adminLoading,
+  busyUserId: adminBusyUserId,
+} = admin
 const searchOpen = shallowRef(false)
 const groupOpen = shallowRef(false)
 const profileOpen = shallowRef(false)
+const adminOpen = shallowRef(false)
 const groupSaving = shallowRef(false)
 const profileSaving = shallowRef(false)
 const uploading = shallowRef(false)
@@ -78,6 +87,12 @@ function changeSection(next: ChatSection): void {
   section.value = next
   query.value = ''
   if (mobile.value) selected.value = null
+}
+
+async function openAdminConsole(): Promise<void> {
+  if (user.value.username !== 'admin') return
+  adminOpen.value = true
+  await admin.loadUsers()
 }
 
 async function selectConversation(conversation: Conversation): Promise<void> {
@@ -210,6 +225,7 @@ function handleError(cause: unknown, fallback: string): void {
         :request-count="requests.length"
         :connected="connected"
         @change="changeSection"
+        @admin="openAdminConsole"
         @profile="profileOpen = true"
       />
 
@@ -303,6 +319,17 @@ function handleError(cause: unknown, fallback: string): void {
       @close="profileOpen = false"
       @save="saveProfile"
       @logout="logout"
+    />
+    <AdminConsoleModal
+      :open="adminOpen"
+      :users="adminUsers"
+      :loading="adminLoading"
+      :busy-user-id="adminBusyUserId"
+      @close="adminOpen = false"
+      @refresh="admin.loadUsers"
+      @status="admin.setUserStatus"
+      @mute="admin.setMutePeriod"
+      @delete="admin.deleteUser"
     />
   </main>
 </template>

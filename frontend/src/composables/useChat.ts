@@ -12,6 +12,7 @@ import type {
   WsEnvelope,
 } from '../types'
 import { conversationPreview } from '../utils/format'
+import { createClientMessageId } from '../utils/id'
 import { useAuth } from './useAuth'
 import { useToast } from './useToast'
 import { useWebSocket } from './useWebSocket'
@@ -233,7 +234,7 @@ export function useChat() {
     if (!conversation || !content.trim()) return false
     const payload: Record<string, unknown> = {
       type: 'chat',
-      messageId: crypto.randomUUID().replaceAll('-', ''),
+      messageId: createClientMessageId(),
       contentType: 'text',
       content: content.trim(),
       isBurn: Boolean(options.burn),
@@ -256,7 +257,7 @@ export function useChat() {
       : JSON.stringify({ name: uploaded.originalName || file.name, size: uploaded.fileSize, url: uploaded.url })
     const payload: Record<string, unknown> = {
       type: 'chat',
-      messageId: crypto.randomUUID().replaceAll('-', ''),
+      messageId: createClientMessageId(),
       contentType: image ? 'image' : 'file',
       content,
       isBurn: false,

@@ -56,6 +56,11 @@ logging:
   level:
     com.lanchat: info
 
+# WebSocket 浏览器来源。公网经过 HTTPS Tunnel 转发到本机 HTTP 时，
+# 必须显式允许公网 Origin，否则 Spring 默认同源校验会拒绝握手。
+websocket:
+  allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080,https://chat.atti.cc.cd}
+
 # ==================== Cloudflare Tunnel ====================
 tunnel:
   enabled: true

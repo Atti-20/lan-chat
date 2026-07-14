@@ -221,8 +221,8 @@ public class FileServiceImpl implements FileService {
     }
 
     /**
-     * 生成临时签名预览URL
-     * PRD: 预览链接为临时签名URL，有效期10分钟，与用户Token绑定
+     * 生成临时签名文件 URL。签名本身是短期 Bearer 凭证，生成前已完成
+     * 当前用户的文件访问校验，浏览器随后可直接流式预览或下载。
      */
     @Override
     public String generatePreviewUrl(String fileName, Long userId) {
@@ -239,22 +239,11 @@ public class FileServiceImpl implements FileService {
     }
 
     /**
-     * 验证预览签名是否有效
-     */
-    @Override
-    public boolean validatePreviewToken(String signToken, Long userId) {
-        String redisKey = "preview:" + signToken;
-        String value = redisTemplate.opsForValue().get(redisKey);
-        if (value == null) return false;
-        int separator = value.lastIndexOf(':');
-        return separator > 0 && value.substring(separator + 1).equals(userId.toString());
-    }
-
-    /**
-     * 根据签名获取文件名
+     * 校验签名并获取文件名。签名由 122 位以上随机 UUID 生成，且仅保留 10 分钟。
      */
     @Override
     public String getFileNameFromToken(String signToken) {
+        if (signToken == null || !signToken.matches("(?i)^[0-9a-f]{32}$")) return null;
         String redisKey = "preview:" + signToken;
         String value = redisTemplate.opsForValue().get(redisKey);
         if (value == null) return null;

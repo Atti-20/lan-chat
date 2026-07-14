@@ -10,6 +10,11 @@ export interface User {
   lastLoginAt?: string
 }
 
+export interface AdminUser extends User {
+  muteStart?: string
+  muteEnd?: string
+}
+
 export interface AuthSession {
   userId: number
   username: string

@@ -2,9 +2,11 @@ package com.lanchat.common;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 /**
  * 全局异常处理器
@@ -13,6 +15,16 @@ import org.springframework.security.access.AccessDeniedException;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private static final DisconnectedClientHelper DISCONNECTED_CLIENT_HELPER =
+            new DisconnectedClientHelper(GlobalExceptionHandler.class.getName());
+
+    /**
+     * 客户端在文件响应写完前关闭连接时，不再尝试向已确定媒体类型的响应写入 JSON。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClientDisconnect(AsyncRequestNotUsableException e) {
+        DISCONNECTED_CLIENT_HELPER.checkAndLogClientDisconnectedException(e);
+    }
 
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e) {

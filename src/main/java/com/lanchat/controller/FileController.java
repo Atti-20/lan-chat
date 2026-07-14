@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 
 @RestController
 @RequestMapping("/api/v1/file")
@@ -46,8 +47,8 @@ public class FileController {
     }
 
     /**
-     * 生成临时签名预览URL
-     * PRD: 预览链接为临时签名URL，有效期10分钟，与用户Token绑定
+     * 生成临时签名文件 URL。生成前校验当前用户的文件权限，
+     * 签名链接只在 10 分钟内有效。
      */
     @PostMapping("/preview-url")
     public Result<String> generatePreviewUrl(@RequestParam String fileName) {
@@ -68,32 +69,24 @@ public class FileController {
         if (!fileService.canAccessFile(fileName, userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        return buildFileResponse(fileName);
+        return buildFileResponse(fileName, false);
     }
 
     /**
-     * 通过签名访问文件预览
-     * 验证签名有效性和用户绑定关系
+     * 通过短期签名直接流式访问文件。签名生成前已经校验用户权限，
+     * 此处无需 Authorization，才能供 img 和浏览器原生下载直接使用。
      */
     @GetMapping("/preview/{signToken}")
-    public ResponseEntity<Resource> previewFile(@PathVariable String signToken) {
-        Long userId = UserContextHolder.getCurrentUserId();
-        if (userId == null || !fileService.validatePreviewToken(signToken, userId)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-
+    public ResponseEntity<Resource> previewFile(@PathVariable String signToken,
+                                                @RequestParam(defaultValue = "false") boolean download) {
         String fileName = fileService.getFileNameFromToken(signToken);
         if (fileName == null) {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-
-        if (!fileService.canAccessFile(fileName, userId)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
-        return buildFileResponse(fileName);
+        return buildFileResponse(fileName, download);
     }
 
-    private ResponseEntity<Resource> buildFileResponse(String fileName) {
+    private ResponseEntity<Resource> buildFileResponse(String fileName, boolean download) {
         FileMetadata metadata = fileService.getByStoredName(fileName);
         if (metadata == null) return ResponseEntity.notFound().build();
 
@@ -111,13 +104,23 @@ public class FileController {
             // 未识别类型时按二进制流返回。
         }
 
+        long contentLength;
+        try {
+            contentLength = Files.size(resolved);
+        } catch (Exception ignored) {
+            return ResponseEntity.notFound().build();
+        }
+
         FileSystemResource resource = new FileSystemResource(resolved);
-        ContentDisposition disposition = ContentDisposition.inline()
+        ContentDisposition disposition = (download ? ContentDisposition.attachment() : ContentDisposition.inline())
                 .filename(metadata.getFileName(), StandardCharsets.UTF_8)
                 .build();
         return ResponseEntity.ok()
                 .contentType(mediaType)
+                .contentLength(contentLength)
+                .cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePrivate())
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .header("X-Content-Type-Options", "nosniff")
                 .body(resource);
     }

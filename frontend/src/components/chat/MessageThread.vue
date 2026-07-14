@@ -106,6 +106,7 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
                 v-if="messageType(message) === 'image' || messageType(message) === 'file'"
                 :type="messageType(message) as 'image' | 'file'"
                 :content="message.content"
+                :outgoing="isSelf(message)"
               />
               <p v-else class="message-text">{{ message.content }}</p>
               <span v-if="Number(message.isBurn) === 1" class="burn-label">阅后即焚</span>
