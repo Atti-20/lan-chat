@@ -52,7 +52,8 @@ function senderAvatar(message: ChatMessage): string | undefined {
 }
 
 function messageType(message: ChatMessage): string {
-  return message.type || message.contentType || 'text'
+  const t = message.type
+  return (t && t !== 'chat') ? t : (message.contentType || 'text')
 }
 
 function canRecall(message: ChatMessage): boolean {
@@ -85,7 +86,6 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
         class="message-row"
         :class="{ 'message-row--self': isSelf(message) }"
       >
-        <UserAvatar class="message-avatar" :name="senderName(message)" :avatar="senderAvatar(message)" :size="34" />
         <div class="message-stack">
           <span v-if="conversation.kind === 'group' && !isSelf(message)" class="sender-name">{{ senderName(message) }}</span>
           <div
@@ -135,9 +135,8 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
 <style scoped>
 .message-thread { position: relative; min-height: 0; padding: 24px clamp(18px, 3vw, 42px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(92,124,156,.2) transparent; }
 .message-list { display: grid; max-width: 880px; padding: 0; margin: 0 auto; gap: 14px; list-style: none; }
-.message-row { display: flex; align-items: flex-end; gap: 9px; }
+.message-row { display: flex; align-items: flex-end; gap: 4px; }
 .message-row--self { flex-direction: row-reverse; }
-.message-avatar { margin-bottom: 20px; }
 .message-stack { display: grid; max-width: min(72%, 620px); gap: 4px; }
 .message-row--self .message-stack { justify-items: end; }
 .sender-name { padding-left: 7px; color: #657a90; font-size: 10px; font-weight: 650; }
@@ -168,14 +167,12 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
 @media (max-width: 760px) {
   .message-thread { padding: 18px 12px; }
   .message-stack { max-width: 82%; }
-  .message-avatar { display: none; }
   .message-actions { opacity: 1; }
 }
 
-.message-thread { padding: 22px clamp(18px, 3vw, 38px); background: #fff; }
+.message-thread { padding: 22px clamp(18px, 3vw, 38px); background: var(--surface); }
 .message-list { max-width: 820px; gap: 12px; }
-.message-row { gap: 8px; }
-.message-row--self .message-avatar { display: none; }
+.message-row { gap: 4px; }
 .message-stack { gap: 3px; }
 .sender-name { color: var(--ink-faint); font-weight: 500; }
 .message-bubble {
@@ -202,10 +199,10 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
   box-shadow: none;
 }
 .typing-pill {
-  border-color: rgba(255, 255, 255, 0.82);
+  border-color: var(--glass-border);
   color: var(--ink-soft);
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 4px 16px rgba(29, 29, 31, 0.08);
+  background: var(--surface-glass);
+  box-shadow: 0 4px 16px var(--shadow-color);
   backdrop-filter: blur(16px) saturate(150%);
 }
 </style>

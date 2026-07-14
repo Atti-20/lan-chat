@@ -7,16 +7,17 @@ import ChatView from './views/ChatView.vue'
 import WelcomeView from './views/WelcomeView.vue'
 
 const auth = useAuth()
+const base = import.meta.env.BASE_URL.replace(/\/$/, '') // e.g. '/app'
 const path = window.location.pathname
 const route = computed(() => {
-  if (path === '/chat') return 'chat'
-  if (path === '/welcome') return 'welcome'
+  if (path === `${base}/chat` || path === '/chat') return 'chat'
+  if (path === `${base}/welcome` || path === '/welcome') return 'welcome'
   return 'auth'
 })
 
 onMounted(() => {
   if (route.value !== 'auth' && !auth.isAuthenticated.value) {
-    window.location.replace('/')
+    window.location.replace(base || '/')
   }
 })
 </script>

@@ -1,21 +1,47 @@
 <script setup lang="ts">
-import { computed, shallowRef } from 'vue'
+import { computed, onMounted, shallowRef } from 'vue'
 import { ApiError } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
+import { readLastUsername } from '../utils/storage'
 
 const auth = useAuth()
 const toast = useToast()
+const base = import.meta.env.BASE_URL.replace(/\/$/, '')
 const mode = shallowRef<'login' | 'register'>('login')
 const username = shallowRef('')
 const password = shallowRef('')
 const nickname = shallowRef('')
 const error = shallowRef('')
+const autoLogging = shallowRef(false)
 
 const heading = computed(() => mode.value === 'login' ? '回到对话' : '创建你的空间')
 const submitLabel = computed(() => {
   if (auth.loading.value) return mode.value === 'login' ? '正在连接…' : '正在创建…'
   return mode.value === 'login' ? '登录 LanChat' : '创建并进入'
+})
+
+onMounted(async () => {
+  // 如果已有有效 session，尝试自动登录
+  if (auth.session.value?.token) {
+    autoLogging.value = true
+    try {
+      const user = await auth.hydrate()
+      if (user) {
+        window.location.assign(`${base}/chat`)
+        return
+      }
+    } catch {
+      // session 无效，继续显示登录页
+    } finally {
+      autoLogging.value = false
+    }
+  }
+  // 回填上次登录的用户名
+  const lastUsername = readLastUsername()
+  if (lastUsername) {
+    username.value = lastUsername
+  }
 })
 
 function switchMode(next: 'login' | 'register'): void {
@@ -46,32 +72,44 @@ async function submit(): Promise<void> {
     if (mode.value === 'login') {
       await auth.login(cleanUsername, password.value)
       toast.push('已安全登录', 'success', 1200)
-      window.location.assign('/chat')
+      window.location.assign(`${base}/chat`)
     } else {
       await auth.register(cleanUsername, password.value, cleanNickname)
       toast.push('账号已创建', 'success', 1200)
-      window.location.assign('/welcome')
+      window.location.assign(`${base}/welcome`)
     }
   } catch (cause) {
-    error.value = cause instanceof ApiError ? cause.message : '操作失败，请稍后重试'
+    const message = cause instanceof ApiError ? cause.message : '操作失败，请稍后重试'
+    error.value = message
+    // 如果错误包含"其他设备"或"已登录"相关信息，显示更友好的提示
+    if (message.includes('已登录') || message.includes('设备') || message.includes('踢')) {
+      toast.push('该账号已在其他设备登录', 'warning', 3000)
+    }
   }
 }
 </script>
 
 <template>
-  <main class="auth-page">
+  <main v-if="autoLogging" class="auth-page auth-page--auto">
+    <div class="auto-login-state">
+      <span class="auto-spinner" />
+      <strong>正在自动登录…</strong>
+    </div>
+  </main>
+  <main v-else class="auth-page">
     <section class="auth-story" aria-label="LanChat 简介">
       <div class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 48 48" fill="none">
-          <path d="M13 14.5h22a5 5 0 0 1 5 5v9a5 5 0 0 1-5 5H24l-9.5 7v-7H13a5 5 0 0 1-5-5v-9a5 5 0 0 1 5-5Z" fill="currentColor" />
-          <path d="M17 23h14M17 28h9" stroke="white" stroke-width="2.5" stroke-linecap="round" />
+          <rect x="6" y="10" width="36" height="24" rx="7" fill="currentColor" opacity="0.12"/>
+          <path d="M12 12h24a6 6 0 0 1 6 6v8a6 6 0 0 1-6 6h-8l-7 6v-6h-9a6 6 0 0 1-6-6v-8a6 6 0 0 1 6-6Z" fill="currentColor"/>
+          <path d="M17 22h14M17 27h8" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
         </svg>
       </div>
 
       <div class="story-copy">
         <p class="eyebrow">LAN / LOCAL / LIVE</p>
-        <h1>让同一网络里的沟通，像水一样自然。</h1>
-        <p class="story-lead">消息、文件和群组都停留在一个安静的工作面上。打开页面，就能继续刚才的对话。</p>
+        <h1>LanChat，轻快自然。</h1>
+        <p class="story-lead">消息、文件、群组，打开即用。</p>
       </div>
 
     </section>
@@ -80,7 +118,7 @@ async function submit(): Promise<void> {
       <div class="auth-card-top">
         <p class="auth-kicker">LanChat</p>
         <h2>{{ heading }}</h2>
-        <p>{{ mode === 'login' ? '输入账号，继续未完成的对话。' : '只需三个信息，就能开始聊天。' }}</p>
+        <p>{{ mode === 'login' ? '输入账号以继续。' : '创建账号，即刻开聊。' }}</p>
       </div>
 
       <div class="mode-switch" role="tablist" aria-label="登录方式">
@@ -119,7 +157,7 @@ async function submit(): Promise<void> {
         </button>
       </form>
 
-      <p class="privacy-note">访问令牌只保存在当前浏览器；退出登录后立即失效。</p>
+      <p class="privacy-note">令牌仅存于本地，退出即失效。</p>
     </section>
   </main>
 </template>
@@ -263,7 +301,7 @@ async function submit(): Promise<void> {
 .auth-form { display: grid; gap: 18px; }
 .field-group { display: grid; gap: 8px; }
 .field-group > span { color: #35506e; font-size: 13px; font-weight: 700; }
-.form-error { margin: -4px 0 0; color: #c93f49; font-size: 13px; line-height: 1.5; }
+.form-error { margin: -4px 0 0; color: var(--coral); font-size: 13px; line-height: 1.5; }
 .submit-button { display: flex; width: 100%; margin-top: 4px; align-items: center; justify-content: center; gap: 8px; }
 .submit-button svg { width: 18px; }
 .privacy-note { margin: 22px 0 0; color: #6f8297; font-size: 11px; line-height: 1.6; text-align: center; }
@@ -297,8 +335,8 @@ async function submit(): Promise<void> {
   border: 0;
   border-radius: 17px;
   color: var(--blue);
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 6px 18px rgba(29, 29, 31, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+  background: var(--surface-glass);
+  box-shadow: 0 6px 18px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   transform: none;
   backdrop-filter: blur(16px) saturate(150%);
 }
@@ -324,8 +362,8 @@ async function submit(): Promise<void> {
 .auth-card {
   padding: 32px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.76);
-  box-shadow: 0 14px 42px rgba(29, 29, 31, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+  background: var(--surface-raise);
+  box-shadow: 0 14px 42px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
 }
 .auth-card-top h2 { font-size: 27px; }
 .mode-switch {
@@ -333,20 +371,26 @@ async function submit(): Promise<void> {
   margin: 24px 0 22px;
   border: 0;
   border-radius: 13px;
-  background: rgba(118, 118, 128, 0.1);
+  background: var(--hover-strong);
 }
 .mode-lens {
   height: 36px;
-  border-color: rgba(255, 255, 255, 0.84);
+  border-color: var(--glass-border);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 2px 8px rgba(29, 29, 31, 0.08), inset 0 1px 0 #fff;
+  background: var(--surface-glass);
+  box-shadow: 0 2px 8px var(--shadow-color), inset 0 1px 0 var(--highlight);
   backdrop-filter: blur(16px) saturate(150%);
 }
 .mode-lens--right { border-radius: 10px; }
 .auth-form { gap: 16px; }
 .field-group > span { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
 .privacy-note { color: var(--ink-faint); }
+
+.auth-page--auto { display: grid; place-items: center; grid-template-columns: 1fr; }
+.auto-login-state { display: grid; justify-items: center; gap: 14px; }
+.auto-spinner { width: 28px; height: 28px; border: 2px solid rgba(0, 122, 255, 0.16); border-top-color: var(--blue); border-radius: 50%; animation: auth-spin 0.8s linear infinite; }
+.auto-login-state strong { font-size: 14px; color: var(--ink-soft); }
+@keyframes auth-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 860px) {
   .auth-page { width: min(520px, calc(100% - 28px)); grid-template-columns: 1fr; gap: 28px; padding: 26px 0; }

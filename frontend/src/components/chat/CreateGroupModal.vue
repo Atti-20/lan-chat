@@ -39,32 +39,52 @@ function submit(): void {
 
 <template>
   <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="modal-sheet glass-surface" role="dialog" aria-modal="true" aria-labelledby="group-title">
-      <header>
-        <div><h2 id="group-title">创建群聊</h2></div>
-        <button type="button" aria-label="关闭" @click="emit('close')">×</button>
-      </header>
+    <section class="group-sheet" role="dialog" aria-modal="true" aria-labelledby="group-title">
+      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+
+      <h2 id="group-title">创建群聊</h2>
+
       <label class="group-name">
         <span>群聊名称</span>
         <input v-model="name" class="field" autofocus maxlength="20" placeholder="例如：产品讨论组" />
       </label>
-      <div class="member-heading"><strong>邀请好友</strong><span>已选 {{ selectedIds.length }} 人</span></div>
-      <div class="friend-grid">
-        <button
+
+      <div class="member-heading">
+        <span class="member-label">邀请好友</span>
+        <span class="member-count">已选 {{ selectedIds.length }} 人</span>
+      </div>
+
+      <div class="friend-list">
+        <div
           v-for="friend in friends"
           :key="friend.friendId"
-          type="button"
-          :class="{ selected: selectedIds.includes(friend.friendId) }"
-          :aria-pressed="selectedIds.includes(friend.friendId)"
+          class="friend-row"
+          :class="{ 'friend-row--selected': selectedIds.includes(friend.friendId) }"
+          role="checkbox"
+          :aria-checked="selectedIds.includes(friend.friendId)"
+          tabindex="0"
           @click="toggle(friend.friendId)"
+          @keydown.enter.space.prevent="toggle(friend.friendId)"
         >
-          <UserAvatar :name="friend.remark || friend.nickname" :avatar="friend.avatar" :size="42" />
-          <span>{{ friend.remark || friend.nickname }}</span>
-          <i>✓</i>
-        </button>
-        <p v-if="friends.length === 0">先添加好友，再邀请他们进入群聊。</p>
+          <UserAvatar :name="friend.remark || friend.nickname" :avatar="friend.avatar" :size="38" />
+          <span class="friend-name">{{ friend.remark || friend.nickname }}</span>
+          <span class="checkbox">
+            <svg v-if="selectedIds.includes(friend.friendId)" viewBox="0 0 24 24" fill="none">
+              <path d="M5 13l4 4L19 7" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </div>
+        <p v-if="friends.length === 0" class="empty-tip">先添加好友，再邀请他们进入群聊。</p>
       </div>
-      <button class="primary-button create-button" type="button" :disabled="name.trim().length < 2 || saving" @click="submit">
+
+      <button
+        class="primary-button create-button"
+        type="button"
+        :disabled="name.trim().length < 2 || saving"
+        @click="submit"
+      >
         {{ saving ? '正在创建…' : `创建群聊${selectedIds.length ? ` · ${selectedIds.length + 1} 人` : ''}` }}
       </button>
     </section>
@@ -72,42 +92,150 @@ function submit(): void {
 </template>
 
 <style scoped>
-.modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; padding: 20px; place-items: center; background: rgba(39,64,92,.18); backdrop-filter: blur(10px); }
-.modal-sheet { display: flex; width: min(100%, 520px); max-height: min(760px, 90dvh); padding: 24px; flex-direction: column; border-radius: 30px 30px 30px 15px; }
-.modal-sheet header { display: flex; align-items: start; justify-content: space-between; }.modal-sheet header p { margin: 0 0 4px; color: #4f80ad; font-family: "SF Mono", monospace; font-size: 9px; font-weight: 700; letter-spacing: .14em; }.modal-sheet h2 { margin: 0; font-size: 25px; letter-spacing: -.04em; }.modal-sheet header button { width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.72); border-radius: 13px; color: #60748a; font-size: 22px; background: rgba(255,255,255,.45); cursor: pointer; }
-.group-name { display: grid; margin-top: 22px; gap: 8px; }.group-name > span,.member-heading strong { color: #526c85; font-size: 11px; font-weight: 700; }
-.member-heading { display: flex; margin: 20px 0 9px; align-items: center; justify-content: space-between; }.member-heading span { color: var(--blue); font-size: 10px; font-weight: 700; }
-.friend-grid { display: grid; min-height: 140px; max-height: 310px; padding-right: 3px; overflow-y: auto; grid-template-columns: 1fr 1fr; gap: 7px; }
-.friend-grid button { position: relative; display: flex; min-width: 0; padding: 9px; align-items: center; gap: 9px; border: 1px solid rgba(255,255,255,.54); border-radius: 16px; text-align: left; background: rgba(255,255,255,.3); cursor: pointer; }
-.friend-grid button > span { overflow: hidden; flex: 1; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.friend-grid button i { display: grid; width: 19px; height: 19px; place-items: center; border: 1px solid rgba(112,139,166,.24); border-radius: 7px; color: transparent; font-size: 10px; font-style: normal; }
-.friend-grid button.selected { border-color: rgba(10,132,255,.3); background: rgba(215,237,255,.62); }.friend-grid button.selected i { border-color: transparent; color: white; background: var(--blue); }
-.friend-grid > p { grid-column: 1 / -1; margin: 40px 0; color: var(--ink-soft); font-size: 12px; text-align: center; }
-.create-button { width: 100%; margin-top: 20px; }
-@media (max-width: 480px) { .friend-grid { grid-template-columns: 1fr; } }
-
-.modal-backdrop { background: rgba(28, 28, 30, 0.18); backdrop-filter: blur(7px); }
-.modal-sheet {
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 20px 60px rgba(29, 29, 31, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+.modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: var(--backdrop);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
 }
-.modal-sheet h2 { font-size: 23px; }
-.modal-sheet header button {
+
+.group-sheet {
+  position: relative;
+  display: flex;
+  width: min(100%, 440px);
+  max-height: calc(100dvh - 40px);
+  padding: 28px 26px 22px;
+  flex-direction: column;
+  border-radius: 22px;
+  background: var(--surface-raise);
+  box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
+  overflow: hidden;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+.close-button {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
   width: 34px;
   height: 34px;
+  padding: 0;
+  place-items: center;
   border: 0;
   border-radius: 50%;
   color: var(--ink-soft);
   background: var(--fill);
+  cursor: pointer;
 }
-.group-name > span,
-.member-heading strong { color: var(--ink-soft); font-weight: 600; }
-.friend-grid button {
-  border: 0;
+.close-button:hover { background: var(--button-hover); }
+.close-button svg { width: 16px; }
+
+.group-sheet h2 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.group-name {
+  display: grid;
+  margin-top: 18px;
+  gap: 7px;
+}
+.group-name > span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.member-heading {
+  display: flex;
+  margin: 18px 0 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.member-label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+.member-count {
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.friend-list {
+  min-height: 80px;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--separator-strong) transparent;
+}
+
+.friend-row {
+  display: flex;
+  padding: 8px 10px;
+  align-items: center;
+  gap: 11px;
   border-radius: 12px;
-  background: var(--fill);
+  cursor: pointer;
+  transition: background-color 150ms ease;
 }
-.friend-grid button.selected { background: rgba(0, 122, 255, 0.09); }
-.friend-grid button.selected i { background: var(--blue); }
+.friend-row:hover {
+  background: var(--hover);
+}
+.friend-row--selected {
+  background: var(--active);
+}
+.friend-row--selected:hover {
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+}
+
+.friend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checkbox {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid var(--separator-strong);
+  border-radius: 7px;
+  background: transparent;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.checkbox svg { width: 14px; }
+.friend-row--selected .checkbox {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+
+.empty-tip {
+  margin: 40px 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-align: center;
+}
+
+.create-button {
+  width: 100%;
+  margin-top: 16px;
+  flex-shrink: 0;
+}
 </style>

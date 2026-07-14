@@ -128,8 +128,8 @@ function confirmDelete(user: AdminUser): void {
 </template>
 
 <style scoped>
-.admin-backdrop { position: fixed; z-index: 120; inset: 0; display: grid; padding: 24px; place-items: center; background: rgba(28, 28, 30, .22); backdrop-filter: blur(9px); }
-.admin-console { width: min(1120px, 100%); max-height: min(780px, calc(100dvh - 48px)); overflow: hidden; border: 1px solid rgba(255,255,255,.9); border-radius: 24px; background: rgba(255,255,255,.94); box-shadow: 0 28px 80px rgba(24,35,52,.2), inset 0 1px 0 white; }
+.admin-backdrop { position: fixed; z-index: 120; inset: 0; display: grid; padding: 24px; place-items: center; background: var(--backdrop); backdrop-filter: blur(9px); }
+.admin-console { width: min(1120px, 100%); max-height: min(780px, calc(100dvh - 48px)); overflow: hidden; border: 1px solid var(--glass-border); border-radius: 24px; background: var(--surface-raise); box-shadow: 0 28px 80px var(--shadow-color), inset 0 1px 0 var(--highlight-soft); }
 .admin-header { display: flex; padding: 22px 24px; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--separator); }
 .admin-header p { margin: 0 0 5px; color: var(--blue); font-size: 9px; font-weight: 800; letter-spacing: .16em; }
 .admin-header h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
@@ -137,27 +137,27 @@ function confirmDelete(user: AdminUser): void {
 .header-actions { display: flex; align-items: center; gap: 8px; }
 .header-actions button,
 .row-actions button,
-.mute-fields button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 10px; color: var(--blue); font-size: 11px; font-weight: 700; background: rgba(0,122,255,.09); cursor: pointer; }
+.mute-fields button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 10px; color: var(--blue); font-size: 11px; font-weight: 700; background: var(--active); cursor: pointer; }
 .header-actions button:disabled,
 .row-actions button:disabled,
 .mute-fields button:disabled { opacity: .45; cursor: default; }
 .header-actions .close-button { width: 36px; min-height: 36px; padding: 0; border-radius: 50%; color: var(--ink-soft); font-size: 22px; background: var(--fill); }
 .admin-table-wrap { max-height: calc(min(780px, 100dvh - 48px) - 106px); overflow: auto; }
 .admin-table { width: 100%; border-collapse: collapse; }
-.admin-table th { position: sticky; z-index: 1; top: 0; padding: 12px 18px; color: var(--ink-faint); text-align: left; font-size: 10px; font-weight: 700; background: rgba(247,248,250,.96); }
+.admin-table th { position: sticky; z-index: 1; top: 0; padding: 12px 18px; color: var(--ink-faint); text-align: left; font-size: 10px; font-weight: 700; background: var(--surface-raise); }
 .admin-table td { padding: 14px 18px; border-top: 1px solid var(--separator); vertical-align: middle; }
 .user-cell { display: flex; min-width: 180px; align-items: center; gap: 10px; }
-.user-cell > span { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: var(--blue); font-size: 13px; font-weight: 800; background: rgba(0,122,255,.09); }
+.user-cell > span { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: var(--blue); font-size: 13px; font-weight: 800; background: var(--active); }
 .user-cell div { display: grid; gap: 3px; }
 .user-cell strong { font-size: 12px; }
 .user-cell small { color: var(--ink-faint); font-size: 9px; }
-.status-badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: #168548; font-size: 10px; font-weight: 700; background: rgba(52,199,89,.12); }
-.status-badge.banned { color: #c43c46; background: rgba(255,59,48,.1); }
+.status-badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: var(--green); font-size: 10px; font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
+.status-badge.banned { color: var(--coral); background: color-mix(in srgb, var(--coral) 10%, transparent); }
 .mute-fields { display: flex; min-width: 260px; align-items: center; gap: 6px; }
-.mute-fields input { width: 92px; height: 34px; padding: 0 8px; border: 1px solid var(--separator); border-radius: 9px; color: var(--ink); font: inherit; background: white; }
+.mute-fields input { width: 92px; height: 34px; padding: 0 8px; border: 1px solid var(--separator); border-radius: 9px; color: var(--ink); font: inherit; background: var(--surface); }
 .mute-fields span { color: var(--ink-faint); font-size: 10px; }
 .row-actions { display: flex; min-width: 112px; gap: 7px; }
-.row-actions .danger-button { color: #c43c46; background: rgba(255,59,48,.09); }
+.row-actions .danger-button { color: var(--coral); background: color-mix(in srgb, var(--coral) 9%, transparent); }
 .protected-copy { color: var(--ink-faint); font-size: 10px; }
 .empty-cell { height: 180px; color: var(--ink-soft); text-align: center !important; font-size: 12px; }
 

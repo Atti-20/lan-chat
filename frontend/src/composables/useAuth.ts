@@ -1,7 +1,7 @@
 import { computed, readonly, ref } from 'vue'
 import { api } from '../services/api'
 import type { AuthSession, User } from '../types'
-import { clearSession, readSession, writeSession } from '../utils/storage'
+import { clearSession, readSession, writeLastUsername, writeSession } from '../utils/storage'
 
 const session = ref<AuthSession | null>(readSession())
 const currentUser = ref<User | null>(null)
@@ -23,6 +23,7 @@ export function useAuth() {
         avatar: data.avatar,
       }
       writeSession(data)
+      writeLastUsername(username)
     } finally {
       loading.value = false
     }

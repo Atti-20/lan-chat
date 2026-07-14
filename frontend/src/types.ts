@@ -113,6 +113,16 @@ export interface FileUpload {
   instantUpload?: boolean
 }
 
+export interface DeviceLogin {
+  id: number
+  userId: number
+  deviceType: string
+  deviceName: string
+  loginTime: string
+  expireTime?: string
+  status: number
+}
+
 export interface WsEnvelope extends Partial<ChatMessage> {
   type: string
 }

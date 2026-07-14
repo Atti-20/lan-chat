@@ -1,109 +1,362 @@
 <script setup lang="ts">
+import { shallowRef, watch } from 'vue'
 import type { Conversation, GroupMember } from '../../types'
 import UserAvatar from '../base/UserAvatar.vue'
 
 interface Props {
+  open: boolean
   conversation: Conversation
   members: readonly GroupMember[]
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 const emit = defineEmits<{
+  close: []
   togglePin: []
   toggleMute: []
   deleteFriend: []
+  updateRemark: [remark: string]
 }>()
+
+const editingRemark = shallowRef(false)
+const remarkInput = shallowRef('')
+const remarkSaving = shallowRef(false)
+
+// 获取好友的原始昵称（从 source 中取）
+function friendNickname(): string {
+  const src = props.conversation.source as Record<string, unknown> | undefined
+  return (src?.nickname as string) || props.conversation.name
+}
+
+function friendRemark(): string {
+  const src = props.conversation.source as Record<string, unknown> | undefined
+  return (src?.remark as string) || ''
+}
+
+watch(() => props.open, (open) => {
+  if (open) {
+    editingRemark.value = false
+    remarkInput.value = friendRemark()
+  }
+})
+
+function startEditRemark(): void {
+  remarkInput.value = friendRemark()
+  editingRemark.value = true
+}
+
+function cancelEditRemark(): void {
+  editingRemark.value = false
+}
+
+function saveRemark(): void {
+  const value = remarkInput.value.trim()
+  remarkSaving.value = true
+  emit('updateRemark', value)
+  // 外层会异步处理，这里直接关闭编辑态
+  editingRemark.value = false
+  remarkSaving.value = false
+}
 </script>
 
 <template>
-  <aside class="context-panel">
-    <div class="context-profile">
-      <UserAvatar :name="conversation.name" :avatar="conversation.avatar" :size="72" :online="conversation.online" />
-      <strong>{{ conversation.name }}</strong>
-      <span>{{ conversation.kind === 'group' ? `${members.length} 位成员` : (conversation.online ? '现在在线' : '当前离线') }}</span>
-      <p>{{ conversation.subtitle || (conversation.kind === 'group' ? '这个群还没有公告。' : '这个人还没有填写签名。') }}</p>
-    </div>
-
-    <template v-if="conversation.kind === 'private'">
-      <div class="context-actions">
-        <button type="button" @click="emit('togglePin')">
-          <span aria-hidden="true">⌁</span>
-          <strong>{{ conversation.pinned ? '取消置顶' : '置顶对话' }}</strong>
+  <Teleport to="body">
+    <div v-if="open" class="context-backdrop" role="presentation" @click.self="emit('close')">
+      <aside class="context-panel" role="dialog" aria-modal="true" aria-label="详情">
+        <button class="context-close" type="button" aria-label="关闭" @click="emit('close')">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
-        <button type="button" @click="emit('toggleMute')">
-          <span aria-hidden="true">◌</span>
-          <strong>{{ conversation.muted ? '恢复提醒' : '消息免打扰' }}</strong>
-        </button>
-      </div>
-      <button class="danger-action" type="button" @click="emit('deleteFriend')">删除好友</button>
-    </template>
 
-    <div v-else class="member-section">
-      <div class="member-heading">
-        <strong>群成员</strong>
-        <span>{{ members.length }}</span>
-      </div>
-      <div class="member-list">
-        <div v-for="member in members.slice(0, 12)" :key="member.userId" class="member-item">
-          <UserAvatar :name="member.nickname" :avatar="member.avatar" :size="34" :online="member.online === 1" />
-          <span><strong>{{ member.nickname }}</strong><small>{{ member.role === 2 ? '群主' : member.role === 1 ? '管理员' : '成员' }}</small></span>
+        <div class="context-profile">
+          <UserAvatar :name="conversation.name" :avatar="conversation.avatar" :size="72" :online="conversation.online" />
+          <strong>{{ conversation.name }}</strong>
+          <span class="status-line">{{ conversation.kind === 'group' ? `${members.length} 位成员` : (conversation.online ? '在线' : '离线') }}</span>
+          <p v-if="conversation.subtitle" class="bio">{{ conversation.subtitle }}</p>
         </div>
-      </div>
+
+        <template v-if="conversation.kind === 'private'">
+          <!-- 备注管理 -->
+          <div class="remark-section">
+            <div class="remark-header">
+              <span class="remark-label">好友备注</span>
+              <button v-if="!editingRemark" class="remark-edit-btn" type="button" @click="startEditRemark">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M15.2 3.8a2.4 2.4 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4L9 20H4v-5L15.2 3.8Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                编辑
+              </button>
+            </div>
+            <div v-if="editingRemark" class="remark-edit">
+              <input
+                v-model="remarkInput"
+                class="field remark-field"
+                maxlength="50"
+                placeholder="输入备注名称"
+                autofocus
+                @keydown.enter.prevent="saveRemark"
+                @keydown.escape="cancelEditRemark"
+              />
+              <div class="remark-actions">
+                <button type="button" class="remark-cancel" @click="cancelEditRemark">取消</button>
+                <button type="button" class="remark-save" :disabled="remarkSaving" @click="saveRemark">保存</button>
+              </div>
+            </div>
+            <p v-else class="remark-display">
+              <template v-if="friendRemark()">{{ friendRemark() }}</template>
+              <span v-else class="remark-empty">昵称：{{ friendNickname() }}</span>
+            </p>
+          </div>
+
+          <div class="action-list">
+            <button type="button" @click="emit('togglePin')">
+              <span class="action-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 17-5 5V3a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v19l-5-5Z"/></svg>
+              </span>
+              <span>{{ conversation.pinned ? '取消置顶' : '置顶对话' }}</span>
+            </button>
+            <button type="button" @click="emit('toggleMute')">
+              <span class="action-icon">
+                <svg v-if="!conversation.muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.7 3A6 6 0 0 1 18 8c0 2.4.5 4.3 1.2 5.7"/><path d="M3 17h10.4"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/><path d="M6 8a6 6 0 0 0-.5 2c0 3.3-1 5.8-2.5 7"/><path d="m2 2 20 20"/></svg>
+              </span>
+              <span>{{ conversation.muted ? '恢复提醒' : '消息免打扰' }}</span>
+            </button>
+          </div>
+
+          <button class="danger-action" type="button" @click="emit('deleteFriend')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            <span>删除好友</span>
+          </button>
+        </template>
+
+        <div v-else class="member-section">
+          <div class="member-heading">
+            <strong>群成员</strong>
+            <span>{{ members.length }}</span>
+          </div>
+          <div class="member-list">
+            <div v-for="member in members.slice(0, 12)" :key="member.userId" class="member-item">
+              <UserAvatar :name="member.nickname" :avatar="member.avatar" :size="34" :online="member.online === 1" />
+              <span><strong>{{ member.nickname }}</strong><small>{{ member.role === 2 ? '群主' : member.role === 1 ? '管理员' : '成员' }}</small></span>
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
-  </aside>
+  </Teleport>
 </template>
 
 <style scoped>
-.context-panel { display: flex; width: 244px; min-width: 0; min-height: 0; padding: 22px 16px; flex-direction: column; border-radius: 18px 28px 28px 18px; overflow-y: auto; }
-.context-profile { display: grid; padding: 8px 8px 22px; justify-items: center; text-align: center; }
-.context-profile > strong { margin-top: 13px; font-size: 17px; letter-spacing: -.02em; }
-.context-profile > span { margin-top: 3px; color: #4380b7; font-size: 10px; font-weight: 650; }
-.context-profile p { margin: 13px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.6; }
-.context-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.context-actions button { display: grid; min-height: 82px; padding: 10px 6px; place-items: center; align-content: center; gap: 7px; border: 1px solid rgba(255,255,255,.7); border-radius: 17px 17px 17px 9px; color: #536e88; background: rgba(255,255,255,.38); box-shadow: inset 0 1px 0 rgba(255,255,255,.86); cursor: pointer; }
-.context-actions button:hover { color: var(--blue); background: rgba(255,255,255,.64); }
-.context-actions span { font-size: 22px; }
-.context-actions strong { font-size: 10px; }
-.danger-action { min-height: 42px; margin-top: auto; border: 1px solid rgba(255,107,107,.18); border-radius: 14px; color: #cf4350; font-size: 11px; font-weight: 700; background: rgba(255,107,107,.08); cursor: pointer; }
-.member-section { min-height: 0; }
-.member-heading { display: flex; padding: 12px 4px 10px; align-items: center; justify-content: space-between; }
-.member-heading strong { font-size: 12px; }
-.member-heading span { display: grid; min-width: 23px; height: 20px; padding: 0 5px; place-items: center; border-radius: 8px; color: var(--blue); font-size: 9px; background: rgba(10,132,255,.1); }
-.member-list { display: grid; gap: 4px; }
-.member-item { display: flex; padding: 7px 5px; align-items: center; gap: 9px; border-radius: 13px; }
-.member-item:hover { background: rgba(255,255,255,.36); }
-.member-item > span { display: grid; min-width: 0; gap: 2px; }
-.member-item strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.member-item small { color: var(--ink-soft); font-size: 8px; }
-@media (max-width: 1180px) { .context-panel { display: none; } }
+.context-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--backdrop);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+}
 
 .context-panel {
-  width: 230px;
-  padding: 22px 16px;
-  border-left: 1px solid var(--separator);
-  border-radius: 0;
-  background: var(--panel-muted);
-}
-.context-profile { padding-bottom: 20px; }
-.context-profile > strong { font-size: 16px; }
-.context-profile > span { color: var(--ink-faint); font-weight: 500; }
-.context-actions { grid-template-columns: 1fr; gap: 6px; }
-.context-actions button {
+  position: relative;
   display: flex;
-  min-height: 46px;
-  padding: 0 12px;
-  place-items: initial;
-  justify-content: flex-start;
-  gap: 10px;
-  border: 0;
-  border-radius: 11px;
-  background: #fff;
-  box-shadow: none;
+  width: min(100%, 320px);
+  max-height: calc(100dvh - 60px);
+  padding: 32px 24px 24px;
+  flex-direction: column;
+  gap: 16px;
+  border-radius: 22px;
+  background: var(--surface-raise);
+  box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
+  overflow-y: auto;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
 }
-.context-actions button:hover { background: #ececf1; }
-.context-actions span { width: 22px; font-size: 17px; }
-.context-actions strong { font-size: 11px; }
-.danger-action { border: 0; border-radius: 11px; background: rgba(255, 59, 48, 0.08); }
-.member-item { border-radius: 10px; }
-.member-item:hover { background: rgba(118, 118, 128, 0.08); }
+
+.context-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-soft);
+  background: var(--fill);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.context-close:hover { background: var(--button-hover); }
+.context-close svg { width: 15px; }
+
+.context-profile {
+  display: grid;
+  padding: 4px 0 0;
+  justify-items: center;
+  text-align: center;
+}
+.context-profile > strong { margin-top: 12px; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.status-line { margin-top: 3px; color: var(--ink-faint); font-size: 12px; font-weight: 500; }
+.bio { margin: 10px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+
+/* 备注 */
+.remark-section {
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--fill);
+}
+.remark-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.remark-label {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+.remark-edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+  background: none;
+  cursor: pointer;
+}
+.remark-edit-btn:hover { text-decoration: underline; }
+.remark-edit-btn svg { width: 12px; }
+
+.remark-display {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  word-break: break-all;
+}
+.remark-empty {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+.remark-edit { display: grid; gap: 8px; }
+.remark-field {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--separator, #e5e5ea);
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--surface);
+  outline: none;
+  transition: border-color 150ms ease;
+}
+.remark-field:focus { border-color: var(--blue); }
+.remark-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.remark-actions button {
+  min-height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.remark-cancel { color: var(--ink); background: var(--button-hover); }
+.remark-cancel:hover { background: var(--button-hover-strong); }
+.remark-save { color: #fff; background: var(--blue); }
+.remark-save:hover { background: color-mix(in srgb, var(--blue) 88%, #000); }
+.remark-save:disabled { opacity: 0.5; }
+
+.action-list { display: grid; gap: 4px; }
+.action-list button {
+  display: flex;
+  height: 48px;
+  padding: 0 14px;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-radius: 14px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--fill);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.action-list button:hover { background: var(--button-hover); }
+.action-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--blue);
+  background: rgba(0, 122, 255, 0.08);
+}
+.action-icon svg { width: 17px; }
+
+.danger-action {
+  display: flex;
+  height: 48px;
+  padding: 0 14px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 14px;
+  color: var(--coral);
+  font-size: 13px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--coral) 8%, transparent);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.danger-action:hover { background: color-mix(in srgb, var(--coral) 14%, transparent); }
+.danger-action svg { width: 16px; }
+
+.member-section { min-height: 0; }
+.member-heading {
+  display: flex;
+  padding: 4px 4px 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.member-heading strong { font-size: 13px; }
+.member-heading span {
+  display: grid;
+  min-width: 23px;
+  height: 22px;
+  padding: 0 6px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(0, 122, 255, 0.09);
+}
+
+.member-list { display: grid; gap: 2px; }
+.member-item {
+  display: flex;
+  padding: 8px 6px;
+  align-items: center;
+  gap: 10px;
+  border-radius: 11px;
+  transition: background-color 150ms ease;
+}
+.member-item:hover { background: var(--hover); }
+.member-item > span { display: grid; min-width: 0; gap: 2px; }
+.member-item strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.member-item small { color: var(--ink-soft); font-size: 9px; }
+
+@media (max-width: 520px) {
+  .context-panel { width: calc(100% - 32px); padding: 28px 18px 18px; border-radius: 20px; }
+}
 </style>

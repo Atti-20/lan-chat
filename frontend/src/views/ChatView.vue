@@ -2,9 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import AdminConsoleModal from '../components/admin/AdminConsoleModal.vue'
 import AppRail from '../components/chat/AppRail.vue'
+import ChangePasswordModal from '../components/chat/ChangePasswordModal.vue'
 import ContextPanel from '../components/chat/ContextPanel.vue'
 import ConversationSidebar from '../components/chat/ConversationSidebar.vue'
 import CreateGroupModal from '../components/chat/CreateGroupModal.vue'
+import DeviceManagerModal from '../components/chat/DeviceManagerModal.vue'
 import MessageComposer from '../components/chat/MessageComposer.vue'
 import MessageThread from '../components/chat/MessageThread.vue'
 import ProfileModal from '../components/chat/ProfileModal.vue'
@@ -45,6 +47,9 @@ const searchOpen = shallowRef(false)
 const groupOpen = shallowRef(false)
 const profileOpen = shallowRef(false)
 const adminOpen = shallowRef(false)
+const contextOpen = shallowRef(false)
+const devicesOpen = shallowRef(false)
+const passwordOpen = shallowRef(false)
 const groupSaving = shallowRef(false)
 const profileSaving = shallowRef(false)
 const uploading = shallowRef(false)
@@ -58,7 +63,7 @@ const user = computed<User>(() => auth.currentUser.value || {
   nickname: auth.session.value?.nickname || 'LanChat 用户',
   avatar: auth.session.value?.avatar,
 })
-const showSidebar = computed(() => !mobile.value || !selected.value || section.value === 'requests')
+const showSidebar = computed(() => !mobile.value || !selected.value)
 const showWorkspace = computed(() => !mobile.value || Boolean(selected.value))
 const friendIds = computed(() => friends.value.map((friend) => friend.friendId))
 const connectionCopy = computed(() => reconnecting.value ? '正在重连' : connected.value ? '实时在线' : '连接已断开')
@@ -190,12 +195,21 @@ async function toggleMute(): Promise<void> {
 }
 
 async function deleteFriend(): Promise<void> {
-  if (!window.confirm(`确定删除好友“${selected.value?.name || ''}”吗？聊天记录会保留。`)) return
+  if (!window.confirm(`确定删除好友"${selected.value?.name || ''}"吗？聊天记录会保留。`)) return
   try {
     await chat.deleteFriend()
     toast.push('好友已删除')
   } catch (cause) {
     handleError(cause, '删除好友失败')
+  }
+}
+
+async function updateRemark(remark: string): Promise<void> {
+  try {
+    await chat.updateRemark(remark)
+    toast.push(remark ? '备注已更新' : '备注已清除', 'success')
+  } catch (cause) {
+    handleError(cause, '修改备注失败')
   }
 }
 
@@ -215,7 +229,6 @@ function handleError(cause: unknown, fallback: string): void {
       v-else
       class="chat-shell"
       :class="{
-        'chat-shell--context': selected,
         'chat-shell--thread': mobile && selected,
       }"
     >
@@ -249,11 +262,13 @@ function handleError(cause: unknown, fallback: string): void {
           <button v-if="mobile" class="back-button" type="button" aria-label="返回会话列表" @click="selected = null">
             <svg viewBox="0 0 24 24" fill="none"><path d="m15 5-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <UserAvatar :name="selected.name" :avatar="selected.avatar" :size="42" :online="selected.online" />
-          <div class="workspace-title">
-            <strong>{{ selected.name }}</strong>
-            <span><i :class="{ offline: !connected }" /> {{ connectionCopy }}</span>
-          </div>
+          <button class="header-profile" type="button" aria-label="查看详情" @click="contextOpen = true">
+            <UserAvatar :name="selected.name" :avatar="selected.avatar" :size="42" />
+            <div class="workspace-title">
+              <strong>{{ selected.name }}</strong>
+              <span><i :class="{ offline: !connected }" /> {{ connectionCopy }}</span>
+            </div>
+          </button>
         </header>
 
         <MessageThread
@@ -281,7 +296,7 @@ function handleError(cause: unknown, fallback: string): void {
 
       <section v-else-if="showWorkspace" class="workspace workspace--empty">
         <div class="empty-prism" aria-hidden="true">
-          <svg viewBox="0 0 72 72" fill="none"><path d="M17 19h38a9 9 0 0 1 9 9v13a9 9 0 0 1-9 9H36L20 62V50h-3a9 9 0 0 1-9-9V28a9 9 0 0 1 9-9Z" fill="currentColor"/><path d="M24 31h24M24 39h16" stroke="white" stroke-width="4" stroke-linecap="round"/></svg>
+          <svg viewBox="0 0 72 72" fill="none"><path d="M18 18h36a8 8 0 0 1 8 8v14a8 8 0 0 1-8 8H38l-12 10V48h-8a8 8 0 0 1-8-8V26a8 8 0 0 1 8-8Z" fill="currentColor"/><path d="M26 31h20M26 38h12" stroke="white" stroke-width="3.5" stroke-linecap="round"/></svg>
         </div>
         <h2>选择一段对话</h2>
         <p>左侧是最近的消息、好友与群组。<br />选中后，就能从上次停下的地方继续。</p>
@@ -289,12 +304,14 @@ function handleError(cause: unknown, fallback: string): void {
       </section>
 
       <ContextPanel
-        v-if="selected"
-        :conversation="selected"
+        :open="contextOpen"
+        :conversation="selected!"
         :members="members"
+        @close="contextOpen = false"
         @toggle-pin="togglePin"
         @toggle-mute="toggleMute"
         @delete-friend="deleteFriend"
+        @update-remark="updateRemark"
       />
     </div>
 
@@ -319,6 +336,17 @@ function handleError(cause: unknown, fallback: string): void {
       @close="profileOpen = false"
       @save="saveProfile"
       @logout="logout"
+      @open-devices="profileOpen = false; devicesOpen = true"
+      @open-password="profileOpen = false; passwordOpen = true"
+    />
+    <DeviceManagerModal
+      :open="devicesOpen"
+      @close="devicesOpen = false"
+    />
+    <ChangePasswordModal
+      :open="passwordOpen"
+      @close="passwordOpen = false"
+      @password-changed="logout"
     />
     <AdminConsoleModal
       :open="adminOpen"
@@ -337,16 +365,15 @@ function handleError(cause: unknown, fallback: string): void {
 <style scoped>
 .chat-page { min-height: 100dvh; padding: 18px; }
 .chat-shell { display: grid; width: min(100%, 1680px); height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: 78px 330px minmax(0, 1fr); gap: 10px; }
-.chat-shell--context { grid-template-columns: 78px 330px minmax(0, 1fr) 244px; }
 .workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: 76px minmax(0, 1fr) auto; border-radius: 18px; overflow: hidden; }
 .workspace-header { display: flex; padding: 14px 19px; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.54); background: rgba(255,255,255,.16); }
 .workspace-title { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .workspace-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-title span { color: #4d7ea7; font-size: 9px; font-weight: 650; }
 .workspace-title i { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(48,209,88,.1); }
-.workspace-title i.offline { background: #9aa8b7; box-shadow: none; }
+.workspace-title i.offline { background: var(--ink-faint); box-shadow: none; }
 .workspace-more,
-.back-button { display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid rgba(255,255,255,.7); border-radius: 13px; color: #60748a; background: rgba(255,255,255,.42); cursor: pointer; }
+.back-button { display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid var(--glass-border); border-radius: 13px; color: var(--ink-faint); background: var(--surface-glass); cursor: pointer; }
 .workspace-more svg { width: 21px; }.back-button { display: none; }.back-button svg { width: 21px; }
 .workspace--empty { place-items: center; align-content: center; text-align: center; grid-template-rows: auto; }
 .empty-prism { position: relative; display: grid; width: 150px; height: 150px; margin-bottom: 22px; place-items: center; border: 1px solid rgba(255,255,255,.74); border-radius: 46% 54% 52% 48%; color: var(--blue); background: linear-gradient(145deg, rgba(255,255,255,.66), rgba(205,233,255,.35)); box-shadow: inset 0 1px 0 #fff, 0 24px 46px rgba(52,91,132,.14); transform: rotate(-4deg); }
@@ -360,13 +387,11 @@ function handleError(cause: unknown, fallback: string): void {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1180px) {
-  .chat-shell,
-  .chat-shell--context { grid-template-columns: 78px 300px minmax(0, 1fr); }
+  .chat-shell { grid-template-columns: 78px 300px minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
   .chat-page { padding: 9px; }
-  .chat-shell,
-  .chat-shell--context { height: calc(100dvh - 18px); grid-template-columns: minmax(0, 1fr); }
+  .chat-shell { height: calc(100dvh - 18px); grid-template-columns: minmax(0, 1fr); }
   .chat-shell > :deep(.app-rail) { grid-column: 1; }
   .chat-shell--thread > :deep(.conversation-sidebar) { display: none !important; }
   .workspace { border-radius: 25px; }
@@ -380,25 +405,26 @@ function handleError(cause: unknown, fallback: string): void {
   grid-template-columns: 72px 320px minmax(0, 1fr);
   gap: 0;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--glass-border);
   border-radius: 28px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 22px 60px rgba(33, 43, 58, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  background: var(--surface-raise);
+  box-shadow: 0 22px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
 }
-.chat-shell--context { grid-template-columns: 72px 320px minmax(0, 1fr) 230px; }
-.workspace { border-radius: 0; background: #fff; }
+.workspace { border-radius: 0; background: var(--surface); }
 .workspace-header {
   min-height: 70px;
   padding: 12px 18px;
   border-bottom: 1px solid var(--separator);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--surface-glass);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
 }
+.header-profile { display: flex; padding: 0; border: 0; align-items: center; gap: 12px; background: none; cursor: pointer; border-radius: 12px; transition: background-color 150ms ease; }
+.header-profile:hover { background: var(--hover); }
 .workspace-title strong { font-size: 15px; }
 .workspace-title span { color: var(--ink-faint); font-size: 10px; font-weight: 500; }
 .workspace-title i { width: 6px; height: 6px; box-shadow: none; }
-.workspace--empty { background: #fff; }
+.workspace--empty { background: var(--surface); }
 .empty-prism {
   width: 84px;
   height: 84px;
@@ -417,13 +443,11 @@ function handleError(cause: unknown, fallback: string): void {
 .boot-screen { border-radius: 22px; }
 
 @media (max-width: 1180px) {
-  .chat-shell,
-  .chat-shell--context { grid-template-columns: 72px 294px minmax(0, 1fr); }
+  .chat-shell { grid-template-columns: 72px 294px minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
   .chat-page { padding: 0; }
-  .chat-shell,
-  .chat-shell--context {
+  .chat-shell {
     height: 100dvh;
     border: 0;
     border-radius: 0;

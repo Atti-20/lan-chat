@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { shallowRef, watch } from 'vue'
+import { shallowRef, ref, watch, computed, nextTick } from 'vue'
 import type { User } from '../../types'
 import UserAvatar from '../base/UserAvatar.vue'
+import { api } from '../../services/api'
+import { useToast } from '../../composables/useToast'
+import { useTheme } from '../../composables/useTheme'
 
 interface Props {
   open: boolean
@@ -14,10 +17,37 @@ const emit = defineEmits<{
   close: []
   save: [payload: { nickname: string; avatar: string }]
   logout: []
+  openDevices: []
+  openPassword: []
 }>()
+const toast = useToast()
+const { mode: themeMode, toggleWithReveal: toggleTheme } = useTheme()
 const nickname = shallowRef('')
 const avatar = shallowRef('')
+const uploadingAvatar = shallowRef(false)
 const emojis = ['🫧', '🐼', '🐰', '🦊', '🐧', '🦉', '🌊', '🌙']
+const colorPresets = [
+  '#5AC8FA', '#007AFF', '#5856D6', '#AF52DE',
+  '#FF2D55', '#FF3B30', '#FF9500', '#FFCC00',
+  '#34C759', '#30D158', '#00C7BE', '#64748B',
+]
+
+const currentColor = computed(() => {
+  if (avatar.value?.startsWith('emoji:')) {
+    const parts = avatar.value.split(':')
+    if (parts.length >= 3 && parts[2]) return parts[2]
+  }
+  return '#5AC8FA'
+})
+
+const currentEmoji = computed(() => {
+  if (avatar.value?.startsWith('emoji:')) return avatar.value.split(':')[1]
+  return ''
+})
+
+const isImageAvatar = computed(() => {
+  return avatar.value && !avatar.value.startsWith('emoji:') && !avatar.value.startsWith('svg:')
+})
 
 watch(() => [props.open, props.user.nickname, props.user.avatar] as const, ([open]) => {
   if (open) {
@@ -25,50 +55,633 @@ watch(() => [props.open, props.user.nickname, props.user.avatar] as const, ([ope
     avatar.value = props.user.avatar || 'emoji:🫧:#5AC8FA'
   }
 }, { immediate: true })
+
+function selectEmoji(emoji: string): void {
+  avatar.value = `emoji:${emoji}:${currentColor.value}`
+}
+
+function selectColor(color: string): void {
+  const emojiChar = currentEmoji.value || '🫧'
+  avatar.value = `emoji:${emojiChar}:${color}`
+}
+
+/* ===== 头像裁切相关 ===== */
+const cropperVisible = shallowRef(false)
+const cropPreviewUrl = shallowRef('')
+const cropImgRef = ref<HTMLImageElement | null>(null)
+const cropContainerRef = ref<HTMLDivElement | null>(null)
+// 裁切框状态（相对于显示图片的百分比 0~1）
+const cropX = shallowRef(0)
+const cropY = shallowRef(0)
+const cropSize = shallowRef(0.8)
+// 原始文件引用
+let pendingFile: File | null = null
+// 原始图片自然尺寸
+const naturalW = shallowRef(0)
+const naturalH = shallowRef(0)
+
+function openCropper(file: File): void {
+  pendingFile = file
+  cropPreviewUrl.value = URL.createObjectURL(file)
+  cropperVisible.value = true
+  // 等 DOM 渲染完成后初始化裁切框位置
+  nextTick(() => {
+    const img = cropImgRef.value
+    if (img && img.naturalWidth) {
+      initCropBox(img.naturalWidth, img.naturalHeight)
+    }
+  })
+}
+
+function onCropImgLoad(): void {
+  const img = cropImgRef.value
+  if (!img) return
+  naturalW.value = img.naturalWidth
+  naturalH.value = img.naturalHeight
+  initCropBox(img.naturalWidth, img.naturalHeight)
+}
+
+/**
+ * 计算图片以 object-fit: contain 渲染在正方形容器中时的可见区域。
+ * 返回值都是 0~1 的容器比例。
+ */
+function getImgBounds(w: number, h: number) {
+  if (w >= h) {
+    // 横图：宽度撑满，高度居中
+    const imgH = h / w
+    return { left: 0, top: (1 - imgH) / 2, width: 1, height: imgH }
+  } else {
+    // 竖图：高度撑满，宽度居中
+    const imgW = w / h
+    return { left: (1 - imgW) / 2, top: 0, width: imgW, height: 1 }
+  }
+}
+
+function initCropBox(w: number, h: number): void {
+  const bounds = getImgBounds(w, h)
+  // 正方形裁切框占图片可见区域短边的 90%
+  const side = Math.min(bounds.width, bounds.height) * 0.9
+  cropSize.value = side
+  // 在图片可见区域内居中
+  cropX.value = bounds.left + (bounds.width - side) / 2
+  cropY.value = bounds.top + (bounds.height - side) / 2
+}
+
+function closeCropper(): void {
+  cropperVisible.value = false
+  if (cropPreviewUrl.value) URL.revokeObjectURL(cropPreviewUrl.value)
+  cropPreviewUrl.value = ''
+  pendingFile = null
+}
+
+/* 拖拽裁切框——限制在图片可见区域内 */
+function onCropPointerDown(e: PointerEvent): void {
+  e.preventDefault()
+  const container = cropContainerRef.value
+  if (!container) return
+  const rect = container.getBoundingClientRect()
+  const startMX = e.clientX
+  const startMY = e.clientY
+  const startCX = cropX.value
+  const startCY = cropY.value
+  const bounds = getImgBounds(naturalW.value, naturalH.value)
+
+  function onMove(ev: PointerEvent) {
+    const dx = (ev.clientX - startMX) / rect.width
+    const dy = (ev.clientY - startMY) / rect.height
+    cropX.value = clamp(startCX + dx, bounds.left, bounds.left + bounds.width - cropSize.value)
+    cropY.value = clamp(startCY + dy, bounds.top, bounds.top + bounds.height - cropSize.value)
+  }
+  function onUp() {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+}
+
+/* 拖拽角点缩放——限制在图片可见区域内 */
+function onResizePointerDown(e: PointerEvent): void {
+  e.preventDefault()
+  e.stopPropagation()
+  const container = cropContainerRef.value
+  if (!container) return
+  const rect = container.getBoundingClientRect()
+  const startMX = e.clientX
+  const startMY = e.clientY
+  const startSize = cropSize.value
+  const startCX = cropX.value
+  const startCY = cropY.value
+  const bounds = getImgBounds(naturalW.value, naturalH.value)
+
+  function onMove(ev: PointerEvent) {
+    const dx = (ev.clientX - startMX) / rect.width
+    const dy = (ev.clientY - startMY) / rect.height
+    const delta = Math.max(dx, dy)
+    // 最大不超过图片可见区域的右边界和下边界
+    const maxSize = Math.min(
+      bounds.left + bounds.width - startCX,
+      bounds.top + bounds.height - startCY,
+    )
+    cropSize.value = clamp(startSize + delta, 0.15, maxSize)
+  }
+  function onUp() {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v))
+}
+
+/* 确认裁切并上传 */
+async function confirmCrop(): Promise<void> {
+  if (!pendingFile) return
+  uploadingAvatar.value = true
+  try {
+    const blob = await cropImage(pendingFile, cropX.value, cropY.value, cropSize.value)
+    const croppedFile = new File([blob], 'avatar.jpg', { type: 'image/jpeg' })
+    const result = await api.files.upload(croppedFile)
+    const avatarUrl = result.thumbnailUrl || result.url
+    avatar.value = avatarUrl
+    toast.push('头像已上传', 'success', 1200)
+    closeCropper()
+  } catch {
+    toast.push('头像上传失败', 'danger')
+  } finally {
+    uploadingAvatar.value = false
+  }
+}
+
+function cropImage(file: File, rx: number, ry: number, rSize: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      // rx, ry, rSize 是相对于正方形容器 (0~1) 的比例。
+      // 图片以 object-fit: contain 渲染在正方形容器中，
+      // 需要先算出图片在容器中的实际偏移和缩放，再转换到像素坐标。
+      let imgLeft: number, imgTop: number, imgScale: number
+      if (w >= h) {
+        // 横图：宽度撑满容器，高度居中，上下留白
+        imgScale = w          // 容器宽度 1 对应 w 像素
+        imgLeft = 0
+        imgTop = (1 - h / w) / 2  // 图片顶部在容器中的偏移比例
+      } else {
+        // 竖图：高度撑满容器，宽度居中，左右留白
+        imgScale = h          // 容器高度 1 对应 h 像素
+        imgLeft = (1 - w / h) / 2  // 图片左侧在容器中的偏移比例
+        imgTop = 0
+      }
+      // 将容器坐标转为图片像素坐标
+      const sx = (rx - imgLeft) * imgScale
+      const sy = (ry - imgTop) * imgScale
+      let sLen = rSize * imgScale
+      // 确保不越界
+      sLen = Math.min(sLen, w - Math.max(sx, 0), h - Math.max(sy, 0))
+      const clampedSx = Math.max(sx, 0)
+      const clampedSy = Math.max(sy, 0)
+      const out = Math.min(Math.round(sLen), 512)
+      const canvas = document.createElement('canvas')
+      canvas.width = out
+      canvas.height = out
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, clampedSx, clampedSy, sLen, sLen, 0, 0, out, out)
+      canvas.toBlob(
+        (b) => b ? resolve(b) : reject(new Error('toBlob failed')),
+        'image/jpeg',
+        0.92,
+      )
+      URL.revokeObjectURL(img.src)
+    }
+    img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error('load failed')) }
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+function uploadAvatar(): void {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.onchange = () => {
+    const file = input.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) {
+      toast.push('头像图片不能超过 5MB', 'warning')
+      return
+    }
+    openCropper(file)
+  }
+  input.click()
+}
+
+function resetToEmoji(): void {
+  avatar.value = 'emoji:🫧:#5AC8FA'
+}
 </script>
 
 <template>
   <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="profile-sheet glass-surface" role="dialog" aria-modal="true" aria-labelledby="profile-title">
-      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">×</button>
-      <UserAvatar :name="nickname || user.nickname" :avatar="avatar" :size="88" online />
-      <h2 id="profile-title">个人资料</h2>
-      <p>@{{ user.username }}</p>
-      <div class="emoji-row">
-        <button v-for="(emoji, index) in emojis" :key="emoji" type="button" :class="{ selected: avatar.includes(emoji) }" @click="avatar = `emoji:${emoji}:#${index % 2 ? '7667F5' : '5AC8FA'}`">{{ emoji }}</button>
+    <section class="profile-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+
+      <div class="avatar-section">
+        <div class="avatar-preview">
+          <UserAvatar :name="nickname || user.nickname" :avatar="avatar" :size="88" online />
+          <button class="avatar-upload-btn" type="button" :disabled="uploadingAvatar" @click="uploadAvatar">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M15.2 3.8a2.4 2.4 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4L9 20H4v-5L15.2 3.8Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <button v-if="isImageAvatar" class="reset-avatar" type="button" @click="resetToEmoji">使用默认头像</button>
       </div>
+
+      <h2 id="profile-title">个人资料</h2>
+      <p class="username-label">@{{ user.username }}</p>
+
+      <template v-if="!isImageAvatar">
+        <div class="emoji-row">
+          <button
+            v-for="e in emojis"
+            :key="e"
+            type="button"
+            :class="{ selected: currentEmoji === e }"
+            @click="selectEmoji(e)"
+          >{{ e }}</button>
+        </div>
+
+        <div class="color-section">
+          <span class="section-label">底色</span>
+          <div class="color-row">
+            <button
+              v-for="color in colorPresets"
+              :key="color"
+              type="button"
+              class="color-swatch"
+              :class="{ selected: currentColor === color }"
+              :style="{ background: color }"
+              :aria-label="`选择颜色 ${color}`"
+              @click="selectColor(color)"
+            />
+          </div>
+        </div>
+      </template>
+
       <label><span>昵称</span><input v-model="nickname" class="field" maxlength="16" /></label>
-      <button class="primary-button" type="button" :disabled="saving || !nickname.trim()" @click="emit('save', { nickname: nickname.trim(), avatar })">{{ saving ? '正在保存…' : '保存资料' }}</button>
+
+      <button
+        class="primary-button"
+        type="button"
+        :disabled="saving || uploadingAvatar || !nickname.trim()"
+        @click="emit('save', { nickname: nickname.trim(), avatar })"
+      >{{ saving ? '正在保存…' : '保存资料' }}</button>
+
+      <div class="profile-links">
+        <button type="button" @click="toggleTheme">
+          <svg v-if="themeMode === 'dark'" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>{{ themeMode === 'dark' ? '切换到浅色模式' : '切换到深色模式' }}</span>
+        </button>
+        <button type="button" @click="emit('openDevices')">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>登录设备管理</span>
+        </button>
+        <button type="button" @click="emit('openPassword')">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
+          <span>修改密码</span>
+        </button>
+      </div>
+
       <button class="logout-button" type="button" @click="emit('logout')">退出登录</button>
     </section>
+
+    <!-- 裁切器弹窗 -->
+    <div v-if="cropperVisible" class="cropper-backdrop" role="presentation" @click.self="closeCropper">
+      <div class="cropper-dialog">
+        <h3>裁切头像</h3>
+        <div ref="cropContainerRef" class="cropper-area">
+          <img ref="cropImgRef" :src="cropPreviewUrl" class="cropper-img" draggable="false" @load="onCropImgLoad" />
+          <!-- 四周暗色遮罩 -->
+          <div class="crop-mask crop-mask--top" :style="{ height: `${cropY * 100}%` }" />
+          <div class="crop-mask crop-mask--bottom" :style="{ top: `${(cropY + cropSize) * 100}%`, height: `${(1 - cropY - cropSize) * 100}%` }" />
+          <div class="crop-mask crop-mask--left" :style="{ top: `${cropY * 100}%`, height: `${cropSize * 100}%`, width: `${cropX * 100}%` }" />
+          <div class="crop-mask crop-mask--right" :style="{ top: `${cropY * 100}%`, height: `${cropSize * 100}%`, left: `${(cropX + cropSize) * 100}%`, width: `${(1 - cropX - cropSize) * 100}%` }" />
+          <!-- 裁切框 -->
+          <div
+            class="crop-box"
+            :style="{ left: `${cropX * 100}%`, top: `${cropY * 100}%`, width: `${cropSize * 100}%`, height: `${cropSize * 100}%` }"
+            @pointerdown="onCropPointerDown"
+          >
+            <span class="crop-corner crop-corner--tl" />
+            <span class="crop-corner crop-corner--tr" />
+            <span class="crop-corner crop-corner--bl" />
+            <span class="crop-corner crop-corner--br" @pointerdown="onResizePointerDown" />
+          </div>
+        </div>
+        <div class="cropper-actions">
+          <button type="button" class="cropper-cancel" @click="closeCropper">取消</button>
+          <button type="button" class="cropper-confirm" :disabled="uploadingAvatar" @click="confirmCrop">
+            {{ uploadingAvatar ? '上传中…' : '确认裁切' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; padding: 20px; place-items: center; background: rgba(39,64,92,.18); backdrop-filter: blur(10px); }
-.profile-sheet { position: relative; display: grid; width: min(100%, 400px); padding: 34px 30px 26px; justify-items: center; border-radius: 32px 32px 32px 16px; }
-.close-button { position: absolute; top: 17px; right: 17px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.72); border-radius: 13px; color: #60748a; font-size: 22px; background: rgba(255,255,255,.45); cursor: pointer; }
-.profile-sheet h2 { margin: 15px 0 2px; font-size: 24px; letter-spacing: -.04em; }.profile-sheet > p { margin: 0; color: var(--ink-soft); font-size: 11px; }
-.emoji-row { display: grid; width: 100%; margin: 24px 0 18px; grid-template-columns: repeat(8, 1fr); gap: 5px; }.emoji-row button { aspect-ratio: 1; padding: 0; border: 1px solid transparent; border-radius: 10px; font-size: 19px; background: rgba(255,255,255,.34); cursor: pointer; }.emoji-row button.selected { border-color: rgba(10,132,255,.35); background: rgba(210,235,255,.68); transform: scale(1.08); }
-.profile-sheet label { display: grid; width: 100%; gap: 8px; }.profile-sheet label span { color: #526c85; font-size: 11px; font-weight: 700; }
-.profile-sheet .primary-button { width: 100%; margin-top: 17px; }.logout-button { margin-top: 16px; border: 0; color: #ce4752; font-size: 11px; font-weight: 700; background: transparent; cursor: pointer; }
-@media (max-width: 430px) { .emoji-row { grid-template-columns: repeat(4, 1fr); } }
-
-.modal-backdrop { background: rgba(28, 28, 30, 0.18); backdrop-filter: blur(7px); }
-.profile-sheet {
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 20px 60px rgba(29, 29, 31, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+.modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: var(--backdrop);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
 }
+
+.profile-sheet {
+  position: relative;
+  display: grid;
+  width: min(100%, 400px);
+  max-height: calc(100dvh - 40px);
+  padding: 34px 30px 26px;
+  justify-items: center;
+  border-radius: 22px;
+  background: var(--surface-raise);
+  box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
+  overflow-y: auto;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
 .close-button {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
   width: 34px;
   height: 34px;
+  padding: 0;
+  place-items: center;
   border: 0;
   border-radius: 50%;
   color: var(--ink-soft);
   background: var(--fill);
+  cursor: pointer;
 }
-.emoji-row button { border-radius: 50%; background: var(--fill); }
-.emoji-row button.selected { border-color: rgba(0, 122, 255, 0.38); background: rgba(0, 122, 255, 0.09); transform: none; }
-.profile-sheet label span { color: var(--ink-soft); font-weight: 600; }
+.close-button:hover { background: var(--button-hover); }
+.close-button svg { width: 16px; }
+
+.avatar-section {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+.avatar-preview {
+  position: relative;
+  display: inline-block;
+}
+.avatar-upload-btn {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--blue);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
+  transition: transform 150ms ease;
+}
+.avatar-upload-btn:hover { transform: scale(1.1); }
+.avatar-upload-btn:disabled { opacity: 0.5; cursor: wait; }
+.avatar-upload-btn svg { width: 14px; }
+
+.reset-avatar {
+  padding: 0;
+  border: 0;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+  background: none;
+  cursor: pointer;
+}
+.reset-avatar:hover { text-decoration: underline; }
+
+.profile-sheet h2 { margin: 15px 0 2px; font-size: 22px; letter-spacing: -0.03em; }
+.username-label { margin: 0 0 8px; color: var(--ink-soft); font-size: 12px; }
+
+.emoji-row {
+  display: grid;
+  width: 100%;
+  margin: 8px 0 4px;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 5px;
+}
+.emoji-row button {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  font-size: 19px;
+  background: var(--fill);
+  cursor: pointer;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+.emoji-row button.selected { border-color: rgba(0, 122, 255, 0.38); background: rgba(0, 122, 255, 0.09); }
+.emoji-row button:hover { transform: scale(1.06); }
+
+.color-section {
+  width: 100%;
+  margin: 6px 0 12px;
+}
+.section-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+.color-row {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 5px;
+}
+.color-swatch {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.color-swatch:hover { transform: scale(1.15); }
+.color-swatch.selected {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 2px currentColor, 0 2px 8px rgba(0, 0, 0, 0.15);
+  transform: scale(1.1);
+}
+
+.profile-sheet label { display: grid; width: 100%; gap: 8px; }
+.profile-sheet label span { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
+.profile-sheet .primary-button { width: 100%; margin-top: 14px; }
+
+.profile-links {
+  display: grid;
+  width: 100%;
+  margin-top: 12px;
+  gap: 2px;
+}
+.profile-links button {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 12px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.profile-links button:hover { background: var(--fill); }
+.profile-links svg { width: 18px; color: var(--ink-soft); flex-shrink: 0; }
+
+.logout-button {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  color: var(--coral);
+  font-size: 12px;
+  font-weight: 700;
+  background: transparent;
+  cursor: pointer;
+}
+.logout-button:hover { text-decoration: underline; }
+
+@media (max-width: 430px) {
+  .emoji-row { grid-template-columns: repeat(4, 1fr); }
+  .color-row { grid-template-columns: repeat(6, 1fr); }
+}
+
+/* ===== 裁切器 ===== */
+.cropper-backdrop {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.cropper-dialog {
+  display: grid;
+  width: min(100%, 420px);
+  padding: 22px;
+  gap: 16px;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px var(--shadow-color);
+}
+.cropper-dialog h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+}
+.cropper-area {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #1a1a1a;
+  user-select: none;
+  touch-action: none;
+}
+.cropper-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.crop-mask {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.crop-mask--top { top: 0; left: 0; width: 100%; }
+.crop-mask--bottom { left: 0; width: 100%; }
+.crop-mask--left { left: 0; }
+.crop-mask--right {}
+.crop-box {
+  position: absolute;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  cursor: move;
+  box-shadow: 0 0 0 9999px transparent;
+}
+.crop-corner {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-color: #fff;
+  border-style: solid;
+  border-width: 0;
+}
+.crop-corner--tl { top: -2px; left: -2px; border-top-width: 3px; border-left-width: 3px; border-top-left-radius: 4px; }
+.crop-corner--tr { top: -2px; right: -2px; border-top-width: 3px; border-right-width: 3px; border-top-right-radius: 4px; }
+.crop-corner--bl { bottom: -2px; left: -2px; border-bottom-width: 3px; border-left-width: 3px; border-bottom-left-radius: 4px; }
+.crop-corner--br { bottom: -2px; right: -2px; border-bottom-width: 3px; border-right-width: 3px; border-bottom-right-radius: 4px; cursor: nwse-resize; }
+.cropper-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.cropper-actions button {
+  min-height: 38px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.cropper-cancel {
+  color: var(--ink);
+  background: var(--fill, #f2f2f7);
+}
+.cropper-cancel:hover { background: var(--button-hover); }
+.cropper-confirm {
+  color: #fff;
+  background: var(--blue, #007AFF);
+}
+.cropper-confirm:hover { background: color-mix(in srgb, var(--blue) 88%, #000); }
+.cropper-confirm:disabled { opacity: 0.5; cursor: wait; }
 </style>

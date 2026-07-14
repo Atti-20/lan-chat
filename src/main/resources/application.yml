@@ -37,7 +37,7 @@ jwt:
 # 文件存储
 file:
   path: ${FILE_STORAGE_PATH:./uploads/}
-  allowed-types: jpg,jpeg,png,gif,bmp,webp,doc,docx,xls,xlsx,ppt,pptx,pdf,txt,zip,rar,7z,mp4,mp3,wav
+  allowed-types: jpg,jpeg,png,gif,bmp,webp,doc,docx,xls,xlsx,ppt,pptx,pdf,txt,csv,json,md,xml,html,zip,rar,7z,tar,gz,mp4,mp3,wav,avi,mov,apk,exe,dmg,iso
   max-size: 104857600          # 100MB
 
 

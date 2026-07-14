@@ -58,6 +58,9 @@ public class FileServiceImpl implements FileService {
     private GroupMemberMapper groupMemberMapper;
 
     @Autowired
+    private com.lanchat.mapper.UserMapper userMapper;
+
+    @Autowired
     private StringRedisTemplate redisTemplate;
 
     @Value("${file.path}")
@@ -185,6 +188,17 @@ public class FileServiceImpl implements FileService {
         FileMetadata metadata = getByStoredName(fileName);
         if (metadata == null) return false;
         if (userId.equals(metadata.getUploadUserId())) return true;
+
+        // 如果文件被任何用户用作头像，允许所有已登录用户访问
+        String fileUrl = getFileUrl(metadata.getFilePath());
+        LambdaQueryWrapper<com.lanchat.entity.User> avatarWrapper = new LambdaQueryWrapper<>();
+        avatarWrapper.eq(com.lanchat.entity.User::getAvatar, fileUrl);
+        if (userMapper.selectCount(avatarWrapper) > 0) return true;
+        // 也检查缩略图路径
+        String thumbUrl = getFileUrl("thumb_" + metadata.getFilePath());
+        LambdaQueryWrapper<com.lanchat.entity.User> thumbAvatarWrapper = new LambdaQueryWrapper<>();
+        thumbAvatarWrapper.eq(com.lanchat.entity.User::getAvatar, thumbUrl);
+        if (userMapper.selectCount(thumbAvatarWrapper) > 0) return true;
 
         String storedName = metadata.getFilePath();
         LambdaQueryWrapper<ChatMessage> privateWrapper = new LambdaQueryWrapper<>();

@@ -77,13 +77,13 @@ function onFileChange(event: Event): void {
     <div class="composer glass-surface" :class="{ 'composer--burn': burn }">
       <div class="composer-tools">
         <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading" @click="chooseFile(imageRef)">
-          <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="2" stroke="currentColor" stroke-width="1.8"/><path d="m5 18 5-5 3 3 2-2 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
         </button>
         <button class="tool-button" type="button" aria-label="发送文件" :disabled="uploading" @click="chooseFile(fileRef)">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M8 12.5 14.4 6a3 3 0 0 1 4.2 4.2L10 18.8a5 5 0 1 1-7-7L11.4 3.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21.4 11.6-9.2 9.2a4.5 4.5 0 0 1-6.4-6.4l9.2-9.2a3 3 0 0 1 4.2 4.2l-9.2 9.2a1.5 1.5 0 0 1-2.1-2.1L16.7 8"/></svg>
         </button>
         <button class="tool-button burn-button" :class="{ 'burn-button--active': burn }" type="button" :aria-pressed="burn" aria-label="切换阅后即焚" @click="burn = !burn">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M13 3s1 4-2 6c-2.7 1.8-4 4-4 6.5A5 5 0 0 0 12 21a5.5 5.5 0 0 0 5.5-5.5C17.5 10 13 8 13 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 13c1 1 1.5 2 1.5 3.2A1.8 1.8 0 0 1 11.7 18 1.7 1.7 0 0 1 10 16.2c0-1 .6-1.8 2-3.2Z" fill="currentColor"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c0 4-4 6-4 10a4 4 0 0 0 8 0c0-4-4-6-4-10Z"/><path d="M10 16.5a2 2 0 0 0 4 0c0-1.5-2-2.5-2-4-0 1.5-2 2.5-2 4Z" fill="currentColor" opacity="0.25" stroke="none"/></svg>
         </button>
       </div>
 
@@ -99,7 +99,7 @@ function onFileChange(event: Event): void {
       />
 
       <button class="send-button" type="button" :disabled="!content.trim() || !connected" aria-label="发送消息" @click="submit">
-        <svg viewBox="0 0 24 24" fill="none"><path d="m4 5 17 7-17 7 3-7-3-7Z" fill="currentColor"/><path d="M7 12h13" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3.7 3.2l17.1 8.5a.5.5 0 0 1 0 .9L3.7 21.1a.5.5 0 0 1-.7-.5V13l10-1-10-1V3.7a.5.5 0 0 1 .7-.5Z" fill="currentColor"/></svg>
       </button>
 
       <input ref="imageInput" class="sr-only" type="file" accept="image/*" @change="onFileChange" />
@@ -119,7 +119,7 @@ function onFileChange(event: Event): void {
 .tool-button svg { width: 20px; }
 .burn-button--active { color: white; background: linear-gradient(145deg, #ff7a75, #f2445c); box-shadow: 0 7px 14px rgba(242,68,92,.2); }
 .composer textarea { min-width: 0; min-height: 40px; max-height: 132px; padding: 10px 4px 8px; flex: 1; resize: none; border: 0; outline: none; color: var(--ink); line-height: 1.5; background: transparent; }
-.composer textarea::placeholder { color: #8a9bad; }
+.composer textarea::placeholder { color: var(--ink-faint); }
 .send-button { display: grid; width: 42px; height: 42px; padding: 0; flex: 0 0 auto; place-items: center; border: 0; border-radius: 15px 15px 15px 7px; color: white; background: linear-gradient(145deg, #2094ff, #0878ef 70%, #6464e9); box-shadow: 0 9px 18px rgba(10,132,255,.25), inset 0 1px 0 rgba(255,255,255,.4); cursor: pointer; transition: 180ms var(--ease-liquid); }
 .send-button:hover { transform: translateY(-2px) rotate(-2deg); }
 .send-button:disabled { opacity: .36; filter: grayscale(.5); cursor: not-allowed; transform: none; }
@@ -130,7 +130,7 @@ function onFileChange(event: Event): void {
 .reply-bar > span:nth-child(2) { display: grid; min-width: 0; flex: 1; gap: 2px; }
 .reply-bar strong { color: var(--ink); font-size: 10px; }
 .reply-bar small { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.reply-bar button { border: 0; color: #718398; font-size: 20px; background: transparent; cursor: pointer; }
+.reply-bar button { border: 0; color: var(--ink-soft); font-size: 20px; background: transparent; cursor: pointer; }
 
 @media (max-width: 760px) {
   .composer-wrap { padding: 6px 9px 88px; }
@@ -141,12 +141,12 @@ function onFileChange(event: Event): void {
   .composer-hint { display: none; }
 }
 
-.composer-wrap { padding: 9px clamp(14px, 2.5vw, 24px) 13px; border-top: 1px solid var(--separator); background: rgba(255, 255, 255, 0.9); }
+.composer-wrap { padding: 9px clamp(14px, 2.5vw, 24px) 13px; border-top: 1px solid var(--separator); background: var(--surface-glass); }
 .composer {
   min-height: 54px;
   border-radius: 18px;
-  background: rgba(247, 247, 249, 0.72);
-  box-shadow: 0 5px 18px rgba(29, 29, 31, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  background: var(--surface-tint);
+  box-shadow: 0 5px 18px var(--shadow-color), inset 0 1px 0 var(--highlight);
   backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
 }
@@ -161,7 +161,7 @@ function onFileChange(event: Event): void {
   background: var(--blue);
   box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
-.send-button:hover { transform: none; background: #0874e8; }
+.send-button:hover { transform: none; background: color-mix(in srgb, var(--blue) 88%, #000); }
 .composer-hint { color: var(--ink-faint); }
 .reply-bar { border-color: var(--separator); border-radius: 12px; background: var(--fill); }
 

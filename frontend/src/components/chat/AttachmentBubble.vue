@@ -133,14 +133,14 @@ function handlePreviewError(): void {
     @click="download"
   >
     <span class="file-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M7 3h7l4 4v14H7V3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v5h5M10 13h5m-5 4h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v6h6M10 13h4M10 17h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
     </span>
     <span class="file-copy">
       <strong>{{ data.name || '文件' }}</strong>
       <small>{{ loading ? '正在准备下载…' : formatFileSize(data.size) }}</small>
     </span>
     <span class="download-action" aria-hidden="true">
-      <svg class="download-icon" viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg class="download-icon" viewBox="0 0 24 24" fill="none"><path d="M12 5v11m0 0-4-4m4 4 4-4M6 20h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </span>
   </button>
 

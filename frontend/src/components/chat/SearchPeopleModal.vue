@@ -50,32 +50,37 @@ watch(() => props.open, (open) => {
 
 <template>
   <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="modal-sheet glass-surface" role="dialog" aria-modal="true" aria-labelledby="people-title">
-      <header>
-        <div><h2 id="people-title">查找好友</h2></div>
-        <button type="button" aria-label="关闭" @click="emit('close')">×</button>
-      </header>
+    <section class="search-sheet" role="dialog" aria-modal="true" aria-labelledby="people-title">
+      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+
+      <h2 id="people-title">查找好友</h2>
+
       <label class="search-field">
-        <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="m16.2 16.2 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="m15.5 15.5 4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         <input v-model="query" autofocus placeholder="输入用户名或昵称" />
       </label>
+
       <label class="message-field">
         <span>申请留言</span>
         <input v-model="message" maxlength="20" />
       </label>
+
       <div class="result-list">
         <p v-if="loading" class="result-state">正在搜索…</p>
-        <article v-for="user in results" v-else :key="user.id">
-          <UserAvatar :name="user.nickname" :avatar="user.avatar" :size="46" :online="user.online === 1" />
-          <span><strong>{{ user.nickname }}</strong><small>@{{ user.username }}</small></span>
+        <div v-for="user in results" v-else :key="user.id" class="result-item">
+          <UserAvatar :name="user.nickname" :avatar="user.avatar" :size="40" :online="user.online === 1" />
+          <div class="result-info">
+            <strong>{{ user.nickname }}</strong>
+            <small>@{{ user.username }}</small>
+          </div>
           <button
             type="button"
             :disabled="friendIds.includes(user.id)"
             @click="emit('request', user.id, message.trim())"
-          >
-            {{ friendIds.includes(user.id) ? '已是好友' : '添加' }}
-          </button>
-        </article>
+          >{{ friendIds.includes(user.id) ? '已是好友' : '添加' }}</button>
+        </div>
         <p v-if="!loading && query && results.length === 0" class="result-state">没有找到匹配的用户</p>
         <p v-if="!query" class="result-state">输入至少一个字符开始查找</p>
       </div>
@@ -84,51 +89,138 @@ watch(() => props.open, (open) => {
 </template>
 
 <style scoped>
-.modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; padding: 20px; place-items: center; background: rgba(39,64,92,.18); backdrop-filter: blur(10px); }
-.modal-sheet { width: min(100%, 480px); max-height: min(700px, 90dvh); padding: 24px; overflow-y: auto; border-radius: 30px 30px 30px 15px; }
-.modal-sheet header { display: flex; align-items: start; justify-content: space-between; }
-.modal-sheet header p { margin: 0 0 4px; color: #4f80ad; font-family: "SF Mono", monospace; font-size: 9px; font-weight: 700; letter-spacing: .14em; }
-.modal-sheet h2 { margin: 0; font-size: 25px; letter-spacing: -.04em; }
-.modal-sheet header button { width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.72); border-radius: 13px; color: #60748a; font-size: 22px; background: rgba(255,255,255,.45); cursor: pointer; }
-.search-field { display: flex; min-height: 48px; padding: 0 14px; margin-top: 22px; align-items: center; gap: 9px; border: 1px solid rgba(133,163,194,.22); border-radius: 16px; background: rgba(255,255,255,.56); }
-.search-field svg { width: 19px; color: #71869a; }
-.search-field input { width: 100%; border: 0; outline: none; background: none; }
-.message-field { display: grid; margin-top: 15px; gap: 7px; }
-.message-field span { color: #526c85; font-size: 11px; font-weight: 700; }
-.message-field input { min-height: 42px; padding: 0 13px; border: 1px solid rgba(133,163,194,.18); border-radius: 14px; outline: none; background: rgba(255,255,255,.4); }
-.result-list { display: grid; min-height: 160px; margin-top: 15px; gap: 7px; }
-.result-list article { display: flex; padding: 9px; align-items: center; gap: 11px; border-radius: 17px; }
-.result-list article:hover { background: rgba(255,255,255,.38); }
-.result-list article > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.result-list strong { font-size: 13px; }.result-list small { color: var(--ink-soft); font-size: 10px; }
-.result-list article > button { min-height: 34px; padding: 0 13px; border: 0; border-radius: 11px; color: white; font-size: 10px; font-weight: 700; background: var(--blue); cursor: pointer; }
-.result-list article > button:disabled { color: #7a8ca0; background: rgba(206,220,234,.72); cursor: default; }
-.result-state { margin: 40px 0; color: var(--ink-soft); font-size: 12px; text-align: center; }
-
-.modal-backdrop { background: rgba(28, 28, 30, 0.18); backdrop-filter: blur(7px); }
-.modal-sheet {
-  padding: 24px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 20px 60px rgba(29, 29, 31, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+.modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: var(--backdrop);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
 }
-.modal-sheet h2 { font-size: 23px; }
-.modal-sheet header button {
+
+.search-sheet {
+  position: relative;
+  display: grid;
+  width: min(100%, 420px);
+  max-height: min(680px, 90dvh);
+  padding: 28px 24px 20px;
+  gap: 14px;
+  border-radius: 22px;
+  background: var(--surface-raise);
+  box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
+  overflow-y: auto;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+.close-button {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
   width: 34px;
   height: 34px;
+  padding: 0;
+  place-items: center;
   border: 0;
   border-radius: 50%;
   color: var(--ink-soft);
   background: var(--fill);
+  cursor: pointer;
+  transition: background-color 150ms ease;
 }
-.search-field,
-.message-field input {
+.close-button:hover { background: var(--button-hover); }
+.close-button svg { width: 16px; }
+
+.search-sheet h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+
+.search-field {
+  display: flex;
+  height: 44px;
+  padding: 0 14px;
+  align-items: center;
+  gap: 10px;
   border: 0;
   border-radius: 12px;
   background: var(--fill);
 }
-.message-field span { color: var(--ink-soft); font-weight: 600; }
-.result-list article { border-radius: 12px; }
-.result-list article:hover { background: rgba(118, 118, 128, 0.07); }
-.result-list article > button { border-radius: 10px; background: var(--blue); }
+.search-field svg { width: 18px; flex-shrink: 0; color: var(--ink-faint); }
+.search-field input { width: 100%; border: 0; font-size: 14px; outline: none; background: none; }
+
+.message-field { display: grid; gap: 6px; }
+.message-field span { color: var(--ink-soft); font-size: 11px; font-weight: 600; }
+.message-field input {
+  height: 40px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 12px;
+  font-size: 13px;
+  outline: none;
+  background: var(--fill);
+}
+
+.result-list { display: grid; min-height: 120px; gap: 2px; }
+
+.result-item {
+  display: flex;
+  padding: 10px;
+  align-items: center;
+  gap: 12px;
+  border-radius: 13px;
+  transition: background-color 150ms ease;
+}
+.result-item:hover { background: var(--hover); }
+
+.result-info {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+.result-info strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.result-info small {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-item > button {
+  min-width: 56px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--blue);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 150ms ease;
+}
+.result-item > button:hover { opacity: 0.85; }
+.result-item > button:disabled {
+  color: var(--ink-faint);
+  background: var(--hover-strong);
+  cursor: default;
+  opacity: 1;
+}
+
+.result-state {
+  padding: 32px 0;
+  color: var(--ink-faint);
+  font-size: 12px;
+  text-align: center;
+}
 </style>

@@ -17,7 +17,7 @@ import { useAuth } from './useAuth'
 import { useToast } from './useToast'
 import { useWebSocket } from './useWebSocket'
 
-export type ChatSection = 'messages' | 'contacts' | 'groups' | 'requests'
+export type ChatSection = 'messages' | 'contacts' | 'groups'
 
 export function useChat() {
   const { currentUser } = useAuth()
@@ -140,10 +140,11 @@ export function useChat() {
     }
   }
 
-  function normalizeMessage(message: ChatMessage): ChatMessage {
-    return {
-      ...message,
-      type: message.type || message.contentType || 'text',
+function normalizeMessage(message: ChatMessage): ChatMessage {
+const resolvedType = (message.type && message.type !== 'chat') ? message.type : (message.contentType || 'text')
+return {
+...message,
+type: resolvedType,
       createTime: message.createTime || message.timestamp,
       isBurn: message.isBurn === true ? 1 : Number(message.isBurn || 0),
     }
@@ -322,6 +323,17 @@ export function useChat() {
     await refreshLists()
   }
 
+  async function updateRemark(remark: string): Promise<void> {
+    if (selected.value?.kind !== 'private') return
+    await api.friends.setRemark(selected.value.id, remark)
+    await refreshLists()
+    // 刷新后更新 selected 的名称
+    const updated = conversations.value.find(
+      (c) => c.kind === 'private' && c.id === selected.value?.id,
+    )
+    if (updated) selected.value = updated
+  }
+
   return {
     friends: readonly(friends),
     groups: readonly(groups),
@@ -352,6 +364,7 @@ export function useChat() {
     togglePin,
     toggleMute,
     deleteFriend,
+    updateRemark,
     disconnect: ws.disconnect,
   }
 }

@@ -3,6 +3,7 @@ import type {
   AuthSession,
   ChatGroup,
   ChatMessage,
+  DeviceLogin,
   FileUpload,
   Friend,
   FriendRequest,
@@ -126,6 +127,12 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
+    devices: () => request<DeviceLogin[]>('/user/devices'),
+    logoutDevice: (deviceId: number) => request<void>(`/user/devices/${deviceId}`, { method: 'DELETE' }),
+    changePassword: (oldPassword: string, newPassword: string) => request<void>('/user/password', {
+      method: 'PUT',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    }),
   },
   friends: {
     list: () => request<Friend[]>('/friend/list'),
@@ -141,6 +148,10 @@ export const api = {
     delete: (friendId: number) => request<void>(`/friend/${friendId}`, { method: 'DELETE' }),
     togglePin: (friendId: number) => request<void>(`/friend/${friendId}/pin`, { method: 'PUT' }),
     toggleMute: (friendId: number) => request<void>(`/friend/${friendId}/mute`, { method: 'PUT' }),
+    setRemark: (friendId: number, remark: string) => request<void>(
+      `/friend/${friendId}/remark?remark=${encodeURIComponent(remark)}`,
+      { method: 'PUT' },
+    ),
   },
   groups: {
     list: () => request<ChatGroup[]>('/group/my'),

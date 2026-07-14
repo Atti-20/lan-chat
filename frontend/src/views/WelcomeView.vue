@@ -35,7 +35,7 @@ async function finish(): Promise<void> {
   try {
     await auth.updateProfile({ nickname: cleanName, avatar: selectedAvatar.value })
     toast.push('资料已保存，欢迎来到 LanChat', 'success', 1400)
-    window.location.assign('/chat')
+    window.location.assign(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/chat`)
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.message : '保存失败，请稍后重试'
   } finally {
@@ -156,7 +156,7 @@ async function finish(): Promise<void> {
 .avatar-choice:hover { transform: translateY(-3px); background: rgba(255,255,255,.68); }
 .avatar-choice--selected { border-color: rgba(10,132,255,.48); background: rgba(217,238,255,.8); box-shadow: 0 0 0 4px rgba(10,132,255,.09), inset 0 1px 0 #fff; transform: scale(1.04); }
 .name-field { display: grid; }
-.welcome-error { margin: -8px 0 0; color: #c93f49; font-size: 13px; }
+.welcome-error { margin: -8px 0 0; color: var(--coral); font-size: 13px; }
 .finish-button { display: flex; width: 100%; align-items: center; justify-content: center; gap: 8px; }
 .finish-button svg { width: 18px; }
 
@@ -174,14 +174,14 @@ async function finish(): Promise<void> {
   grid-template-columns: 0.85fr 1.15fr;
   gap: 44px;
   border-radius: 28px;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 18px 50px rgba(29, 29, 31, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+  background: var(--surface-raise);
+  box-shadow: 0 18px 50px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
 }
 .step-pill {
   padding: 6px 10px;
   border: 0;
   color: var(--blue);
-  background: rgba(0, 122, 255, 0.08);
+  background: var(--active);
 }
 .step-pill span { width: 6px; height: 6px; box-shadow: none; }
 .welcome-header h1 { margin: 16px 0 10px; font-size: clamp(34px, 5vw, 48px); }
@@ -189,7 +189,7 @@ async function finish(): Promise<void> {
 .profile-stage {
   min-height: 250px;
   border-radius: 22px;
-  background: rgba(118, 118, 128, 0.07);
+  background: var(--hover);
 }
 .avatar-choice {
   border: 0;
@@ -197,10 +197,10 @@ async function finish(): Promise<void> {
   background: var(--fill);
   box-shadow: none;
 }
-.avatar-choice:hover { transform: none; background: #e8e8ed; }
+.avatar-choice:hover { transform: none; background: var(--button-hover); }
 .avatar-choice--selected {
   border: 2px solid rgba(0, 122, 255, 0.46);
-  background: rgba(0, 122, 255, 0.09);
+  background: var(--active);
   box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.07);
   transform: none;
 }
