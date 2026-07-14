@@ -1,6 +1,7 @@
 package com.lanchat.config;
 
 import com.lanchat.websocket.ChatWebSocketHandler;
+import com.lanchat.security.WebSocketAuthInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
@@ -14,9 +15,12 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Autowired
     private ChatWebSocketHandler chatWebSocketHandler;
 
+    @Autowired
+    private WebSocketAuthInterceptor webSocketAuthInterceptor;
+
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(chatWebSocketHandler, "/ws/chat")
-                .setAllowedOrigins("*");
+                .addInterceptors(webSocketAuthInterceptor);
     }
 }

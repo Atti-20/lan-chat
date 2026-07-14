@@ -29,6 +29,10 @@ public class GroupController {
 
     @GetMapping("/{groupId}")
     public Result<ChatGroup> getGroupInfo(@PathVariable Long groupId) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (!groupService.isMember(groupId, userId)) {
+            return Result.forbidden("你不是该群成员");
+        }
         ChatGroup group = groupService.getGroupInfo(groupId);
         if (group == null) {
             return Result.error("群组不存在");
@@ -51,6 +55,10 @@ public class GroupController {
 
     @GetMapping("/{groupId}/members")
     public Result<List<Map<String, Object>>> getGroupMembers(@PathVariable Long groupId) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (!groupService.isMember(groupId, userId)) {
+            return Result.forbidden("你不是该群成员");
+        }
         return Result.success(groupService.getGroupMembers(groupId));
     }
 
@@ -85,6 +93,7 @@ public class GroupController {
     @PutMapping("/{groupId}/admin")
     public Result<Void> setAdmin(@PathVariable Long groupId, @RequestParam Long userId, @RequestParam Boolean isAdmin) {
         Long operatorId = UserContextHolder.getCurrentUserId();
+        if (isAdmin == null) return Result.error(400, "管理员参数不完整");
         groupService.setAdmin(groupId, operatorId, userId, isAdmin);
         return Result.success();
     }
@@ -92,6 +101,9 @@ public class GroupController {
     @PutMapping("/{groupId}/mute")
     public Result<Void> muteMember(@PathVariable Long groupId, @RequestBody GroupMemberMuteDTO dto) {
         Long operatorId = UserContextHolder.getCurrentUserId();
+        if (dto == null || dto.getUserId() == null || dto.getMuteMinutes() == null) {
+            return Result.error(400, "禁言参数不完整");
+        }
         groupService.muteMember(groupId, operatorId, dto.getUserId(), dto.getMuteMinutes());
         return Result.success();
     }

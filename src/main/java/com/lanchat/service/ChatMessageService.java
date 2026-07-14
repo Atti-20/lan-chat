@@ -19,8 +19,11 @@ public interface ChatMessageService extends IService<ChatMessage> {
     /** 撤回消息 */
     boolean recallMessage(String messageId, Long operatorId);
 
-    /** 标记消息为已焚毁 */
-    void markAsBurned(String messageId);
+    /** 标记消息为已焚毁（操作者必须能够访问该消息） */
+    void markAsBurned(String messageId, Long operatorId);
+
+    /** 判断用户是否是私聊参与者或当前群成员 */
+    boolean canAccessMessage(String messageId, Long userId);
 
     /** 根据消息ID获取消息 */
     ChatMessage getByMessageId(String messageId);

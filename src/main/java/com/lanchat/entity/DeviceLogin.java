@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.time.LocalDateTime;
 
@@ -17,7 +18,10 @@ public class DeviceLogin {
     private Long userId;
     private String deviceType;
     private String deviceName;
+    @JsonIgnore
     private String token;
+
+    @JsonIgnore
     private String refreshToken;
     private LocalDateTime loginTime;
     private LocalDateTime expireTime;

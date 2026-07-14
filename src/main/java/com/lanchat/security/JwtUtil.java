@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * JWT 工具类：生成 / 解析 / 验证 Token
@@ -63,6 +64,7 @@ public class JwtUtil {
         Date expiryDate = new Date(now.getTime() + expiration);
         return Jwts.builder()
                 .claims(claims)
+                .id(UUID.randomUUID().toString())
                 .subject(subject)
                 .issuedAt(now)
                 .expiration(expiryDate)
@@ -118,12 +120,27 @@ public class JwtUtil {
     }
 
     /**
+     * 访问令牌和刷新令牌使用同一签名密钥，因此调用方必须显式校验令牌类型，
+     * 否则刷新令牌也可能被误当作访问令牌接受。
+     */
+    public boolean isAccessToken(String token) {
+        try {
+            Claims claims = parseToken(token);
+            return "access".equals(claims.get("type", String.class))
+                    && !claims.getExpiration().before(new Date());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
      * 判断是否为刷新 Token
      */
     public boolean isRefreshToken(String token) {
         try {
             Claims claims = parseToken(token);
-            return "refresh".equals(claims.get("type", String.class));
+            return "refresh".equals(claims.get("type", String.class))
+                    && !claims.getExpiration().before(new Date());
         } catch (Exception e) {
             return false;
         }

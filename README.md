@@ -7,6 +7,7 @@
 | 层面 | 技术 |
 |------|------|
 | 后端框架 | Spring Boot 3.5 + Java 17 |
+| Web 前端 | Vue 3.5 + TypeScript + Vite 8 |
 | 安全认证 | Spring Security + JWT（JJWT 0.12.6） |
 | 数据库 | MySQL 8.0 + MyBatis Plus 3.5.7 |
 | 缓存 | Redis（登录锁定 / 预览签名 / 会话缓存） |
@@ -66,7 +67,7 @@ src/main/java/com/lanchat/
 │   └── GlobalExceptionHandler.java   # 全局异常处理
 ├── config/                           # 配置层
 │   ├── WebSocketConfig.java          # WebSocket配置
-│   └── WebMvcConfig.java             # 静态资源映射
+│   └── WebMvcConfig.java             # Vue 应用入口映射
 ├── security/                         # 安全层
 │   ├── JwtUtil.java                  # JWT工具类
 │   ├── JwtAuthenticationFilter.java  # JWT认证过滤器
@@ -87,6 +88,12 @@ src/main/java/com/lanchat/
 │   └── impl/                         # 服务实现
 └── websocket/                        # WebSocket处理器
     └── ChatWebSocketHandler.java     # 聊天WebSocket核心处理器
+frontend/                              # Vue 3 + Vite 前端源码
+└── src/
+    ├── components/                    # 液态玻璃 UI 与聊天组件
+    ├── composables/                   # 认证、聊天、WebSocket 状态
+    ├── services/                      # 类型安全 API 封装
+    └── views/                         # 登录、欢迎、聊天页面
 ```
 
 ## API 接口
@@ -158,13 +165,14 @@ src/main/java/com/lanchat/
 |------|------|------|
 | POST | `/api/v1/file/check` | 秒传检测 |
 | POST | `/api/v1/file/upload` | 文件上传 |
+| GET | `/api/v1/file/content/{fileName}` | 鉴权读取文件内容 |
 | POST | `/api/v1/file/preview-url` | 生成预览URL |
 | GET | `/api/v1/file/preview/{signToken}` | 签名预览 |
 
 ### WebSocket
 | 路径 | 说明 |
 |------|------|
-| `/ws/chat?userId={id}` | WebSocket连接 |
+| `/ws/chat?token={accessToken}` | WebSocket连接（握手校验访问令牌） |
 
 消息类型：`chat` / `recall` / `burn` / `read` / `typing` / `screenshot` / `system` / `online-list`
 
@@ -172,6 +180,7 @@ src/main/java/com/lanchat/
 
 ### 环境要求
 - JDK 17+
+- Node.js 20.19+
 - MySQL 8.0+
 - Redis
 
@@ -188,26 +197,31 @@ cd lan-chat
 mysql -u root -p < sql/init.sql
 ```
 
-3. 修改配置（如需要）
-```yaml
-# src/main/resources/application.yml
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/lan_chat
-    username: root
-    password: your_password
-  data:
-    redis:
-      host: localhost
-      port: 6379
-```
-
-4. 创建文件上传目录
+3. 设置运行环境（生产环境务必设置独立的 `JWT_SECRET`）
 ```bash
-mkdir -p D:/lan-chat/uploads/
+export DB_URL='jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true'
+export DB_USERNAME='root'
+export DB_PASSWORD='your_password'
+export REDIS_HOST='localhost'
+export JWT_SECRET='replace-with-a-long-random-production-secret'
 ```
 
-5. 启动项目
+4. 构建 Vue 前端
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+构建产物会写入 `src/main/resources/static/app/`，继续由 Spring Boot 同源托管。
+
+5. 创建文件上传目录
+```bash
+mkdir -p uploads
+```
+
+6. 启动项目
 ```bash
 ./mvnw spring-boot:run
 ```

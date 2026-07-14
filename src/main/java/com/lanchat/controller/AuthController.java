@@ -2,14 +2,11 @@ package com.lanchat.controller;
 
 import com.lanchat.common.Result;
 import com.lanchat.dto.*;
-import com.lanchat.entity.DeviceLogin;
-import com.lanchat.entity.User;
+import com.lanchat.security.LoginUser;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -50,12 +47,10 @@ public class AuthController {
     public Result<Void> logout() {
         Long userId = UserContextHolder.getCurrentUserId();
         if (userId != null) {
-            String deviceType = UserContextHolder.getCurrentUser().getDeviceType();
-            DeviceLogin device = userService.getCurrentDevice(userId, deviceType);
-            if (device != null) {
-                userService.logoutDevice(userId, device.getId());
+            LoginUser loginUser = UserContextHolder.getCurrentUser();
+            if (loginUser != null && loginUser.getToken() != null) {
+                userService.logoutByToken(userId, loginUser.getToken());
             }
-            userService.updateOnlineStatus(userId, 0);
         }
         return Result.success();
     }

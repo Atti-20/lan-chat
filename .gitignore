@@ -31,3 +31,11 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Runtime and local tooling ###
+.DS_Store
+.cloudflared/
+uploads/
+frontend/node_modules/
+output/playwright/
+.playwright-cli/

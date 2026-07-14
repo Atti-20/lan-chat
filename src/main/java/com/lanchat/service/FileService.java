@@ -16,6 +16,12 @@ public interface FileService {
     /** 根据哈希获取文件元数据 */
     FileMetadata getByHash(String fileHash);
 
+    /** 根据服务端存储名获取元数据（缩略图会映射回原文件） */
+    FileMetadata getByStoredName(String fileName);
+
+    /** 判断用户是否为上传者或消息会话参与者 */
+    boolean canAccessFile(String fileName, Long userId);
+
     /** 根据文件名获取文件访问路径 */
     String getFileUrl(String fileName);
 

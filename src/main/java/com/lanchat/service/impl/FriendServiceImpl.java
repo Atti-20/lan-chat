@@ -52,13 +52,16 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
 
     @Override
     public boolean sendFriendRequest(Long fromUserId, Long toUserId, String message) {
+        if (fromUserId == null || toUserId == null) {
+            throw new IllegalArgumentException("用户参数不能为空");
+        }
         if (fromUserId.equals(toUserId)) {
             throw new IllegalArgumentException("不能添加自己为好友");
         }
 
         // 检查目标用户是否存在
         User targetUser = userMapper.selectById(toUserId);
-        if (targetUser == null) {
+        if (targetUser == null || !Integer.valueOf(1).equals(targetUser.getStatus())) {
             throw new IllegalArgumentException("目标用户不存在");
         }
 
@@ -69,11 +72,11 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
 
         // 黑名单互斥校验：如果任一方拉黑了对方，不允许申请
         Friendship fromRelation = getFriendship(fromUserId, toUserId);
-        if (fromRelation != null && fromRelation.getIsBlocked() == 1) {
+        if (fromRelation != null && Integer.valueOf(1).equals(fromRelation.getIsBlocked())) {
             throw new IllegalArgumentException("您已拉黑对方，请先移出黑名单");
         }
         Friendship toRelation = getFriendship(toUserId, fromUserId);
-        if (toRelation != null && toRelation.getIsBlocked() == 1) {
+        if (toRelation != null && Integer.valueOf(1).equals(toRelation.getIsBlocked())) {
             throw new IllegalArgumentException("对方暂不接受好友申请");
         }
 
@@ -108,7 +111,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
     @Transactional
     public boolean handleFriendRequest(Long requestId, Long currentUserId, boolean accept) {
         FriendRequest request = friendRequestMapper.selectById(requestId);
-        if (request == null || request.getStatus() != 0) {
+        if (request == null || !Integer.valueOf(0).equals(request.getStatus())) {
             throw new IllegalArgumentException("好友申请不存在或已处理");
         }
 
@@ -130,11 +133,17 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
         // 更新申请状态
         LambdaUpdateWrapper<FriendRequest> updateWrapper = new LambdaUpdateWrapper<>();
         updateWrapper.eq(FriendRequest::getId, requestId)
+                .eq(FriendRequest::getStatus, 0)
                 .set(FriendRequest::getStatus, accept ? 1 : 2)
                 .set(FriendRequest::getHandleTime, LocalDateTime.now());
-        friendRequestMapper.update(null, updateWrapper);
+        if (friendRequestMapper.update(null, updateWrapper) == 0) {
+            throw new IllegalArgumentException("好友申请已被处理");
+        }
 
         if (accept) {
+            if (isFriend(request.getFromUserId(), request.getToUserId())) {
+                return true;
+            }
             // 发送 WebSocket 通知给原申请者
             User acceptor = userMapper.selectById(currentUserId);
             if (acceptor != null) {
@@ -216,8 +225,8 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
                 map.put("online", user.getOnline());
                 map.put("remark", f.getRemark());
                 map.put("groupName", f.getGroupName());
-                map.put("isPinned", f.getIsPinned());
-                map.put("isMuted", f.getIsMuted());
+                map.put("isPinned", f.getIsPinned() == null ? 0 : f.getIsPinned());
+                map.put("isMuted", f.getIsMuted() == null ? 0 : f.getIsMuted());
                 map.put("lastLoginAt", user.getLastLoginAt());
                 map.put("lastMessageTime", lastMsg != null ? lastMsg.getCreateTime() : null);
                 map.put("lastMessage", lastMsg != null ? lastMsg.getContent() : null);
@@ -263,25 +272,31 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
         if (friendship == null) return false;
         LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(Friendship::getId, friendship.getId())
-                .set(Friendship::getIsBlocked, friendship.getIsBlocked() == 0 ? 1 : 0);
+                .set(Friendship::getIsBlocked, Integer.valueOf(0).equals(friendship.getIsBlocked()) ? 1 : 0);
         return friendshipMapper.update(null, wrapper) > 0;
     }
 
     @Override
     public boolean setRemark(Long userId, Long friendId, String remark) {
+        String value = remark == null ? "" : remark.trim();
+        if (value.length() > 50) throw new IllegalArgumentException("好友备注不能超过50个字符");
         LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(Friendship::getUserId, userId)
                 .eq(Friendship::getFriendId, friendId)
-                .set(Friendship::getRemark, remark);
+                .set(Friendship::getRemark, value);
         return friendshipMapper.update(null, wrapper) > 0;
     }
 
     @Override
     public boolean setGroup(Long userId, Long friendId, String groupName) {
+        String value = groupName == null ? "我的好友" : groupName.trim();
+        if (value.isEmpty() || value.length() > 50) {
+            throw new IllegalArgumentException("分组名称需为1-50个字符");
+        }
         LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(Friendship::getUserId, userId)
                 .eq(Friendship::getFriendId, friendId)
-                .set(Friendship::getGroupName, groupName);
+                .set(Friendship::getGroupName, value);
         return friendshipMapper.update(null, wrapper) > 0;
     }
 
@@ -291,19 +306,19 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
         if (friendship == null) return false;
 
         // 如果要置顶，检查是否超过上限（最多5个）
-        if (friendship.getIsPinned() == 0) {
+        if (Integer.valueOf(0).equals(friendship.getIsPinned())) {
             LambdaQueryWrapper<Friendship> countWrapper = new LambdaQueryWrapper<>();
             countWrapper.eq(Friendship::getUserId, userId)
                     .eq(Friendship::getIsPinned, 1);
             long pinnedCount = friendshipMapper.selectCount(countWrapper);
             if (pinnedCount >= MAX_PINNED) {
-                throw new RuntimeException("置顶数量不能超过" + MAX_PINNED + "个");
+                throw new IllegalArgumentException("置顶数量不能超过" + MAX_PINNED + "个");
             }
         }
 
         LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(Friendship::getId, friendship.getId())
-                .set(Friendship::getIsPinned, friendship.getIsPinned() == 0 ? 1 : 0);
+                .set(Friendship::getIsPinned, Integer.valueOf(0).equals(friendship.getIsPinned()) ? 1 : 0);
         return friendshipMapper.update(null, wrapper) > 0;
     }
 
@@ -313,7 +328,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
         if (friendship == null) return false;
         LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(Friendship::getId, friendship.getId())
-                .set(Friendship::getIsMuted, friendship.getIsMuted() == 0 ? 1 : 0);
+                .set(Friendship::getIsMuted, Integer.valueOf(0).equals(friendship.getIsMuted()) ? 1 : 0);
         return friendshipMapper.update(null, wrapper) > 0;
     }
 
@@ -332,7 +347,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
     @Override
     public boolean isBlockedBy(Long userId, Long friendId) {
         Friendship friendship = getFriendship(friendId, userId);
-        return friendship != null && friendship.getIsBlocked() == 1;
+        return friendship != null && Integer.valueOf(1).equals(friendship.getIsBlocked());
     }
 
     private Friendship getFriendship(Long userId, Long friendId) {

@@ -71,6 +71,12 @@ const App = {
 
     // 检测移动端
     this.detectMobile();
+
+    // 注册粘贴事件 — 复制表格时自动转为图片发送
+    const input = document.getElementById('messageInput');
+    if (input) {
+      input.addEventListener('paste', (e) => this.handlePaste(e));
+    }
   },
 
   // ==================== WebSocket 设置 ====================
@@ -728,6 +734,399 @@ const App = {
         this.isBurnMode = false;
         this.updateBurnToggle();
       }
+    }
+  },
+
+  // ==================== 剪贴板表格转图片 ====================
+
+  /**
+   * Excel 会将同一块选区同时写入剪贴板的 PNG、HTML 和 TSV（纯文本）格式。
+   * 有 PNG 时保留原始像素；没有时从 HTML/TSV 重绘，避免依赖外部 CDN。
+   */
+  async handlePaste(event) {
+    const clipboardData = event.clipboardData || window.clipboardData;
+    if (!clipboardData || !this.currentChat) return;
+
+    const imageFile = this.getClipboardImage(clipboardData);
+    const table = imageFile ? null : this.readClipboardTable(clipboardData);
+    if (!imageFile && !table) return;
+
+    event.preventDefault();
+    if (table && table.tooLarge) {
+      Utils.toast('表格过大，最多支持 200 行、50 列或 7500 个单元格', 'warn', 4000);
+      return;
+    }
+
+    const isTable = Boolean(table);
+    Utils.toast(isTable ? '检测到 Excel 表格，正在生成图片...' : '检测到图片，正在发送...', 'default', 5000);
+
+    try {
+      const image = imageFile || await this.renderTableToImage(table);
+      if (!image) {
+        Utils.toast('表格转换失败', 'error');
+        return;
+      }
+      await this.sendPastedImage(
+        image,
+        isTable ? `excel_table_${Date.now()}.png` : image.name,
+        isTable ? '表格已发送' : '图片已发送'
+      );
+    } catch (err) {
+      console.error('剪贴板内容处理失败:', err);
+      Utils.toast(isTable ? '表格转换失败' : '图片发送失败', 'error');
+    }
+  },
+
+  /** 返回剪贴板内浏览器已经暴露出的位图（Excel“复制为图片”会走此分支）。 */
+  getClipboardImage(clipboardData) {
+    const supportedImageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp']);
+    const items = Array.from(clipboardData.items || []);
+    const imageItem = items.find(item => item.kind === 'file' && supportedImageTypes.has(item.type));
+    return imageItem ? imageItem.getAsFile() : null;
+  },
+
+  /**
+   * 读取 Excel 的 HTML 表格；某些浏览器不提供 HTML 时，退回 TSV。
+   * 普通多行文字不会匹配，仍按原有行为粘贴到输入框。
+   */
+  readClipboardTable(clipboardData) {
+    const html = clipboardData.getData('text/html');
+    if (html && /<table[\s>]/i.test(html)) {
+      const table = this.parseHtmlTable(html);
+      if (table) return table;
+    }
+
+    const text = clipboardData.getData('text/plain');
+    return text.includes('\t') ? this.parseTsvTable(text) : null;
+  },
+
+  /** 解析 Excel 复制出的 HTML，保留合并单元格与常见的内联/类样式。 */
+  parseHtmlTable(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const tableElement = doc.querySelector('table');
+    if (!tableElement) return null;
+
+    const styleRules = this.readClipboardStyleRules(doc);
+    const rows = Array.from(tableElement.rows);
+    if (!rows.length) return null;
+    if (rows.length > 200) return { tooLarge: true };
+
+    const cells = [];
+    const occupied = [];
+    let columnCount = 0;
+
+    rows.forEach((row, rowIndex) => {
+      occupied[rowIndex] ||= [];
+      let columnIndex = 0;
+      Array.from(row.cells).forEach(cell => {
+        while (occupied[rowIndex][columnIndex]) columnIndex++;
+
+        const rowSpan = this.clampTableSpan(cell.rowSpan, 1, 100);
+        const colSpan = this.clampTableSpan(cell.colSpan, 1, 50);
+        const value = (cell.innerText || cell.textContent || '').replace(/\u00a0/g, ' ').trim();
+        const parsedCell = {
+          row: rowIndex,
+          column: columnIndex,
+          rowSpan,
+          colSpan,
+          text: value,
+          style: this.readClipboardCellStyle(cell, styleRules)
+        };
+        cells.push(parsedCell);
+
+        for (let r = rowIndex; r < rowIndex + rowSpan; r++) {
+          occupied[r] ||= [];
+          for (let c = columnIndex; c < columnIndex + colSpan; c++) {
+            occupied[r][c] = true;
+          }
+        }
+        columnIndex += colSpan;
+        columnCount = Math.max(columnCount, columnIndex);
+      });
+    });
+
+    return this.createTableModel(rows.length, columnCount, cells, this.readHtmlColumnWidths(tableElement));
+  },
+
+  /** 解析不带 HTML 的制表符文本，覆盖受限浏览器中的 Excel 粘贴。 */
+  parseTsvTable(text) {
+    const normalisedText = text.replace(/\r\n?/g, '\n').replace(/\n$/, '');
+    if (normalisedText.split('\n').length > 200) return { tooLarge: true };
+    const rows = normalisedText.split('\n');
+    if (rows.some(row => row.split('\t').length > 50)) return { tooLarge: true };
+    const values = rows.map(row => row.split('\t'));
+    const columnCount = Math.max(...values.map(row => row.length), 0);
+    const cells = [];
+    values.forEach((row, rowIndex) => {
+      row.forEach((value, columnIndex) => cells.push({
+        row: rowIndex,
+        column: columnIndex,
+        rowSpan: 1,
+        colSpan: 1,
+        text: value,
+        style: {}
+      }));
+    });
+    return this.createTableModel(rows.length, columnCount, cells, []);
+  },
+
+  createTableModel(rowCount, columnCount, cells, columnWidths) {
+    // 防止误复制整行/整列造成超大 Canvas 和内存占用。
+    if (!rowCount || !columnCount) return null;
+    if (rowCount > 200 || columnCount > 50 || cells.length > 7500) return { tooLarge: true };
+    return { rowCount, columnCount, cells, columnWidths };
+  },
+
+  clampTableSpan(value, min, max) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? Math.min(Math.max(parsed, min), max) : min;
+  },
+
+  /** 从 Excel 片段的 style 标签中提取简单类选择器，如 .xl65、td.xl65。 */
+  readClipboardStyleRules(doc) {
+    const rules = {};
+    doc.querySelectorAll('style').forEach(styleElement => {
+      const css = styleElement.textContent.replace(/<!--|-->/g, '');
+      const matcher = /([^{}@]+)\{([^{}]*)\}/g;
+      let match;
+      while ((match = matcher.exec(css))) {
+        const declarations = this.parseCssDeclarations(match[2]);
+        match[1].split(',').forEach(rawSelector => {
+          const selector = rawSelector.trim();
+          if (/^(?:td|th)?(?:\.[\w-]+)+$/i.test(selector)) {
+            rules[selector] = { ...(rules[selector] || {}), ...declarations };
+          }
+        });
+      }
+    });
+    return rules;
+  },
+
+  parseCssDeclarations(css) {
+    return css.split(';').reduce((declarations, declaration) => {
+      const separator = declaration.indexOf(':');
+      if (separator < 0) return declarations;
+      const property = declaration.slice(0, separator).trim().toLowerCase();
+      const value = declaration.slice(separator + 1).trim();
+      if (property && value) declarations[property] = value;
+      return declarations;
+    }, {});
+  },
+
+  readClipboardCellStyle(cell, styleRules) {
+    const declarations = {};
+    const tagName = cell.tagName.toLowerCase();
+    const classNames = Array.from(cell.classList || []);
+    [tagName, ...classNames.map(name => `.${name}`), ...classNames.map(name => `${tagName}.${name}`)]
+      .forEach(selector => Object.assign(declarations, styleRules[selector] || {}));
+    Object.assign(declarations, this.parseCssDeclarations(cell.getAttribute('style') || ''));
+
+    const background = declarations['background-color'] || declarations.background || cell.getAttribute('bgcolor');
+    return {
+      background: this.normaliseCanvasColor(background, '#ffffff'),
+      color: this.normaliseCanvasColor(declarations.color, '#111827'),
+      fontSize: this.cssLengthToPixels(declarations['font-size'], 14),
+      fontFamily: declarations['font-family'] || 'Arial, "Microsoft YaHei", sans-serif',
+      fontWeight: declarations['font-weight'] || (tagName === 'th' ? '600' : '400'),
+      italic: declarations['font-style'] === 'italic',
+      align: this.normaliseTextAlign(declarations['text-align'] || cell.getAttribute('align')),
+      verticalAlign: this.normaliseVerticalAlign(declarations['vertical-align'] || cell.getAttribute('valign')),
+      borderColor: this.normaliseCanvasColor(this.extractBorderColor(declarations), '#d1d5db')
+    };
+  },
+
+  readHtmlColumnWidths(tableElement) {
+    return Array.from(tableElement.querySelectorAll(':scope > colgroup > col, :scope > col')).map(col => {
+      const inlineStyle = this.parseCssDeclarations(col.getAttribute('style') || '');
+      return this.cssLengthToPixels(inlineStyle.width || col.getAttribute('width'), null);
+    });
+  },
+
+  cssLengthToPixels(value, fallback) {
+    if (value === undefined || value === null || value === '') return fallback;
+    const match = String(value).trim().match(/^(-?\d+(?:\.\d+)?)(px|pt|pc|in|cm|mm)?$/i);
+    if (!match) return fallback;
+    const amount = Number.parseFloat(match[1]);
+    const unit = (match[2] || 'px').toLowerCase();
+    const factor = { px: 1, pt: 96 / 72, pc: 16, in: 96, cm: 96 / 2.54, mm: 96 / 25.4 }[unit];
+    return Number.isFinite(amount) && factor ? amount * factor : fallback;
+  },
+
+  extractBorderColor(declarations) {
+    const border = declarations.border || declarations['border-bottom'] || declarations['border-top'];
+    if (!border) return null;
+    const colors = border.match(/#[0-9a-f]{3,8}\b|rgb\([^)]*\)|[a-z]+$/i);
+    return colors ? colors[0] : null;
+  },
+
+  normaliseCanvasColor(value, fallback) {
+    if (!value) return fallback;
+    const color = String(value).trim();
+    return /^(#[0-9a-f]{3,8}|rgba?\([^)]*\)|[a-z]+)$/i.test(color) ? color : fallback;
+  },
+
+  normaliseTextAlign(value) {
+    const align = String(value || '').toLowerCase();
+    return ['left', 'center', 'right'].includes(align) ? align : 'left';
+  },
+
+  normaliseVerticalAlign(value) {
+    const align = String(value || '').toLowerCase();
+    return ['top', 'middle', 'bottom'].includes(align) ? align : 'middle';
+  },
+
+  /** 使用 Canvas 绘制模型，输出可作为普通图片消息发送的 PNG Blob。 */
+  async renderTableToImage(table) {
+    const padding = 10;
+    const minimumColumnWidth = 72;
+    const maximumColumnWidth = 280;
+    const columnWidths = Array.from({ length: table.columnCount }, () => minimumColumnWidth);
+    const measureCanvas = document.createElement('canvas');
+    const measureContext = measureCanvas.getContext('2d');
+
+    table.cells.forEach(cell => {
+      const style = cell.style;
+      measureContext.font = this.canvasFont(style);
+      const textWidth = Math.max(...String(cell.text).split('\n').map(line => measureContext.measureText(line).width), 0);
+      if (cell.colSpan === 1) {
+        columnWidths[cell.column] = Math.max(columnWidths[cell.column], Math.min(maximumColumnWidth, textWidth + padding * 2));
+      }
+    });
+    table.columnWidths.forEach((width, index) => {
+      if (width) columnWidths[index] = Math.min(maximumColumnWidth, Math.max(minimumColumnWidth, width));
+    });
+
+    const rowHeights = Array.from({ length: table.rowCount }, () => 32);
+    table.cells.forEach(cell => {
+      if (cell.rowSpan !== 1) return;
+      const availableWidth = this.sumRange(columnWidths, cell.column, cell.colSpan) - padding * 2;
+      measureContext.font = this.canvasFont(cell.style);
+      const lines = this.wrapCanvasText(measureContext, cell.text, availableWidth);
+      const lineHeight = Math.max(18, cell.style.fontSize * 1.45);
+      rowHeights[cell.row] = Math.max(rowHeights[cell.row], lines.length * lineHeight + padding * 2);
+    });
+
+    const contentWidth = columnWidths.reduce((sum, width) => sum + width, 0);
+    const contentHeight = rowHeights.reduce((sum, height) => sum + height, 0);
+    const maximumDimension = 4096;
+    const scale = Math.min(2, maximumDimension / Math.max(contentWidth, contentHeight), Math.sqrt(16000000 / (contentWidth * contentHeight)));
+    if (!Number.isFinite(scale) || scale <= 0) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(contentWidth * scale));
+    canvas.height = Math.max(1, Math.floor(contentHeight * scale));
+    const context = canvas.getContext('2d');
+    context.scale(scale, scale);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, contentWidth, contentHeight);
+
+    const columnOffsets = this.buildOffsets(columnWidths);
+    const rowOffsets = this.buildOffsets(rowHeights);
+    table.cells.forEach(cell => this.drawTableCell(context, cell, columnWidths, rowHeights, columnOffsets, rowOffsets, padding));
+
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  },
+
+  canvasFont(style) {
+    return `${style.italic ? 'italic ' : ''}${style.fontWeight || '400'} ${Math.max(10, style.fontSize || 14)}px ${style.fontFamily || 'Arial, sans-serif'}`;
+  },
+
+  sumRange(values, start, span) {
+    return values.slice(start, start + span).reduce((sum, value) => sum + value, 0);
+  },
+
+  buildOffsets(values) {
+    const offsets = [0];
+    values.forEach(value => offsets.push(offsets[offsets.length - 1] + value));
+    return offsets;
+  },
+
+  wrapCanvasText(context, text, maxWidth) {
+    const lines = [];
+    String(text || '').split('\n').forEach(paragraph => {
+      if (!paragraph) {
+        lines.push('');
+        return;
+      }
+      let line = '';
+      for (const character of paragraph) {
+        const candidate = line + character;
+        if (line && context.measureText(candidate).width > maxWidth) {
+          lines.push(line);
+          line = character;
+        } else {
+          line = candidate;
+        }
+      }
+      lines.push(line);
+    });
+    return lines.length ? lines : [''];
+  },
+
+  drawTableCell(context, cell, columnWidths, rowHeights, columnOffsets, rowOffsets, padding) {
+    const x = columnOffsets[cell.column];
+    const y = rowOffsets[cell.row];
+    const width = this.sumRange(columnWidths, cell.column, cell.colSpan);
+    const height = this.sumRange(rowHeights, cell.row, cell.rowSpan);
+    const style = cell.style;
+
+    context.fillStyle = style.background;
+    context.fillRect(x, y, width, height);
+    context.strokeStyle = style.borderColor;
+    context.lineWidth = 1;
+    context.strokeRect(x + 0.5, y + 0.5, Math.max(0, width - 1), Math.max(0, height - 1));
+
+    context.font = this.canvasFont(style);
+    context.fillStyle = style.color;
+    context.textBaseline = 'middle';
+    const lines = this.wrapCanvasText(context, cell.text, width - padding * 2);
+    const lineHeight = Math.max(18, style.fontSize * 1.45);
+    const textHeight = lines.length * lineHeight;
+    const startY = style.verticalAlign === 'top'
+      ? y + padding + lineHeight / 2
+      : style.verticalAlign === 'bottom'
+        ? y + height - padding - textHeight + lineHeight / 2
+        : y + (height - textHeight) / 2 + lineHeight / 2;
+
+    lines.forEach((line, index) => {
+      const textWidth = context.measureText(line).width;
+      const textX = style.align === 'right'
+        ? x + width - padding - textWidth
+        : style.align === 'center'
+          ? x + (width - textWidth) / 2
+          : x + padding;
+      context.fillText(line, textX, startY + index * lineHeight);
+    });
+  },
+
+  /** 上传生成的 PNG，并沿用现有 image 消息、缩略图和历史记录机制。 */
+  async sendPastedImage(blob, fileName, successMessage) {
+    const file = blob instanceof File
+      ? blob
+      : new File([blob], fileName || `excel_table_${Date.now()}.png`, { type: 'image/png' });
+    const formData = new FormData();
+    formData.append('file', file);
+    const result = await API.file.upload(formData);
+    if (!result) return;
+
+    const msgData = {
+      messageId: Utils.uuid(),
+      contentType: 'image',
+      content: JSON.stringify({
+        url: result.url,
+        thumbnailUrl: result.thumbnailUrl,
+        originalUrl: result.url
+      }),
+      isBurn: false
+    };
+    if (this.currentChat.type === 'private') {
+      msgData.toUserId = this.currentChat.id;
+    } else {
+      msgData.groupId = this.currentChat.id;
+    }
+
+    if (WS.sendChat(msgData)) {
+      Utils.toast(successMessage || '图片已发送', 'success', 1500);
     }
   },
 

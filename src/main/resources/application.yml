@@ -3,17 +3,17 @@ server:
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: root
+    url: ${DB_URL:jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # Redis 缓存
   data:
     redis:
-      host: localhost
-      port: 6379
-      database: 0
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
       timeout: 5000ms
 
   servlet:
@@ -25,18 +25,18 @@ spring:
 mybatis-plus:
   mapper-locations: classpath:/mapper/*.xml
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
     map-underscore-to-camel-case: true
 
 # JWT 配置
 jwt:
-  secret: lan-chat-secret-key-2026-very-long-for-hmac-sha256-algorithm
+  secret: ${JWT_SECRET:lan-chat-local-development-secret-change-in-production-2026}
   expiration: 7200000          # Token 有效期 2 小时（毫秒）
   refresh-expiration: 604800000 # 刷新令牌有效期 7 天（毫秒）
 
 # 文件存储
 file:
-  path: ./uploads/
+  path: ${FILE_STORAGE_PATH:./uploads/}
   allowed-types: jpg,jpeg,png,gif,bmp,webp,doc,docx,xls,xlsx,ppt,pptx,pdf,txt,zip,rar,7z,mp4,mp3,wav
   max-size: 104857600          # 100MB
 

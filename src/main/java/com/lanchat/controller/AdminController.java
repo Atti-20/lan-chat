@@ -5,6 +5,7 @@ import com.lanchat.entity.User;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,9 +18,12 @@ public class AdminController {
 
     // 检查当前操作者是否 admin
     private void checkAdminPermission() {
+        if (UserContextHolder.getCurrentUser() == null) {
+            throw new AccessDeniedException("请先登录");
+        }
         String currentUsername = UserContextHolder.getCurrentUser().getUsername();
         if(!"admin".equals(currentUsername)) {
-            throw new RuntimeException("警告：越权操作！");
+            throw new AccessDeniedException("警告：越权操作！");
         }
     }
 
@@ -41,8 +45,12 @@ public class AdminController {
     @PostMapping("/user/status")
     public Result changUserStatus(@RequestParam Long userId, @RequestParam Integer status) {
         checkAdminPermission();
+        if (status == null || (status != 0 && status != 1)) {
+            return Result.error(400, "用户状态只能为0或1");
+        }
         // 保护机制：管理员不能封禁自己
         User targetUser = userService.getById(userId);
+        if (targetUser == null) return Result.error(404, "用户不存在");
         if("admin".equals(targetUser.getUsername())) {
             return Result.error("操作失败：不能封禁管理员账号！");
         }

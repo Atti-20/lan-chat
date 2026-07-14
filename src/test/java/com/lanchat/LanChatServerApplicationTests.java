@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
-@SpringBootTest
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@SpringBootTest(properties = "tunnel.enabled=false")
 class LanChatServerApplicationTests {
 
     @Test
@@ -13,7 +15,8 @@ class LanChatServerApplicationTests {
 
     @Test
     void generatePassword() {
-        System.out.println("123456 的哈希值：" + new BCryptPasswordEncoder().encode("123456"));
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+        assertTrue(encoder.matches("123456", encoder.encode("123456")));
     }
 
 }

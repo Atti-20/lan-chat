@@ -11,6 +11,7 @@ import com.lanchat.entity.User;
 import com.lanchat.mapper.ChatGroupMapper;
 import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.GroupMemberMapper;
+import com.lanchat.mapper.MessageRecallMapper;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.service.GroupService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,22 +36,41 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     @Autowired
     private ChatMessageMapper chatMessageMapper;
 
+    @Autowired
+    private MessageRecallMapper messageRecallMapper;
+
     /** 最大管理员数量 */
     private static final int MAX_ADMINS = 3;
+
+    private static final int MAX_MEMBERS = 200;
+
+    private static final int MAX_MUTE_MINUTES = 30 * 24 * 60;
 
     @Override
     @Transactional
     public ChatGroup createGroup(Long ownerId, GroupCreateDTO dto) {
         // 创建群组
         // 群名称校验：2-20字符
-        if (dto.getGroupName() == null || dto.getGroupName().length() < 2 || dto.getGroupName().length() > 20) {
+        if (ownerId == null || dto == null) {
+            throw new IllegalArgumentException("群组参数不完整");
+        }
+        String groupName = dto.getGroupName() == null ? "" : dto.getGroupName().trim();
+        if (groupName.length() < 2 || groupName.length() > 20) {
             throw new IllegalArgumentException("群名称长度需为2-20字符");
         }
 
+        LinkedHashSet<Long> memberIds = new LinkedHashSet<>();
+        if (dto.getMemberIds() != null) memberIds.addAll(dto.getMemberIds());
+        memberIds.remove(null);
+        memberIds.remove(ownerId);
+        if (memberIds.size() + 1 > MAX_MEMBERS) {
+            throw new IllegalArgumentException("群成员数量不能超过" + MAX_MEMBERS + "人");
+        }
+
         ChatGroup group = new ChatGroup();
-        group.setGroupName(dto.getGroupName());
+        group.setGroupName(groupName);
         group.setAvatar(dto.getAvatar() != null ? dto.getAvatar() : "");
-        group.setAnnouncement(dto.getAnnouncement() != null ? dto.getAnnouncement() : "");
+        group.setAnnouncement(normalizeAnnouncement(dto.getAnnouncement()));
         group.setOwnerId(ownerId);
         group.setMaxMembers(200);
         group.setJoinMode(0);
@@ -67,9 +87,10 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
         memberMapper.insert(ownerMember);
 
         // 添加其他成员
-        if (dto.getMemberIds() != null) {
-            for (Long userId : dto.getMemberIds()) {
-                if (!userId.equals(ownerId) && userMapper.selectById(userId) != null) {
+        if (!memberIds.isEmpty()) {
+            for (Long userId : memberIds) {
+                User candidate = userMapper.selectById(userId);
+                if (candidate != null && Integer.valueOf(1).equals(candidate.getStatus())) {
                     GroupMember member = new GroupMember();
                     member.setGroupId(group.getId());
                     member.setUserId(userId);
@@ -87,18 +108,30 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     public boolean updateGroup(Long groupId, Long operatorId, GroupUpdateDTO dto) {
         int role = getMemberRole(groupId, operatorId);
         if (role < 1) {
-            throw new RuntimeException("只有群主或管理员才能修改群信息");
+            throw new IllegalArgumentException("只有群主或管理员才能修改群信息");
         }
 
         ChatGroup group = groupMapper.selectById(groupId);
         if (group == null) {
-            throw new RuntimeException("群组不存在");
+            throw new IllegalArgumentException("群组不存在");
         }
 
-        if (dto.getGroupName() != null) group.setGroupName(dto.getGroupName());
+        if (dto == null) throw new IllegalArgumentException("群组参数不能为空");
+        if (dto.getGroupName() != null) {
+            String name = dto.getGroupName().trim();
+            if (name.length() < 2 || name.length() > 20) {
+                throw new IllegalArgumentException("群名称长度需为2-20字符");
+            }
+            group.setGroupName(name);
+        }
         if (dto.getAvatar() != null) group.setAvatar(dto.getAvatar());
-        if (dto.getAnnouncement() != null) group.setAnnouncement(dto.getAnnouncement());
-        if (dto.getJoinMode() != null) group.setJoinMode(dto.getJoinMode());
+        if (dto.getAnnouncement() != null) group.setAnnouncement(normalizeAnnouncement(dto.getAnnouncement()));
+        if (dto.getJoinMode() != null) {
+            if (dto.getJoinMode() < 0 || dto.getJoinMode() > 2) {
+                throw new IllegalArgumentException("入群方式无效");
+            }
+            group.setJoinMode(dto.getJoinMode());
+        }
         group.setUpdateTime(LocalDateTime.now());
 
         return groupMapper.updateById(group) > 0;
@@ -198,21 +231,24 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     public boolean addMembers(Long groupId, Long operatorId, List<Long> userIds) {
         int role = getMemberRole(groupId, operatorId);
         if (role < 1) {
-            throw new RuntimeException("只有群主或管理员才能添加成员");
+            throw new IllegalArgumentException("只有群主或管理员才能添加成员");
         }
 
         // 检查群人数上限
         ChatGroup group = groupMapper.selectById(groupId);
+        if (group == null) throw new IllegalArgumentException("群组不存在");
+        if (userIds == null || userIds.isEmpty()) return true;
+        LinkedHashSet<Long> uniqueUserIds = new LinkedHashSet<>(userIds);
+        uniqueUserIds.remove(null);
+        uniqueUserIds.removeIf(userId -> isMember(groupId, userId));
         long currentCount = getMemberCount(groupId);
-        if (currentCount + userIds.size() > group.getMaxMembers()) {
-            throw new RuntimeException("群成员数量已达上限");
+        if (currentCount + uniqueUserIds.size() > group.getMaxMembers()) {
+            throw new IllegalArgumentException("群成员数量已达上限");
         }
 
-        for (Long userId : userIds) {
-            // 跳过已存在的成员
-            if (isMember(groupId, userId)) continue;
-
-            if (userMapper.selectById(userId) != null) {
+        for (Long userId : uniqueUserIds) {
+            User candidate = userMapper.selectById(userId);
+            if (candidate != null && Integer.valueOf(1).equals(candidate.getStatus())) {
                 GroupMember member = new GroupMember();
                 member.setGroupId(groupId);
                 member.setUserId(userId);
@@ -228,15 +264,15 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     public boolean removeMember(Long groupId, Long operatorId, Long userId) {
         int role = getMemberRole(groupId, operatorId);
         if (role < 1) {
-            throw new RuntimeException("只有群主或管理员才能移除成员");
+            throw new IllegalArgumentException("只有群主或管理员才能移除成员");
         }
 
         int targetRole = getMemberRole(groupId, userId);
         if (targetRole == 2) {
-            throw new RuntimeException("不能移除群主");
+            throw new IllegalArgumentException("不能移除群主");
         }
         if (targetRole == 1 && role != 2) {
-            throw new RuntimeException("管理员只能由群主移除");
+            throw new IllegalArgumentException("管理员只能由群主移除");
         }
 
         LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
@@ -249,7 +285,7 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
         int role = getMemberRole(groupId, userId);
         if (role == 2) {
             // 群主退群需要先转让
-            throw new RuntimeException("群主请先转让群主身份后再退群");
+            throw new IllegalArgumentException("群主请先转让群主身份后再退群");
         }
 
         LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
@@ -262,11 +298,11 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     public boolean transferOwner(Long groupId, Long currentOwnerId, Long newOwnerId) {
         ChatGroup group = groupMapper.selectById(groupId);
         if (group == null || !group.getOwnerId().equals(currentOwnerId)) {
-            throw new RuntimeException("只有群主才能转让群主");
+            throw new IllegalArgumentException("只有群主才能转让群主");
         }
 
         if (!isMember(groupId, newOwnerId)) {
-            throw new RuntimeException("新群主必须是群成员");
+            throw new IllegalArgumentException("新群主必须是群成员");
         }
 
         // 旧群主变为管理员
@@ -301,24 +337,24 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     public boolean setAdmin(Long groupId, Long operatorId, Long userId, boolean isAdmin) {
         int role = getMemberRole(groupId, operatorId);
         if (role != 2) {
-            throw new RuntimeException("只有群主才能设置管理员");
+            throw new IllegalArgumentException("只有群主才能设置管理员");
         }
 
         LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(GroupMember::getGroupId, groupId).eq(GroupMember::getUserId, userId);
         GroupMember member = memberMapper.selectOne(wrapper);
         if (member == null) {
-            throw new RuntimeException("用户不是群成员");
+            throw new IllegalArgumentException("用户不是群成员");
         }
         if (member.getRole() == 2) {
-            throw new RuntimeException("不能对群主进行此操作");
+            throw new IllegalArgumentException("不能对群主进行此操作");
         }
 
         // 设置管理员时检查上限（最多3名）
         if (isAdmin && member.getRole() != 1) {
             long adminCount = getAdminCount(groupId);
             if (adminCount >= MAX_ADMINS) {
-                throw new RuntimeException("管理员数量不能超过" + MAX_ADMINS + "名");
+                throw new IllegalArgumentException("管理员数量不能超过" + MAX_ADMINS + "名");
             }
         }
 
@@ -330,22 +366,25 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     public boolean muteMember(Long groupId, Long operatorId, Long userId, int minutes) {
         int role = getMemberRole(groupId, operatorId);
         if (role < 1) {
-            throw new RuntimeException("只有群主或管理员才能禁言成员");
+            throw new IllegalArgumentException("只有群主或管理员才能禁言成员");
         }
 
         int targetRole = getMemberRole(groupId, userId);
         if (targetRole >= role) {
-            throw new RuntimeException("不能禁言同级或更高级别的成员");
+            throw new IllegalArgumentException("不能禁言同级或更高级别的成员");
         }
 
         LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(GroupMember::getGroupId, groupId).eq(GroupMember::getUserId, userId);
         GroupMember member = memberMapper.selectOne(wrapper);
         if (member == null) {
-            throw new RuntimeException("用户不是群成员");
+            throw new IllegalArgumentException("用户不是群成员");
         }
 
-        if (minutes <= 0) {
+        if (minutes < 0 || minutes > MAX_MUTE_MINUTES) {
+            throw new IllegalArgumentException("禁言时长需为0分钟至30天");
+        }
+        if (minutes == 0) {
             member.setMuteUntil(null);
         } else {
             member.setMuteUntil(LocalDateTime.now().plusMinutes(minutes));
@@ -358,7 +397,7 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
         LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(GroupMember::getGroupId, groupId).eq(GroupMember::getUserId, userId);
         GroupMember member = memberMapper.selectOne(wrapper);
-        return member != null ? member.getRole() : -1;
+        return member != null && member.getRole() != null ? member.getRole() : -1;
     }
 
     @Override
@@ -371,11 +410,25 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     public boolean dissolveGroup(Long groupId, Long operatorId) {
         ChatGroup group = groupMapper.selectById(groupId);
         if (group == null) {
-            throw new RuntimeException("群组不存在");
+            throw new IllegalArgumentException("群组不存在");
         }
         if (!group.getOwnerId().equals(operatorId)) {
-            throw new RuntimeException("只有群主才能解散群聊");
+            throw new IllegalArgumentException("只有群主才能解散群聊");
         }
+
+        // 先清理群消息及撤回记录，避免群解散后留下不可达的孤儿数据。
+        LambdaQueryWrapper<ChatMessage> messageWrapper = new LambdaQueryWrapper<>();
+        messageWrapper.eq(ChatMessage::getGroupId, groupId);
+        List<ChatMessage> groupMessages = chatMessageMapper.selectList(messageWrapper);
+        List<String> messageIds = groupMessages.stream()
+                .map(ChatMessage::getMessageId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!messageIds.isEmpty()) {
+            messageRecallMapper.delete(new LambdaQueryWrapper<com.lanchat.entity.MessageRecall>()
+                    .in(com.lanchat.entity.MessageRecall::getMessageId, messageIds));
+        }
+        chatMessageMapper.delete(messageWrapper);
 
         // 删除所有群成员
         LambdaQueryWrapper<GroupMember> memberWrapper = new LambdaQueryWrapper<>();
@@ -408,5 +461,13 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
         LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(GroupMember::getGroupId, groupId);
         return memberMapper.selectCount(wrapper);
+    }
+
+    private String normalizeAnnouncement(String announcement) {
+        String value = announcement == null ? "" : announcement.trim();
+        if (value.length() > 500) {
+            throw new IllegalArgumentException("群公告不能超过500个字符");
+        }
+        return value;
     }
 }

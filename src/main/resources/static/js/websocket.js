@@ -37,7 +37,12 @@ const WS = {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const url = `${protocol}//${host}/ws/chat?userId=${userId}`;
+    const token = Utils.storage.get('token');
+    if (!token) {
+      Utils.toast('登录状态已失效，请重新登录', 'error');
+      return;
+    }
+    const url = `${protocol}//${host}/ws/chat?token=${encodeURIComponent(token)}`;
 
     try {
       this.socket = new WebSocket(url);

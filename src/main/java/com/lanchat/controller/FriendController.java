@@ -24,6 +24,9 @@ public class FriendController {
     @PostMapping("/request")
     public Result<Void> sendFriendRequest(@RequestBody FriendRequestDTO dto) {
         Long userId = UserContextHolder.getCurrentUserId();
+        if (dto == null || dto.getToUserId() == null) {
+            return Result.error(400, "好友申请参数不完整");
+        }
         friendService.sendFriendRequest(userId, dto.getToUserId(), dto.getMessage());
         return Result.success();
     }
@@ -37,6 +40,9 @@ public class FriendController {
     @PostMapping("/handle")
     public Result<Void> handleFriendRequest(@RequestBody FriendHandleDTO dto) {
         Long userId = UserContextHolder.getCurrentUserId();
+        if (dto == null || dto.getRequestId() == null || dto.getAccept() == null) {
+            return Result.error(400, "好友申请处理参数不完整");
+        }
         friendService.handleFriendRequest(dto.getRequestId(), userId, dto.getAccept());
         return Result.success();
     }

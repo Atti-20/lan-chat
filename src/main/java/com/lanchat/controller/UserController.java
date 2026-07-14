@@ -103,6 +103,7 @@ public class UserController {
         if (userId == null) {
             return Result.unauthorized("请先登录");
         }
+        if (body == null) return Result.error(400, "个人资料参数不能为空");
         try {
             String nickname = body.get("nickname");
             String avatar = body.get("avatar");

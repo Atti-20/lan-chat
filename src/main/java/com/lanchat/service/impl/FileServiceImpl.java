@@ -1,11 +1,14 @@
 package com.lanchat.service.impl;
 
-import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lanchat.dto.FileCheckDTO;
 import com.lanchat.dto.FileUploadVO;
 import com.lanchat.entity.FileMetadata;
+import com.lanchat.entity.ChatMessage;
+import com.lanchat.entity.GroupMember;
+import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.FileMetadataMapper;
+import com.lanchat.mapper.GroupMemberMapper;
 import com.lanchat.service.FileService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,10 +19,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
-import java.awt.*;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -42,11 +49,16 @@ public class FileServiceImpl implements FileService {
     private FileMetadataMapper fileMetadataMapper;
 
     @Autowired
+    private ChatMessageMapper chatMessageMapper;
+
+    @Autowired
+    private GroupMemberMapper groupMemberMapper;
+
+    @Autowired
     private StringRedisTemplate redisTemplate;
 
-//    @Value("${file.path}")
-//    private String filePath;
-    private String filePath = System.getProperty("user.dir") + "/uploads/";
+    @Value("${file.path}")
+    private String filePath;
 
     @Value("${file.allowed-types}")
     private String allowedTypes;
@@ -56,6 +68,7 @@ public class FileServiceImpl implements FileService {
 
     @Override
     public FileUploadVO checkFile(FileCheckDTO dto) {
+        if (dto == null) throw new IllegalArgumentException("文件参数不能为空");
         FileMetadata existing = getByHash(dto.getFileHash());
         if (existing != null) {
             FileUploadVO vo = buildVOFromMetadata(existing);
@@ -67,7 +80,7 @@ public class FileServiceImpl implements FileService {
 
     @Override
     public FileUploadVO uploadFile(MultipartFile file, Long userId) {
-        if (file.isEmpty()) {
+        if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("文件不能为空");
         }
 
@@ -80,13 +93,7 @@ public class FileServiceImpl implements FileService {
             throw new IllegalArgumentException("文件大小超过限制（100MB）");
         }
 
-        byte[] fileBytes;
-        try {
-            fileBytes = file.getBytes();
-        } catch (IOException e) {
-            throw new RuntimeException("读取文件失败: " + e.getMessage());
-        }
-        String fileHash = DigestUtil.sha256Hex(fileBytes);
+        String fileHash = calculateSha256(file);
 
         // 秒传检测
         FileMetadata existing = getByHash(fileHash);
@@ -100,22 +107,23 @@ public class FileServiceImpl implements FileService {
         // 获取文件后缀
         String suffix = "";
         if (originalFilename != null && originalFilename.contains(".")) {
-            suffix = originalFilename.substring(originalFilename.lastIndexOf("."));
+            suffix = originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase();
         }
         String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
 
         // 确保目录存在
-        File destDir = new File(filePath);
+        File destDir = getStorageRoot().toFile();
         if (!destDir.exists()) {
             destDir.mkdirs();
         }
 
         // 保存文件
-        File destFile = new File(filePath + newFileName);
+        File destFile = resolveStoredFile(newFileName);
         try {
             file.transferTo(destFile);
         } catch (IOException e) {
-            throw new RuntimeException("文件上传失败: " + e.getMessage());
+            log.error("文件写入失败", e);
+            throw new RuntimeException("文件上传失败");
         }
 
         // 保存文件元数据
@@ -152,14 +160,54 @@ public class FileServiceImpl implements FileService {
 
     @Override
     public FileMetadata getByHash(String fileHash) {
+        if (fileHash == null || !fileHash.matches("(?i)^[0-9a-f]{64}$")) return null;
         LambdaQueryWrapper<FileMetadata> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileMetadata::getFileHash, fileHash);
         return fileMetadataMapper.selectOne(wrapper);
     }
 
     @Override
+    public FileMetadata getByStoredName(String fileName) {
+        String normalized = normalizeStoredName(fileName);
+        if (normalized == null) return null;
+        String metadataName = normalized.startsWith("thumb_") ? normalized.substring(6) : normalized;
+        LambdaQueryWrapper<FileMetadata> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FileMetadata::getFilePath, metadataName);
+        return fileMetadataMapper.selectOne(wrapper);
+    }
+
+    @Override
+    public boolean canAccessFile(String fileName, Long userId) {
+        if (userId == null) return false;
+        FileMetadata metadata = getByStoredName(fileName);
+        if (metadata == null) return false;
+        if (userId.equals(metadata.getUploadUserId())) return true;
+
+        String storedName = metadata.getFilePath();
+        LambdaQueryWrapper<ChatMessage> privateWrapper = new LambdaQueryWrapper<>();
+        privateWrapper.like(ChatMessage::getContent, storedName)
+                .and(w -> w.eq(ChatMessage::getFromUserId, userId)
+                        .or()
+                        .eq(ChatMessage::getToUserId, userId));
+        if (chatMessageMapper.selectCount(privateWrapper) > 0) return true;
+
+        LambdaQueryWrapper<GroupMember> membershipWrapper = new LambdaQueryWrapper<>();
+        membershipWrapper.eq(GroupMember::getUserId, userId);
+        List<GroupMember> memberships = groupMemberMapper.selectList(membershipWrapper);
+        if (memberships.isEmpty()) return false;
+
+        List<Long> groupIds = memberships.stream().map(GroupMember::getGroupId).toList();
+        LambdaQueryWrapper<ChatMessage> groupWrapper = new LambdaQueryWrapper<>();
+        groupWrapper.like(ChatMessage::getContent, storedName)
+                .in(ChatMessage::getGroupId, groupIds);
+        return chatMessageMapper.selectCount(groupWrapper) > 0;
+    }
+
+    @Override
     public String getFileUrl(String fileName) {
-        return "/file/" + fileName;
+        String normalized = normalizeStoredName(fileName);
+        if (normalized == null) throw new IllegalArgumentException("文件名无效");
+        return "/api/v1/file/content/" + normalized;
     }
 
     @Override
@@ -178,10 +226,14 @@ public class FileServiceImpl implements FileService {
      */
     @Override
     public String generatePreviewUrl(String fileName, Long userId) {
+        String normalized = normalizeStoredName(fileName);
+        if (normalized == null || !canAccessFile(normalized, userId)) {
+            throw new IllegalArgumentException("文件不存在或无权访问");
+        }
         // 生成签名 token 并存入 Redis，10分钟后自动过期
         String signToken = UUID.randomUUID().toString().replace("-", "");
         String redisKey = "preview:" + signToken;
-        redisTemplate.opsForValue().set(redisKey, fileName + ":" + userId,
+        redisTemplate.opsForValue().set(redisKey, normalized + ":" + userId,
                 PREVIEW_URL_EXPIRE_MINUTES, TimeUnit.MINUTES);
         return "/api/v1/file/preview/" + signToken;
     }
@@ -194,8 +246,8 @@ public class FileServiceImpl implements FileService {
         String redisKey = "preview:" + signToken;
         String value = redisTemplate.opsForValue().get(redisKey);
         if (value == null) return false;
-        String[] parts = value.split(":");
-        return parts.length == 2 && parts[1].equals(userId.toString());
+        int separator = value.lastIndexOf(':');
+        return separator > 0 && value.substring(separator + 1).equals(userId.toString());
     }
 
     /**
@@ -206,7 +258,8 @@ public class FileServiceImpl implements FileService {
         String redisKey = "preview:" + signToken;
         String value = redisTemplate.opsForValue().get(redisKey);
         if (value == null) return null;
-        return value.split(":")[0];
+        int separator = value.lastIndexOf(':');
+        return separator > 0 ? value.substring(0, separator) : null;
     }
 
     /**
@@ -216,7 +269,7 @@ public class FileServiceImpl implements FileService {
     @Override
     public String generateThumbnail(String fileName) {
         try {
-            File sourceFile = new File(filePath + fileName);
+            File sourceFile = resolveStoredFile(fileName);
             if (!sourceFile.exists()) return null;
 
             BufferedImage sourceImage = ImageIO.read(sourceFile);
@@ -244,7 +297,7 @@ public class FileServiceImpl implements FileService {
             // 保存缩略图
             String suffix = fileName.substring(fileName.lastIndexOf(".") + 1);
             String thumbName = "thumb_" + fileName;
-            ImageIO.write(thumbnail, suffix, new File(filePath + thumbName));
+            ImageIO.write(thumbnail, suffix, resolveStoredFile(thumbName));
 
             return getFileUrl(thumbName);
         } catch (IOException e) {
@@ -278,7 +331,7 @@ public class FileServiceImpl implements FileService {
         String suffix = metadata.getFileSuffix() != null ? metadata.getFileSuffix().replace(".", "").toLowerCase() : "";
         if (IMAGE_SUFFIXES.contains(suffix)) {
             String thumbName = "thumb_" + metadata.getFilePath();
-            File thumbFile = new File(filePath + thumbName);
+            File thumbFile = resolveStoredFile(thumbName);
             if (thumbFile.exists()) {
                 vo.setThumbnailUrl(getFileUrl(thumbName));
             } else {
@@ -287,5 +340,41 @@ public class FileServiceImpl implements FileService {
         }
 
         return vo;
+    }
+
+    private String calculateSha256(MultipartFile file) {
+        try (InputStream input = file.getInputStream()) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read > 0) digest.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new RuntimeException("读取文件失败");
+        }
+    }
+
+    private java.nio.file.Path getStorageRoot() {
+        return java.nio.file.Paths.get(filePath).toAbsolutePath().normalize();
+    }
+
+    private File resolveStoredFile(String fileName) {
+        String normalized = normalizeStoredName(fileName);
+        if (normalized == null) throw new IllegalArgumentException("文件名无效");
+        java.nio.file.Path root = getStorageRoot();
+        java.nio.file.Path resolved = root.resolve(normalized).normalize();
+        if (!resolved.getParent().equals(root)) {
+            throw new IllegalArgumentException("文件名无效");
+        }
+        return resolved.toFile();
+    }
+
+    private String normalizeStoredName(String fileName) {
+        if (fileName == null) return null;
+        String value = fileName.trim();
+        if (!value.matches("^(?:thumb_)?[0-9a-fA-F]{32}\\.[a-zA-Z0-9]{1,10}$")) return null;
+        return value;
     }
 }

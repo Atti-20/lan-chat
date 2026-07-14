@@ -43,6 +43,12 @@ public interface UserService extends IService<User> {
     /** 获取当前登录设备 */
     DeviceLogin getCurrentDevice(Long userId, String deviceType);
 
+    /** 校验访问令牌仍对应有效设备且账号可用 */
+    boolean isAccessTokenActive(String token, Long userId, String deviceType);
+
+    /** 按当前访问令牌退出，避免误退出同类型的其他会话 */
+    void logoutByToken(Long userId, String token);
+
     /** 设置全局免打扰时段 */
     boolean setMutePeriod(Long userId, String muteStart, String muteEnd);
 

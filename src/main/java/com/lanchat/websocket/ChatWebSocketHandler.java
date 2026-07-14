@@ -4,11 +4,13 @@ import cn.hutool.json.JSONUtil;
 import com.lanchat.dto.WebSocketMessage;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.User;
+import com.lanchat.security.WebSocketAuthInterceptor;
 import com.lanchat.service.*;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -28,14 +30,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ChatWebSocketHandler.class);
 
-    /** 在线用户 session 映射：userId -> session */
-    private static final Map<Long, WebSocketSession> ONLINE_SESSIONS = new ConcurrentHashMap<>();
+    /** 在线用户 session 映射：同一用户可同时保有 Web / App 多个连接。 */
+    private static final Map<Long, Set<WebSocketSession>> ONLINE_SESSIONS = new ConcurrentHashMap<>();
 
     /** 在线用户信息：userId -> User */
     private static final Map<Long, User> ONLINE_USERS = new ConcurrentHashMap<>();
 
     /** 阅后即焚不允许的消息类型 */
     private static final Set<String> BURN_FORBIDDEN_TYPES = Set.of("file", "voice");
+
+    private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("text", "image", "file", "voice", "video");
+
+    private static final int MAX_TEXT_LENGTH = 4000;
 
     @Resource
     private ChatMessageService chatMessageService;
@@ -59,39 +65,64 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        ONLINE_SESSIONS.put(userId, session);
-
         User user = userService.getUserInfo(userId);
-        if (user != null) {
-            user.setOnline(1);
-            ONLINE_USERS.put(userId, user);
-            userService.updateOnlineStatus(userId, 1);
+        if (user == null || !Integer.valueOf(1).equals(user.getStatus())) {
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
         }
+
+        Set<WebSocketSession> sessions = ONLINE_SESSIONS.computeIfAbsent(
+                userId, ignored -> ConcurrentHashMap.newKeySet());
+        boolean wasOffline = sessions.isEmpty();
+        sessions.add(session);
+
+        user.setOnline(1);
+        ONLINE_USERS.put(userId, user);
+        userService.updateOnlineStatus(userId, 1);
 
         log.info("用户 {} 上线，当前在线人数: {}", userId, ONLINE_SESSIONS.size());
 
-        broadcastSystemMessage("online", userId);
-        sendOnlineListToAll();
-        sendOnlineList(session);
+        if (wasOffline) {
+            broadcastSystemMessage("online", userId);
+            sendOnlineListToAll();
+        } else {
+            sendOnlineList(session);
+        }
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         String payload = message.getPayload();
-        WebSocketMessage wsMsg = JSONUtil.toBean(payload, WebSocketMessage.class);
+        if (payload.length() > 32_000) {
+            session.close(CloseStatus.TOO_BIG_TO_PROCESS);
+            return;
+        }
+
+        WebSocketMessage wsMsg;
+        try {
+            wsMsg = JSONUtil.toBean(payload, WebSocketMessage.class);
+        } catch (Exception e) {
+            session.close(CloseStatus.BAD_DATA);
+            return;
+        }
 
         Long fromUserId = getUserIdFromSession(session);
         if (fromUserId == null) return;
 
         User fromUser = ONLINE_USERS.get(fromUserId);
+        if (fromUser == null) {
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
 
         switch (wsMsg.getType() == null ? "" : wsMsg.getType()) {
             case "chat" -> handleChatMessage(wsMsg, fromUser);
             case "recall" -> handleRecallMessage(wsMsg, fromUser);
-            case "burn" -> handleBurnMessage(wsMsg);
+            case "burn" -> handleBurnMessage(wsMsg, fromUser);
             case "read" -> handleReadReceipt(wsMsg, fromUser);
             case "typing" -> handleTyping(wsMsg, fromUser);
             case "screenshot" -> handleScreenshot(wsMsg, fromUser);
+            case "ping" -> { /* heartbeat */ }
             default -> log.warn("未知消息类型: {}", wsMsg.getType());
         }
     }
@@ -101,13 +132,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         Long userId = getUserIdFromSession(session);
         if (userId == null) return;
 
-        ONLINE_SESSIONS.remove(userId);
-        ONLINE_USERS.remove(userId);
+        Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
+        if (sessions == null) return;
+        boolean wentOffline = sessions.remove(session) && sessions.isEmpty();
+        if (!wentOffline) return;
+
+        ONLINE_SESSIONS.remove(userId, sessions);
         userService.updateOnlineStatus(userId, 0);
 
         log.info("用户 {} 下线，当前在线人数: {}", userId, ONLINE_SESSIONS.size());
 
         broadcastSystemMessage("offline", userId);
+        ONLINE_USERS.remove(userId);
         sendOnlineListToAll();
     }
 
@@ -129,6 +165,46 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      * - 阅后即焚：file/voice 类型不允许焚毁
      */
     private void handleChatMessage(WebSocketMessage wsMsg, User fromUser) {
+        boolean hasGroup = wsMsg.getGroupId() != null;
+        boolean hasRecipient = wsMsg.getToUserId() != null;
+        if (hasGroup == hasRecipient) {
+            sendErrorToUser(fromUser.getId(), "消息接收方无效");
+            return;
+        }
+
+        String contentType = wsMsg.getContentType() == null ? "text" : wsMsg.getContentType().toLowerCase();
+        if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
+            sendErrorToUser(fromUser.getId(), "不支持的消息类型");
+            return;
+        }
+        wsMsg.setContentType(contentType);
+
+        String content = wsMsg.getContent() == null ? "" : wsMsg.getContent();
+        if ("text".equals(contentType) && (content.isBlank() || content.length() > MAX_TEXT_LENGTH)) {
+            sendErrorToUser(fromUser.getId(), content.isBlank() ? "消息不能为空" : "消息不能超过4000个字符");
+            return;
+        }
+        if (!"text".equals(contentType) && (content.isBlank() || content.length() > 30_000)) {
+            sendErrorToUser(fromUser.getId(), "消息内容无效");
+            return;
+        }
+
+        if (wsMsg.getReplyToId() != null) {
+            String replyToId = wsMsg.getReplyToId().trim();
+            if (!replyToId.matches("^[A-Za-z0-9_-]{8,64}$")
+                    || !chatMessageService.canAccessMessage(replyToId, fromUser.getId())) {
+                sendErrorToUser(fromUser.getId(), "引用的消息不存在或无权访问");
+                return;
+            }
+            wsMsg.setReplyToId(replyToId);
+        }
+        if (wsMsg.getMentionUserIds() != null
+                && (wsMsg.getMentionUserIds().length() > 500
+                || !wsMsg.getMentionUserIds().matches("^\\d+(?:,\\d+)*$"))) {
+            sendErrorToUser(fromUser.getId(), "@成员参数无效");
+            return;
+        }
+
         // 阅后即焚类型限制
         if (Boolean.TRUE.equals(wsMsg.getIsBurn()) && wsMsg.getContentType() != null
                 && BURN_FORBIDDEN_TYPES.contains(wsMsg.getContentType())) {
@@ -149,6 +225,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 return;
             }
         } else if (wsMsg.getToUserId() != null) {
+            if (fromUser.getId().equals(wsMsg.getToUserId())
+                    || userService.getUserInfo(wsMsg.getToUserId()) == null) {
+                sendErrorToUser(fromUser.getId(), "接收用户不存在");
+                return;
+            }
             // 私聊消息校验：双方必须为好友
             if (!friendService.isFriend(fromUser.getId(), wsMsg.getToUserId())) {
                 sendErrorToUser(fromUser.getId(), "双方非好友关系，消息无法发送");
@@ -162,8 +243,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         // 生成消息唯一ID
-        if (wsMsg.getMessageId() == null || wsMsg.getMessageId().isEmpty()) {
+        if (wsMsg.getMessageId() == null || wsMsg.getMessageId().isBlank()) {
             wsMsg.setMessageId(UUID.randomUUID().toString().replace("-", ""));
+        } else if (!wsMsg.getMessageId().matches("^[A-Za-z0-9_-]{8,64}$")
+                || chatMessageService.getByMessageId(wsMsg.getMessageId()) != null) {
+            sendErrorToUser(fromUser.getId(), "消息标识无效或已存在");
+            return;
         }
         wsMsg.setFromUserId(fromUser.getId());
         wsMsg.setFromNickname(fromUser.getNickname());
@@ -181,11 +266,17 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         chatMessage.setReplyToId(wsMsg.getReplyToId());
         chatMessage.setMentionUserIds(wsMsg.getMentionUserIds());
         chatMessage.setIsBurn(wsMsg.getIsBurn() != null && wsMsg.getIsBurn() ? 1 : 0);
-        chatMessage.setBurnDuration(wsMsg.getBurnDuration() != null ? wsMsg.getBurnDuration() : 5);
+        // 倒计时由服务端固定，避免客户端提交负数或超大值破坏焚毁逻辑。
+        chatMessage.setBurnDuration(5);
         chatMessage.setIsRecalled(0);
         chatMessage.setStatus(0);
         chatMessage.setCreateTime(LocalDateTime.now());
-        chatMessageService.save(chatMessage);
+        try {
+            chatMessageService.save(chatMessage);
+        } catch (DuplicateKeyException e) {
+            sendErrorToUser(fromUser.getId(), "消息标识已存在");
+            return;
+        }
 
         String json = JSONUtil.toJsonStr(wsMsg);
 
@@ -208,7 +299,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         try {
             // 检查焚毁消息是否已被阅读
             ChatMessage original = chatMessageService.getByMessageId(wsMsg.getMessageId());
-            if (original != null && original.getIsBurn() == 1 && original.getStatus() == 2) {
+            if (original != null && Integer.valueOf(1).equals(original.getIsBurn())
+                    && Integer.valueOf(2).equals(original.getStatus())) {
                 sendErrorToUser(fromUser.getId(), "阅后即焚消息已被阅读，无法撤回");
                 return;
             }
@@ -242,8 +334,19 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      * 处理阅后即焚消息
      * 多端同步：一端触发焚毁，其他端同步更新为占位符
      */
-    private void handleBurnMessage(WebSocketMessage wsMsg) {
-        chatMessageService.markAsBurned(wsMsg.getMessageId());
+    private void handleBurnMessage(WebSocketMessage wsMsg, User fromUser) {
+        ChatMessage original = chatMessageService.getByMessageId(wsMsg.getMessageId());
+        if (original == null || !chatMessageService.canAccessMessage(wsMsg.getMessageId(), fromUser.getId())) {
+            sendErrorToUser(fromUser.getId(), "无权操作此消息");
+            return;
+        }
+
+        try {
+            chatMessageService.markAsBurned(wsMsg.getMessageId(), fromUser.getId());
+        } catch (IllegalArgumentException e) {
+            sendErrorToUser(fromUser.getId(), e.getMessage());
+            return;
+        }
 
         WebSocketMessage burnMsg = new WebSocketMessage();
         burnMsg.setType("burn");
@@ -252,14 +355,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         String json = JSONUtil.toJsonStr(burnMsg);
 
-        ChatMessage original = chatMessageService.getByMessageId(wsMsg.getMessageId());
-        if (original != null) {
-            if (original.getGroupId() != null) {
-                broadcastToGroup(original.getGroupId(), json, null);
-            } else {
-                sendToUser(original.getToUserId(), json);
-                sendToUser(original.getFromUserId(), json);
-            }
+        if (original.getGroupId() != null) {
+            broadcastToGroup(original.getGroupId(), json, null);
+        } else {
+            sendToUser(original.getToUserId(), json);
+            sendToUser(original.getFromUserId(), json);
         }
     }
 
@@ -268,10 +368,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      * 多端同步：一端已读，其他端同步消除红点
      */
     private void handleReadReceipt(WebSocketMessage wsMsg, User fromUser) {
-        // 标记消息为已读
-        if (wsMsg.getToUserId() != null) {
-            chatMessageService.markAsRead(wsMsg.getToUserId(), fromUser.getId());
+        if (wsMsg.getToUserId() == null || wsMsg.getToUserId().equals(fromUser.getId())) {
+            sendErrorToUser(fromUser.getId(), "已读回执参数无效");
+            return;
         }
+        // 标记消息为已读
+        chatMessageService.markAsRead(wsMsg.getToUserId(), fromUser.getId());
 
         // 广播已读状态给发送方的所有在线设备
         WebSocketMessage readMsg = new WebSocketMessage();
@@ -289,6 +391,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      * 处理正在输入提示
      */
     private void handleTyping(WebSocketMessage wsMsg, User fromUser) {
+        if (wsMsg.getGroupId() != null && !groupService.isMember(wsMsg.getGroupId(), fromUser.getId())) {
+            return;
+        }
+        if (wsMsg.getGroupId() == null && wsMsg.getToUserId() != null
+                && !friendService.isFriend(fromUser.getId(), wsMsg.getToUserId())) {
+            return;
+        }
         wsMsg.setFromUserId(fromUser.getId());
         wsMsg.setFromNickname(fromUser.getNickname());
         wsMsg.setTimestamp(LocalDateTime.now());
@@ -308,7 +417,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      */
     private void handleScreenshot(WebSocketMessage wsMsg, User fromUser) {
         ChatMessage original = chatMessageService.getByMessageId(wsMsg.getMessageId());
-        if (original == null || original.getIsBurn() != 1) return;
+        if (original == null || !Integer.valueOf(1).equals(original.getIsBurn())
+                || !chatMessageService.canAccessMessage(wsMsg.getMessageId(), fromUser.getId())) return;
 
         // 向消息发送方发送截屏提醒
         WebSocketMessage screenshotMsg = new WebSocketMessage();
@@ -324,15 +434,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     // ==================== 工具方法 ====================
 
     private Long getUserIdFromSession(WebSocketSession session) {
-        String query = session.getUri() != null ? session.getUri().getQuery() : null;
-        if (query == null) return null;
-        for (String param : query.split("&")) {
-            String[] pair = param.split("=", 2);
-            if ("userId".equals(pair[0]) && pair.length > 1) {
-                return Long.parseLong(pair[1]);
-            }
-        }
-        return null;
+        Object userId = session.getAttributes().get(WebSocketAuthInterceptor.USER_ID_ATTRIBUTE);
+        return userId instanceof Long ? (Long) userId : null;
     }
 
     /**
@@ -364,7 +467,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void sendOnlineListToAll() {
-        ONLINE_SESSIONS.values().forEach(this::sendOnlineList);
+        ONLINE_SESSIONS.values().forEach(sessions -> sessions.forEach(this::sendOnlineList));
     }
 
     private void sendOnlineList(WebSocketSession session) {
@@ -377,7 +480,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void broadcast(String message) {
-        ONLINE_SESSIONS.values().forEach(session -> sendToSession(session, message));
+        ONLINE_SESSIONS.values().forEach(sessions -> sessions.forEach(session -> sendToSession(session, message)));
     }
 
     private void broadcastToGroup(Long groupId, String message, Long excludeUserId) {
@@ -390,16 +493,17 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void sendToUser(Long userId, String message) {
-        WebSocketSession session = ONLINE_SESSIONS.get(userId);
-        if (session != null && session.isOpen()) {
-            sendToSession(session, message);
-        }
+        if (userId == null) return;
+        Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
+        if (sessions != null) sessions.forEach(session -> sendToSession(session, message));
     }
 
     private void sendToSession(WebSocketSession session, String message) {
         try {
             if (session.isOpen()) {
-                session.sendMessage(new TextMessage(message));
+                synchronized (session) {
+                    session.sendMessage(new TextMessage(message));
+                }
             }
         } catch (IOException e) {
             log.error("发送消息失败: {}", e.getMessage());
