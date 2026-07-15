@@ -26,9 +26,12 @@ const emit = defineEmits<{
   cancelPending: [clientMsgId: string]
 }>()
 const threadRef = useTemplateRef<HTMLDivElement>('thread')
+const messageListRef = useTemplateRef<HTMLOListElement>('messageList')
 const memberMap = computed(() => new Map(props.members.map((member) => [member.userId, member])))
 let scrollFrame: number | null = null
 let scrollRequestId = 0
+let layoutObserver: ResizeObserver | null = null
+let layoutSettleTimer: number | null = null
 
 watch(
   () => [
@@ -46,9 +49,10 @@ watch(
 
     if (conversationChanged || loadingFinished) {
       // The history response can replace cached messages without changing the
-      // message count. Scroll after the final layout, without an animation,
-      // so opening a conversation always lands exactly at its last message.
-      scheduleScrollToBottom('auto')
+      // message count. Scroll after the final layout, without an animation.
+      // Attachments resolve their image URL after the history request, so keep
+      // the initial position pinned while the message list is still resizing.
+      scheduleScrollToBottom('auto', !loading)
     } else if (messagesChanged && !loading) {
       scheduleScrollToBottom('smooth')
     }
@@ -59,21 +63,63 @@ watch(
 onBeforeUnmount(() => {
   scrollRequestId += 1
   if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+  stopLayoutSettling()
 })
 
-function scheduleScrollToBottom(behavior: ScrollBehavior): void {
+function scheduleScrollToBottom(behavior: ScrollBehavior, settleLayout = false): void {
   const requestId = ++scrollRequestId
   if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+  stopLayoutSettling()
 
   void nextTick(() => {
     if (requestId !== scrollRequestId) return
     scrollFrame = requestAnimationFrame(() => {
       scrollFrame = null
       if (requestId !== scrollRequestId) return
-      const thread = threadRef.value
-      thread?.scrollTo({ top: thread.scrollHeight, behavior })
+      scrollToBottom(behavior)
+      if (settleLayout) startLayoutSettling(requestId)
     })
   })
+}
+
+function scrollToBottom(behavior: ScrollBehavior): void {
+  const thread = threadRef.value
+  if (!thread) return
+  const top = Math.max(0, thread.scrollHeight - thread.clientHeight)
+  if (behavior === 'auto') {
+    thread.scrollTop = top
+  } else {
+    thread.scrollTo({ top, behavior })
+  }
+}
+
+function startLayoutSettling(requestId: number): void {
+  const list = messageListRef.value
+  const finish = () => {
+    if (requestId !== scrollRequestId) return
+    stopLayoutSettling()
+  }
+  const resetTimer = () => {
+    if (layoutSettleTimer !== null) window.clearTimeout(layoutSettleTimer)
+    layoutSettleTimer = window.setTimeout(finish, 320)
+  }
+
+  if (typeof ResizeObserver !== 'undefined' && list) {
+    layoutObserver = new ResizeObserver(() => {
+      if (requestId !== scrollRequestId) return
+      scrollToBottom('auto')
+      resetTimer()
+    })
+    layoutObserver.observe(list)
+  }
+  resetTimer()
+}
+
+function stopLayoutSettling(): void {
+  layoutObserver?.disconnect()
+  layoutObserver = null
+  if (layoutSettleTimer !== null) window.clearTimeout(layoutSettleTimer)
+  layoutSettleTimer = null
 }
 
 function isSelf(message: ChatMessage): boolean {
@@ -142,7 +188,7 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
       <p>{{ conversation.kind === 'group' ? '发给所有群成员的第一条消息。' : `你和 ${conversation.name} 还没有聊天记录。` }}</p>
     </div>
 
-    <ol v-else class="message-list">
+    <ol v-else ref="messageList" class="message-list">
       <li
         v-for="message in messages"
         :key="message.messageId"
@@ -238,6 +284,7 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
 .message-actions { display: flex; gap: 3px; opacity: 0; transition: opacity 150ms ease; }
 .message-row:hover .message-actions,
 .message-actions:focus-within { opacity: 1; }
+.message-row--self .message-actions { opacity: 1; }
 .message-actions button { padding: 1px 5px; border: 0; color: #58728b; font-size: 9px; background: transparent; cursor: pointer; }
 .thread-state { display: grid; height: 100%; min-height: 320px; place-items: center; align-content: center; color: var(--ink-soft); text-align: center; }
 .thread-state p { margin: 8px 0 0; font-size: 12px; }
@@ -290,5 +337,14 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
   background: var(--surface-glass);
   box-shadow: 0 4px 16px var(--shadow-color);
   backdrop-filter: blur(16px) saturate(150%);
+}
+
+@media (max-width: 760px) {
+  .message-thread {
+    padding: 14px max(10px, env(safe-area-inset-right)) 18px max(10px, env(safe-area-inset-left));
+  }
+  .message-list { gap: 10px; }
+  .message-stack { max-width: 82%; }
+  .message-actions { opacity: 1; }
 }
 </style>

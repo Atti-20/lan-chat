@@ -11,7 +11,10 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{
+  close: []
+  currentDeviceLoggedOut: []
+}>()
 const toast = useToast()
 const devices = shallowRef<DeviceLogin[]>([])
 const loading = shallowRef(false)
@@ -29,12 +32,19 @@ watch(() => props.open, async (open) => {
   }
 }, { immediate: true })
 
-async function kickDevice(deviceId: number): Promise<void> {
-  if (!window.confirm('确定下线该设备？')) return
-  busyId.value = deviceId
+async function kickDevice(device: DeviceLogin): Promise<void> {
+  const prompt = device.current
+    ? '确定下线当前设备？下线后将退出登录并返回首页。'
+    : '确定下线该设备？'
+  if (!window.confirm(prompt)) return
+  busyId.value = device.id
   try {
-    await api.user.logoutDevice(deviceId)
-    devices.value = devices.value.filter(d => d.id !== deviceId)
+    await api.user.logoutDevice(device.id)
+    if (device.current) {
+      emit('currentDeviceLoggedOut')
+      return
+    }
+    devices.value = devices.value.filter(item => item.id !== device.id)
     toast.push('设备已下线', 'success')
   } catch {
     toast.push('操作失败', 'danger')
@@ -83,7 +93,10 @@ function shortDeviceName(name: string): string {
         <div v-for="device in devices" :key="device.id" class="device-item">
           <span class="device-icon">{{ deviceIcon(device.deviceType) }}</span>
           <div class="device-info">
-            <strong>{{ device.deviceType || '未知' }}</strong>
+            <div class="device-heading">
+              <strong>{{ device.deviceType || '未知' }}</strong>
+              <span v-if="device.current">本设备</span>
+            </div>
             <small>{{ shortDeviceName(device.deviceName) }}</small>
             <span class="device-time">登录于 {{ formatMessageTime(device.loginTime) }}</span>
           </div>
@@ -91,7 +104,7 @@ function shortDeviceName(name: string): string {
             class="kick-button"
             type="button"
             :disabled="busyId === device.id"
-            @click="kickDevice(device.id)"
+            @click="kickDevice(device)"
           >{{ busyId === device.id ? '…' : '下线' }}</button>
         </div>
       </div>
@@ -108,8 +121,8 @@ function shortDeviceName(name: string): string {
   padding: 20px;
   place-items: center;
   background: var(--backdrop);
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(14px) saturate(125%);
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
 }
 
 .device-sheet {
@@ -181,7 +194,9 @@ function shortDeviceName(name: string): string {
 
 .device-icon { font-size: 22px; flex-shrink: 0; }
 .device-info { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.device-info strong { font-size: 13px; font-weight: 600; }
+.device-heading { display: flex; align-items: center; gap: 7px; }
+.device-heading strong { font-size: 13px; font-weight: 600; }
+.device-heading span { padding: 2px 6px; border-radius: 999px; color: var(--blue); font-size: 9px; font-weight: 700; background: var(--active); }
 .device-info small { overflow: hidden; color: var(--ink-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .device-time { color: var(--ink-faint); font-size: 10px; }
 

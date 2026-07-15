@@ -141,6 +141,21 @@ textarea:focus-visible {
   will-change: backdrop-filter;
 }
 
+/* Keep modal blur reliable in Chromium when component-scoped overlay styles
+ * are composed inside the chat layout. The extra attribute selector wins over
+ * scoped class rules without changing individual dialog layering. */
+body .modal-backdrop[class],
+body .context-backdrop[class],
+body .reset-backdrop[class],
+body .diagnostics-backdrop[class],
+body .image-preview-backdrop[class],
+body .cropper-backdrop[class] {
+  -webkit-backdrop-filter: blur(14px) saturate(125%) !important;
+  backdrop-filter: blur(14px) saturate(125%) !important;
+  isolation: isolate;
+  will-change: backdrop-filter;
+}
+
 .profile-sheet.detail-panel,
 .context-panel.detail-panel {
   border: 1px solid var(--glass-border);

@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, readonly, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, readonly, ref, shallowRef, watch } from 'vue'
 import { api } from '../services/api'
 import {
   cacheMessages,
@@ -51,6 +51,9 @@ export function useChat() {
   const requests = ref<FriendRequest[]>([])
   const members = ref<GroupMember[]>([])
   const messages = ref<ChatMessage[]>([])
+  const messageSearchResults = ref<ChatMessage[]>([])
+  const messageSearchLoading = shallowRef(false)
+  const messageSearchError = shallowRef('')
   const selected = shallowRef<Conversation | null>(null)
   const section = shallowRef<ChatSection>('messages')
   const query = shallowRef('')
@@ -69,12 +72,49 @@ export function useChat() {
   let syncRejecter: ((cause: Error) => void) | null = null
   let syncRequestId: string | null = null
   let syncTimer: number | null = null
+  let messageSearchTimer: number | null = null
+  let messageSearchSequence = 0
 
   onBeforeUnmount(() => {
     burnTimers.forEach((timer) => window.clearTimeout(timer))
     burnTimers.clear()
     burnConversationIds.clear()
+    if (messageSearchTimer !== null) window.clearTimeout(messageSearchTimer)
   })
+
+  watch(
+    () => [section.value, query.value] as const,
+    ([currentSection, rawQuery], _previous, onCleanup) => {
+      const sequence = ++messageSearchSequence
+      if (messageSearchTimer !== null) {
+        window.clearTimeout(messageSearchTimer)
+        messageSearchTimer = null
+      }
+      messageSearchResults.value = []
+      messageSearchLoading.value = false
+      messageSearchError.value = ''
+
+      const keyword = rawQuery.trim()
+      if (currentSection !== 'messages' || keyword.length < 2) return
+
+      const timer = window.setTimeout(async () => {
+        messageSearchLoading.value = true
+        try {
+          const found = await api.chat.search(keyword, 50)
+          if (sequence === messageSearchSequence) messageSearchResults.value = found || []
+        } catch (cause) {
+          if (sequence === messageSearchSequence) {
+            messageSearchError.value = cause instanceof Error ? cause.message : '搜索消息失败，请稍后重试'
+          }
+        } finally {
+          if (sequence === messageSearchSequence) messageSearchLoading.value = false
+          if (messageSearchTimer === timer) messageSearchTimer = null
+        }
+      }, 260)
+      messageSearchTimer = timer
+      onCleanup(() => window.clearTimeout(timer))
+    },
+  )
 
   const conversations = computed<Conversation[]>(() => {
     const me = currentUser.value?.id
@@ -943,6 +983,9 @@ export function useChat() {
     requests: readonly(requests),
     members: readonly(members),
     messages: readonly(messages),
+    messageSearchResults: readonly(messageSearchResults),
+    messageSearchLoading: readonly(messageSearchLoading),
+    messageSearchError: readonly(messageSearchError),
     selected,
     section,
     query,

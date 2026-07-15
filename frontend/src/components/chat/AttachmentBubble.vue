@@ -192,7 +192,7 @@ function handlePreviewError(): void {
 .file-attachment--outgoing .download-action { color: white; background: rgba(255,255,255,.16); }
 .file-attachment--outgoing .file-copy small { color: rgba(255,255,255,.72); }
 .file-attachment--outgoing:hover .download-action { background: rgba(255,255,255,.24); }
-.image-preview-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; padding: 28px; place-items: center; background: rgba(12,18,26,.72); backdrop-filter: blur(12px); }
+.image-preview-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; padding: 28px; place-items: center; background: rgba(12,18,26,.72); backdrop-filter: blur(14px) saturate(125%); -webkit-backdrop-filter: blur(14px) saturate(125%); }
 .image-preview { position: relative; display: grid; max-width: min(94vw, 1440px); max-height: 92dvh; place-items: center; }
 .image-preview img { display: block; max-width: 100%; max-height: 92dvh; object-fit: contain; border-radius: 14px; box-shadow: 0 28px 90px rgba(0,0,0,.36); }
 .image-preview .preview-thumbnail { opacity: .82; filter: saturate(.92); }

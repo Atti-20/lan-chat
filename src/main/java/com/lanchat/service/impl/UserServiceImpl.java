@@ -106,12 +106,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         // 密码强度校验：8-20位，含字母和数字
         String password = dto.getPassword();
-        if (password.length() < 8 || password.length() > 20) {
-            throw new IllegalArgumentException("密码长度需为8-20位");
-        }
-        if (!password.matches(".*[a-zA-Z]+.*") || !password.matches(".*\\d+.*")) {
-            throw new IllegalArgumentException("密码必须包含字母和数字");
-        }
+        validateAccountPassword(password);
 
         // 昵称长度校验：2-16字符
         if (StringUtils.hasText(dto.getNickname())) {
@@ -535,6 +530,38 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    @Transactional
+    public boolean resetPasswordByAdmin(Long userId, String newPassword) {
+        if (userId == null) {
+            throw new IllegalArgumentException("用户参数不能为空");
+        }
+
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在");
+        }
+        if ("admin".equals(user.getUsername())) {
+            throw new IllegalArgumentException("管理员账号请使用“修改密码”功能");
+        }
+
+        validateAccountPassword(newPassword);
+
+        LambdaUpdateWrapper<User> userWrapper = new LambdaUpdateWrapper<>();
+        userWrapper.eq(User::getId, userId)
+                .set(User::getPassword, passwordEncoder.encode(newPassword));
+        boolean updated = userMapper.update(null, userWrapper) > 0;
+        if (!updated) return false;
+
+        LambdaUpdateWrapper<DeviceLogin> deviceWrapper = new LambdaUpdateWrapper<>();
+        deviceWrapper.eq(DeviceLogin::getUserId, userId)
+                .eq(DeviceLogin::getStatus, 1)
+                .set(DeviceLogin::getStatus, 0);
+        deviceLoginMapper.update(null, deviceWrapper);
+        loginAttemptService.clearAttempts(user.getUsername());
+        return true;
+    }
+
+    @Override
     public boolean updateProfile(Long userId, String nickname, String avatar) {
         User user = userMapper.selectById(userId);
         if (user == null) {
@@ -587,12 +614,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         // 校验新密码强度（复用注册时的密码校验逻辑）
         String newPassword = dto.getNewPassword();
-        if (newPassword.length() < 8 || newPassword.length() > 20) {
-            throw new IllegalArgumentException("密码长度需为8-20位");
-        }
-        if (!newPassword.matches(".*[a-zA-Z]+.*") || !newPassword.matches(".*\\d+.*")) {
-            throw new IllegalArgumentException("密码必须包含字母和数字");
-        }
+        validateAccountPassword(newPassword);
 
         // 更新密码并撤销所有设备会话，避免旧令牌继续访问。
         LambdaUpdateWrapper<User> wrapper = new LambdaUpdateWrapper<>();
@@ -607,6 +629,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             deviceLoginMapper.update(null, deviceWrapper);
         }
         return updated;
+    }
+
+    private void validateAccountPassword(String password) {
+        if (!StringUtils.hasText(password)) {
+            throw new IllegalArgumentException("新密码不能为空");
+        }
+        if (password.length() < 8 || password.length() > 20) {
+            throw new IllegalArgumentException("密码长度需为8-20位");
+        }
+        if (!password.matches(".*[a-zA-Z]+.*") || !password.matches(".*\\d+.*")) {
+            throw new IllegalArgumentException("密码必须包含字母和数字");
+        }
     }
 
     private boolean isValidTime(String value) {

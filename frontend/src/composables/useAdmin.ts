@@ -60,13 +60,26 @@ export function useAdmin() {
     })
   }
 
-  async function runUserAction(userId: number, action: () => Promise<void>): Promise<void> {
+  async function resetUserPassword(payload: { userId: number; newPassword: string }): Promise<boolean> {
+    return runUserAction(payload.userId, async () => {
+      await api.admin.resetPassword(payload.userId, payload.newPassword)
+      toast.push('密码已重置，该账号的所有设备已退出登录', 'success')
+    }, false)
+  }
+
+  async function runUserAction(
+    userId: number,
+    action: () => Promise<void>,
+    refresh = true,
+  ): Promise<boolean> {
     busyUserId.value = userId
     try {
       await action()
-      await loadUsers()
+      if (refresh) await loadUsers()
+      return true
     } catch (cause) {
       toast.push(errorMessage(cause, '管理操作失败'), 'danger')
+      return false
     } finally {
       busyUserId.value = null
     }
@@ -87,6 +100,7 @@ export function useAdmin() {
     createUser,
     setUserStatus,
     setMutePeriod,
+    resetUserPassword,
     deleteUser,
   }
 }

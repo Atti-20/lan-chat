@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { shallowRef, ref, watch, computed, nextTick } from 'vue'
+import { computed, nextTick, shallowRef, useTemplateRef, watch } from 'vue'
 import type { User } from '../../types'
 import UserAvatar from '../base/UserAvatar.vue'
 import UiIcon from '../base/UiIcon.vue'
@@ -82,8 +82,8 @@ function selectTextAvatar(): void {
 /* ===== 头像裁切相关 ===== */
 const cropperVisible = shallowRef(false)
 const cropPreviewUrl = shallowRef('')
-const cropImgRef = ref<HTMLImageElement | null>(null)
-const cropContainerRef = ref<HTMLDivElement | null>(null)
+const cropImgRef = useTemplateRef<HTMLImageElement>('cropImg')
+const cropContainerRef = useTemplateRef<HTMLDivElement>('cropContainer')
 // 裁切框状态（相对于显示图片的百分比 0~1）
 const cropX = shallowRef(0)
 const cropY = shallowRef(0)
@@ -301,84 +301,95 @@ function resetToTextAvatar(): void {
 <template>
   <div v-if="open" class="modal-backdrop detail-backdrop" role="presentation" @click.self="emit('close')">
     <section class="profile-sheet detail-panel" role="dialog" aria-modal="true" aria-labelledby="profile-title">
-      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
-        <UiIcon name="close" :size="16" />
-      </button>
-
-      <div class="avatar-section">
-        <div class="avatar-preview">
-          <UserAvatar :name="nickname || user.nickname" :avatar="avatar" :size="88" online />
-          <button class="avatar-upload-btn" type="button" :disabled="uploadingAvatar" @click="uploadAvatar">
-            <UiIcon name="edit" :size="14" />
-          </button>
+      <header class="profile-header">
+        <div>
+          <p>账号设置</p>
+          <h2 id="profile-title">个人资料</h2>
+          <span>@{{ user.username }}</span>
         </div>
-        <button v-if="isImageAvatar" class="reset-avatar" type="button" @click="resetToTextAvatar">使用文字头像</button>
-      </div>
+        <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+          <UiIcon name="close" :size="17" />
+        </button>
+      </header>
 
-      <h2 id="profile-title">个人资料</h2>
-      <p class="username-label">@{{ user.username }}</p>
-
-      <template v-if="!isImageAvatar">
-        <div class="emoji-row">
-          <button
-            type="button"
-            class="text-avatar-choice"
-            :class="{ selected: isTextAvatar }"
-            aria-label="使用昵称首字符作为头像"
-            :aria-pressed="isTextAvatar"
-            @click="selectTextAvatar"
-          >{{ (nickname || user.nickname).slice(0, 1).toUpperCase() || '?' }}</button>
-          <button
-            v-for="e in emojis"
-            :key="e"
-            type="button"
-            :class="{ selected: currentEmoji === e }"
-            @click="selectEmoji(e)"
-          >{{ e }}</button>
-        </div>
-
-        <div class="color-section">
-          <span class="section-label">底色</span>
-          <div class="color-row">
-            <button
-              v-for="color in colorPresets"
-              :key="color"
-              type="button"
-              class="color-swatch"
-              :class="{ selected: currentColor === color }"
-              :style="{ background: color }"
-              :aria-label="`选择颜色 ${color}`"
-              @click="selectColor(color)"
-            />
+      <div class="profile-body">
+        <div class="avatar-section">
+          <div class="avatar-preview">
+            <UserAvatar :name="nickname || user.nickname" :avatar="avatar" :size="88" online />
+            <button class="avatar-upload-btn" type="button" :disabled="uploadingAvatar" @click="uploadAvatar">
+              <UiIcon name="edit" :size="14" />
+            </button>
           </div>
+          <button v-if="isImageAvatar" class="reset-avatar" type="button" @click="resetToTextAvatar">使用文字头像</button>
+          <span v-else class="avatar-help">点击头像右下角可上传照片</span>
         </div>
-      </template>
 
-      <label><span>昵称</span><input v-model="nickname" class="field" maxlength="16" /></label>
+        <section v-if="!isImageAvatar" class="avatar-customizer" aria-labelledby="avatar-style-title">
+          <div class="section-heading">
+            <strong id="avatar-style-title">头像样式</strong>
+            <span>选择字符和底色</span>
+          </div>
+          <div class="emoji-row">
+            <button
+              type="button"
+              class="text-avatar-choice"
+              :class="{ selected: isTextAvatar }"
+              aria-label="使用昵称首字符作为头像"
+              :aria-pressed="isTextAvatar"
+              @click="selectTextAvatar"
+            >{{ (nickname || user.nickname).slice(0, 1).toUpperCase() || '?' }}</button>
+            <button
+              v-for="e in emojis"
+              :key="e"
+              type="button"
+              :class="{ selected: currentEmoji === e }"
+              @click="selectEmoji(e)"
+            >{{ e }}</button>
+          </div>
 
-      <button
-        class="primary-button"
-        type="button"
-        :disabled="saving || uploadingAvatar || !nickname.trim()"
-        @click="emit('save', { nickname: nickname.trim(), avatar })"
-      >{{ saving ? '正在保存…' : '保存资料' }}</button>
+          <div class="color-section">
+            <span class="section-label">底色</span>
+            <div class="color-row">
+              <button
+                v-for="color in colorPresets"
+                :key="color"
+                type="button"
+                class="color-swatch"
+                :class="{ selected: currentColor === color }"
+                :style="{ background: color }"
+                :aria-label="`选择颜色 ${color}`"
+                @click="selectColor(color)"
+              />
+            </div>
+          </div>
+        </section>
 
-      <div class="profile-links">
-        <button type="button" @click="toggleTheme">
-          <UiIcon :name="themeMode === 'dark' ? 'sun' : 'moon'" :size="18" />
-          <span>{{ themeMode === 'dark' ? '切换到浅色模式' : '切换到深色模式' }}</span>
-        </button>
-        <button type="button" @click="emit('openDevices')">
-          <UiIcon name="monitor" :size="18" />
-          <span>登录设备管理</span>
-        </button>
-        <button type="button" @click="emit('openPassword')">
-          <UiIcon name="lock" :size="18" />
-          <span>修改密码</span>
-        </button>
+        <label class="nickname-field"><span>昵称</span><input v-model="nickname" class="field" maxlength="16" /></label>
+
+        <button
+          class="primary-button"
+          type="button"
+          :disabled="saving || uploadingAvatar || !nickname.trim()"
+          @click="emit('save', { nickname: nickname.trim(), avatar })"
+        >{{ saving ? '正在保存…' : '保存资料' }}</button>
+
+        <nav class="profile-links" aria-label="账号设置">
+          <button type="button" @click="toggleTheme">
+            <UiIcon :name="themeMode === 'dark' ? 'sun' : 'moon'" :size="18" />
+            <span>{{ themeMode === 'dark' ? '切换到浅色模式' : '切换到深色模式' }}</span>
+          </button>
+          <button type="button" @click="emit('openDevices')">
+            <UiIcon name="monitor" :size="18" />
+            <span>登录设备管理</span>
+          </button>
+          <button type="button" @click="emit('openPassword')">
+            <UiIcon name="lock" :size="18" />
+            <span>修改密码</span>
+          </button>
+        </nav>
+
+        <button class="logout-button" type="button" @click="emit('logout')">退出登录</button>
       </div>
-
-      <button class="logout-button" type="button" @click="emit('logout')">退出登录</button>
     </section>
 
     <!-- 裁切器弹窗 -->
@@ -423,27 +434,49 @@ function resetToTextAvatar(): void {
   display: grid;
   padding: 20px;
   place-items: center;
+  overflow: hidden;
 }
 
 .profile-sheet {
   position: relative;
   display: grid;
-  width: min(100%, 400px);
+  width: min(100%, 430px);
   max-height: calc(100dvh - 40px);
-  padding: 34px 30px 26px;
-  justify-items: center;
+  padding: 0;
+  grid-template-rows: auto minmax(0, 1fr);
   border-radius: 22px;
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
+  overflow: hidden;
+}
+.profile-header {
+  display: flex;
+  padding: 20px 22px 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--separator);
+  background: var(--surface-glass);
+}
+.profile-header > div { display: grid; gap: 3px; }
+.profile-header p { margin: 0; color: var(--blue); font-size: 9px; font-weight: 750; letter-spacing: .12em; }
+.profile-header h2 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
+.profile-header span { color: var(--ink-faint); font-size: 11px; }
+.profile-body {
+  display: grid;
+  min-height: 0;
+  padding: 20px 24px 24px;
+  justify-items: center;
+  align-content: start;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .close-button {
-  position: absolute;
-  top: 14px;
-  right: 14px;
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
   padding: 0;
   place-items: center;
   border: 0;
@@ -453,7 +486,7 @@ function resetToTextAvatar(): void {
   cursor: pointer;
 }
 .close-button:hover { background: var(--button-hover); }
-.close-button .ui-icon { width: 16px; }
+.close-button .ui-icon { width: 17px; }
 
 .avatar-section {
   display: grid;
@@ -495,14 +528,23 @@ function resetToTextAvatar(): void {
   cursor: pointer;
 }
 .reset-avatar:hover { text-decoration: underline; }
-
-.profile-sheet h2 { margin: 15px 0 2px; font-size: 22px; letter-spacing: -0.03em; }
-.username-label { margin: 0 0 8px; color: var(--ink-soft); font-size: 12px; }
+.avatar-help { color: var(--ink-faint); font-size: 10px; }
+.avatar-customizer {
+  width: 100%;
+  padding: 13px;
+  margin-top: 18px;
+  border: 1px solid var(--separator);
+  border-radius: 16px;
+  background: var(--surface-tint);
+}
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.section-heading strong { font-size: 12px; }
+.section-heading span { color: var(--ink-faint); font-size: 10px; }
 
 .emoji-row {
   display: grid;
   width: 100%;
-  margin: 8px 0 4px;
+  margin: 11px 0 4px;
   grid-template-columns: repeat(9, 1fr);
   gap: 5px;
 }
@@ -527,7 +569,7 @@ function resetToTextAvatar(): void {
 
 .color-section {
   width: 100%;
-  margin: 6px 0 12px;
+  margin: 10px 0 0;
 }
 .section-label {
   display: block;
@@ -556,8 +598,8 @@ function resetToTextAvatar(): void {
   transform: scale(1.1);
 }
 
-.profile-sheet label { display: grid; width: 100%; gap: 8px; }
-.profile-sheet label span { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
+.nickname-field { display: grid; width: 100%; margin-top: 16px; gap: 8px; }
+.nickname-field > span { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
 .profile-sheet .primary-button { width: 100%; margin-top: 14px; }
 
 .profile-links {
@@ -586,20 +628,46 @@ function resetToTextAvatar(): void {
 .profile-links .ui-icon { width: 18px; color: var(--ink-soft); flex-shrink: 0; }
 
 .logout-button {
-  margin-top: 10px;
-  padding: 0;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 0 14px;
   border: 0;
+  border-radius: 12px;
   color: var(--coral);
   font-size: 12px;
   font-weight: 700;
-  background: transparent;
+  background: color-mix(in srgb, var(--coral) 8%, transparent);
   cursor: pointer;
 }
-.logout-button:hover { text-decoration: underline; }
+.logout-button:hover { background: color-mix(in srgb, var(--coral) 13%, transparent); }
 
 @media (max-width: 430px) {
   .emoji-row { grid-template-columns: repeat(5, 1fr); }
   .color-row { grid-template-columns: repeat(6, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .modal-backdrop { padding: 0; place-items: stretch; }
+  .profile-sheet {
+    width: 100%;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .profile-header {
+    padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 13px max(16px, env(safe-area-inset-left));
+    align-items: center;
+  }
+  .profile-header h2 { font-size: 21px; }
+  .close-button { width: 44px; height: 44px; }
+  .profile-body {
+    padding: 18px max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    scrollbar-gutter: auto;
+  }
+  .avatar-customizer { margin-top: 16px; }
 }
 
 /* ===== 裁切器 ===== */
@@ -611,8 +679,8 @@ function resetToTextAvatar(): void {
   padding: 20px;
   place-items: center;
   background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(14px) saturate(125%);
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
   isolation: isolate;
 }
 .cropper-dialog {
@@ -701,4 +769,20 @@ function resetToTextAvatar(): void {
 }
 .cropper-confirm:hover { background: color-mix(in srgb, var(--blue) 88%, #000); }
 .cropper-confirm:disabled { opacity: 0.5; cursor: wait; }
+
+@media (max-width: 760px) {
+  .cropper-backdrop {
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+  .cropper-dialog {
+    max-height: 100%;
+    padding: 18px;
+    overflow-y: auto;
+  }
+  .cropper-area {
+    width: min(100%, calc(100dvh - 190px));
+    justify-self: center;
+  }
+  .cropper-actions button { min-height: 44px; flex: 1; }
+}
 </style>

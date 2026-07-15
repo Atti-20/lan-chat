@@ -231,6 +231,9 @@ export const api = {
         beforeSequence ? `&beforeSequence=${beforeSequence}` : ''
       }`,
     ),
+    search: (keyword: string, limit = 50) => request<ChatMessage[]>(
+      `/chat/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}`,
+    ),
   },
   files: {
     upload: (file: File, conversationId: string) => {
@@ -264,6 +267,10 @@ export const api = {
     setMutePeriod: (userId: number, muteStart: string, muteEnd: string) => request<string>(
       `/admin/user/mute?userId=${userId}&muteStart=${encodeURIComponent(muteStart)}&muteEnd=${encodeURIComponent(muteEnd)}`,
       { method: 'POST' },
+    ),
+    resetPassword: (userId: number, newPassword: string) => request<void>(
+      `/admin/user/${userId}/password`,
+      { method: 'PUT', body: JSON.stringify({ newPassword }) },
     ),
     deleteUser: (userId: number) => request<string>(`/admin/user/${userId}`, { method: 'DELETE' }),
     diagnostics: () => request<AdminDiagnostics>('/admin/diagnostics'),

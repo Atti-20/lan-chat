@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import AdminConsole from '../components/admin/AdminConsole.vue'
+import AdminPasswordResetModal from '../components/admin/AdminPasswordResetModal.vue'
 import AdminSidebar from '../components/admin/AdminSidebar.vue'
 import type { AdminModule } from '../components/admin/adminNavigation'
 import RuntimeLogConsole from '../components/admin/logs/RuntimeLogConsole.vue'
@@ -25,7 +26,7 @@ import { useChat, type ChatSection } from '../composables/useChat'
 import { useDiagnostics } from '../composables/useDiagnostics'
 import { useToast } from '../composables/useToast'
 import { ApiError } from '../services/api'
-import type { ChatMessage, Conversation, User } from '../types'
+import type { AdminUser, ChatMessage, Conversation, User } from '../types'
 
 const auth = useAuth()
 const chat = useChat()
@@ -36,6 +37,10 @@ const {
   requests,
   members,
   messages,
+  conversations,
+  messageSearchResults,
+  messageSearchLoading,
+  messageSearchError,
   selected,
   section,
   query,
@@ -67,13 +72,22 @@ const profileOpen = shallowRef(false)
 const contextOpen = shallowRef(false)
 const devicesOpen = shallowRef(false)
 const passwordOpen = shallowRef(false)
+const passwordResetTarget = shallowRef<AdminUser | null>(null)
 const diagnosticsOpen = shallowRef(false)
 const adminModule = shallowRef<AdminModule | null>(null)
 const groupSaving = shallowRef(false)
 const profileSaving = shallowRef(false)
 const uploading = shallowRef(false)
 const replyTo = shallowRef<ChatMessage | null>(null)
-const mobile = shallowRef(window.innerWidth <= 760)
+const MOBILE_BREAKPOINT = 760
+const SIDEBAR_MIN_WIDTH = 280
+const SIDEBAR_MAX_WIDTH = 520
+const DESKTOP_CHROME_WIDTH = 112
+const MIN_WORKSPACE_WIDTH = 360
+const viewportWidth = shallowRef(window.innerWidth)
+const sidebarWidth = shallowRef(clampSidebarWidth(320, viewportWidth.value))
+const resizingSidebar = shallowRef(false)
+let stopActiveSidebarResize: (() => void) | null = null
 
 const user = computed<User>(() => auth.currentUser.value || {
   id: auth.session.value?.userId || 0,
@@ -84,6 +98,8 @@ const user = computed<User>(() => auth.currentUser.value || {
 })
 const isAdminSection = computed(() => section.value === 'admin')
 const isAdministrator = computed(() => user.value.username === 'admin')
+const mobile = computed(() => viewportWidth.value <= MOBILE_BREAKPOINT)
+const sidebarMaxWidth = computed(() => sidebarMaximumForViewport(viewportWidth.value))
 const diagnostics = useDiagnostics({
   connectionState,
   reconnectAttempts,
@@ -130,10 +146,71 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  stopActiveSidebarResize?.()
+})
 
 function handleResize(): void {
-  mobile.value = window.innerWidth <= 760
+  viewportWidth.value = window.innerWidth
+  sidebarWidth.value = clampSidebarWidth(sidebarWidth.value, viewportWidth.value)
+  if (mobile.value) stopActiveSidebarResize?.()
+}
+
+function startSidebarResize(event: PointerEvent): void {
+  if (mobile.value || event.button !== 0) return
+  stopActiveSidebarResize?.()
+  const target = event.currentTarget as HTMLButtonElement
+  target.setPointerCapture(event.pointerId)
+  const startX = event.clientX
+  const startWidth = sidebarWidth.value
+  const move = (next: PointerEvent) => {
+    sidebarWidth.value = clampSidebarWidth(startWidth + next.clientX - startX, viewportWidth.value)
+  }
+  const stop = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', stop)
+    window.removeEventListener('pointercancel', stop)
+    window.removeEventListener('blur', stop)
+    resizingSidebar.value = false
+    stopActiveSidebarResize = null
+  }
+  resizingSidebar.value = true
+  stopActiveSidebarResize = stop
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', stop, { once: true })
+  window.addEventListener('pointercancel', stop, { once: true })
+  window.addEventListener('blur', stop, { once: true })
+}
+
+function resizeSidebarWithKeyboard(event: KeyboardEvent): void {
+  const step = event.shiftKey ? 32 : 16
+  let nextWidth = sidebarWidth.value
+  if (event.key === 'ArrowLeft') nextWidth -= step
+  else if (event.key === 'ArrowRight') nextWidth += step
+  else if (event.key === 'Home') nextWidth = SIDEBAR_MIN_WIDTH
+  else if (event.key === 'End') nextWidth = sidebarMaxWidth.value
+  else return
+  event.preventDefault()
+  sidebarWidth.value = clampSidebarWidth(nextWidth, viewportWidth.value)
+}
+
+function resetSidebarWidth(): void {
+  sidebarWidth.value = clampSidebarWidth(320, viewportWidth.value)
+}
+
+function clampSidebarWidth(width: number, currentViewportWidth: number): number {
+  return Math.max(
+    SIDEBAR_MIN_WIDTH,
+    Math.min(sidebarMaximumForViewport(currentViewportWidth), Math.round(width)),
+  )
+}
+
+function sidebarMaximumForViewport(currentViewportWidth: number): number {
+  return Math.max(
+    SIDEBAR_MIN_WIDTH,
+    Math.min(SIDEBAR_MAX_WIDTH, currentViewportWidth - DESKTOP_CHROME_WIDTH - MIN_WORKSPACE_WIDTH),
+  )
 }
 
 function changeSection(next: ChatSection): void {
@@ -233,8 +310,11 @@ async function saveProfile(payload: { nickname: string; avatar: string }): Promi
 
 async function logout(): Promise<void> {
   chat.disconnect()
-  await auth.logout()
-  window.location.assign('/')
+  try {
+    await auth.logout()
+  } finally {
+    window.location.assign('/')
+  }
 }
 
 async function togglePin(): Promise<void> {
@@ -286,6 +366,13 @@ async function clearBrowserCaches(): Promise<void> {
     handleError(cause, '浏览器缓存清理失败')
   }
 }
+
+async function resetUserPassword(newPassword: string): Promise<void> {
+  const target = passwordResetTarget.value
+  if (!target) return
+  const reset = await admin.resetUserPassword({ userId: target.id, newPassword })
+  if (reset) passwordResetTarget.value = null
+}
 </script>
 
 <template>
@@ -298,8 +385,10 @@ async function clearBrowserCaches(): Promise<void> {
     <div
       v-else
       class="chat-shell"
+      :style="{ '--sidebar-width': `${sidebarWidth}px` }"
       :class="{
         'chat-shell--thread': mobile && hasWorkspaceSelection,
+        'chat-shell--resizing': resizingSidebar,
       }"
     >
       <AppRail
@@ -316,7 +405,6 @@ async function clearBrowserCaches(): Promise<void> {
         v-show="showSidebar"
         :selected="adminModule"
         :account-count="adminLoaded ? adminUsers.length : undefined"
-        :node-name="diagnostics.nodeInfo.value?.nodeName"
         :connection-state="connectionState"
         @select="selectAdminModule"
       />
@@ -327,6 +415,10 @@ async function clearBrowserCaches(): Promise<void> {
         v-model:query="query"
         :section="section"
         :conversations="visibleConversations"
+        :all-conversations="conversations"
+        :message-results="messageSearchResults"
+        :message-search-loading="messageSearchLoading"
+        :message-search-error="messageSearchError"
         :requests="requests"
         :selected-id="selected?.id"
         :selected-kind="selected?.kind"
@@ -335,6 +427,21 @@ async function clearBrowserCaches(): Promise<void> {
         @handle-request="handleFriendRequest"
         @search-people="searchOpen = true"
         @create-group="groupOpen = true"
+      />
+      <button
+        v-if="!mobile"
+        class="sidebar-resizer"
+        type="button"
+        role="separator"
+        aria-label="调整侧栏宽度"
+        aria-orientation="vertical"
+        :aria-valuemin="SIDEBAR_MIN_WIDTH"
+        :aria-valuemax="sidebarMaxWidth"
+        :aria-valuenow="sidebarWidth"
+        title="拖动调整宽度，双击恢复默认"
+        @pointerdown.prevent="startSidebarResize"
+        @keydown="resizeSidebarWithKeyboard"
+        @dblclick="resetSidebarWidth"
       />
 
       <section
@@ -357,10 +464,13 @@ async function clearBrowserCaches(): Promise<void> {
           :creating="adminCreating"
           :created-username="adminCreatedUsername"
           :busy-user-id="adminBusyUserId"
+          :mobile="mobile"
           @refresh="admin.loadUsers"
           @create="admin.createUser"
           @status="admin.setUserStatus"
           @mute="admin.setMutePeriod"
+          @reset-password="passwordResetTarget = $event"
+          @change-own-password="passwordOpen = true"
           @delete="admin.deleteUser"
         />
         <ConnectionDiagnosticsModal
@@ -368,7 +478,7 @@ async function clearBrowserCaches(): Promise<void> {
           :open="true"
           embedded
           :state="connectionState"
-          :connection-path="diagnostics.connectionPath.value"
+            :connection-path="diagnostics.connectionPath.value"
           :node-address="diagnostics.nodeAddress.value"
           :web-socket-address="diagnostics.webSocketAddress.value"
           :node-info="diagnostics.nodeInfo.value"
@@ -415,7 +525,8 @@ async function clearBrowserCaches(): Promise<void> {
             :latency-ms="latencyMs"
             :node-name="diagnostics.nodeInfo.value?.nodeName"
             :connection-path="diagnostics.connectionPath.value"
-            @details="diagnosticsOpen = true"
+            :can-view-diagnostics="isAdministrator"
+            @details="isAdministrator && (diagnosticsOpen = true)"
             @reconnect="chat.reconnect"
             @retry="chat.retryOutbox"
           />
@@ -448,7 +559,7 @@ async function clearBrowserCaches(): Promise<void> {
 
       <WorkspaceWelcome
         v-else-if="showWorkspace"
-        class="workspace"
+        class="workspace workspace--welcome"
         :section="section"
         @primary="handleWelcomeAction"
       />
@@ -492,11 +603,18 @@ async function clearBrowserCaches(): Promise<void> {
     <DeviceManagerModal
       :open="devicesOpen"
       @close="devicesOpen = false"
+      @current-device-logged-out="logout"
     />
     <ChangePasswordModal
       :open="passwordOpen"
       @close="passwordOpen = false"
       @password-changed="logout"
+    />
+    <AdminPasswordResetModal
+      :user="passwordResetTarget"
+      :saving="Boolean(passwordResetTarget && adminBusyUserId === passwordResetTarget.id)"
+      @close="passwordResetTarget = null"
+      @reset="resetUserPassword"
     />
     <ConnectionDiagnosticsModal
       :open="diagnosticsOpen"
@@ -527,7 +645,7 @@ async function clearBrowserCaches(): Promise<void> {
 
 <style scoped>
 .chat-page { width: 100%; min-height: 100dvh; padding: 18px; }
-.chat-shell { display: grid; width: 100%; height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: 78px 330px minmax(0, 1fr); gap: 10px; }
+.chat-shell { display: grid; width: 100%; height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: var(--rail-width, 72px) var(--sidebar-width, 320px) minmax(0, 1fr); gap: 10px; }
 .workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr) max-content; border-radius: 18px; overflow: hidden; }
 .connection-status-slot { min-width: 0; min-height: 0; }
 .workspace-header { display: flex; padding: 14px 19px; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.54); background: rgba(255,255,255,.16); }
@@ -544,15 +662,14 @@ async function clearBrowserCaches(): Promise<void> {
 .boot-screen span { width: 30px; height: 30px; border: 2px solid rgba(10,132,255,.16); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }.boot-screen strong { font-size: 13px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 1180px) {
-  .chat-shell { grid-template-columns: 78px 300px minmax(0, 1fr); }
-}
 @media (max-width: 760px) {
   .chat-page { padding: 9px; }
   .chat-shell { height: calc(100dvh - 18px); grid-template-columns: minmax(0, 1fr); }
   .chat-shell > :deep(.app-rail) { grid-column: 1; }
   .chat-shell--thread > :deep(.conversation-sidebar),
-  .chat-shell--thread > :deep(.admin-sidebar) { display: none !important; }
+  .chat-shell--thread > :deep(.admin-sidebar),
+  .chat-shell--thread > :deep(.app-rail) { display: none !important; }
+  .chat-shell--thread > .workspace { grid-column: 1; grid-row: 1; width: 100%; height: 100%; }
   .workspace { border-radius: 25px; }
   .back-button { display: grid; }
   .workspace-header { padding: 12px 13px; }
@@ -560,9 +677,11 @@ async function clearBrowserCaches(): Promise<void> {
 
 .chat-page { padding: 20px; }
 .chat-shell {
+  --rail-width: 72px;
+  position: relative;
   width: 100%;
   height: calc(100dvh - 40px);
-  grid-template-columns: 72px 320px minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) var(--sidebar-width, 320px) minmax(0, 1fr);
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--glass-border);
@@ -570,7 +689,59 @@ async function clearBrowserCaches(): Promise<void> {
   background: var(--surface-raise);
   box-shadow: 0 22px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
 }
+.sidebar-resizer {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--rail-width) + var(--sidebar-width, 320px));
+  width: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  transform: translateX(-50%);
+}
+.sidebar-resizer::before,
+.sidebar-resizer::after {
+  position: absolute;
+  left: 50%;
+  content: "";
+  transform: translateX(-50%);
+  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+.sidebar-resizer::before {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--separator);
+}
+.sidebar-resizer::after {
+  top: calc(50% - 22px);
+  width: 5px;
+  height: 44px;
+  border: 1px solid var(--separator-strong);
+  border-radius: 999px;
+  background: var(--surface-raise);
+  box-shadow: 0 2px 8px var(--shadow-color);
+  opacity: .72;
+}
+.sidebar-resizer:hover::before,
+.sidebar-resizer:focus-visible::before,
+.chat-shell--resizing .sidebar-resizer::before { background: color-mix(in srgb, var(--blue) 56%, var(--separator)); }
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+.chat-shell--resizing .sidebar-resizer::after {
+  border-color: color-mix(in srgb, var(--blue) 54%, var(--separator));
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--blue) 20%, transparent);
+  opacity: 1;
+}
+.sidebar-resizer:focus-visible { outline: none; }
+.chat-shell--resizing,
+.chat-shell--resizing * { cursor: col-resize !important; user-select: none; }
 .workspace { border-radius: 0; background: var(--surface); }
+.workspace--welcome { grid-template-rows: minmax(0, 1fr); }
 .workspace--admin-module { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
 .connection-status-slot { overflow: visible; }
 .workspace > :deep(.message-thread) { min-height: 0; overflow-y: auto; }
@@ -590,9 +761,6 @@ async function clearBrowserCaches(): Promise<void> {
 .workspace-title i { width: 6px; height: 6px; box-shadow: none; }
 .boot-screen { border-radius: 22px; }
 
-@media (max-width: 1180px) {
-  .chat-shell { grid-template-columns: 72px 294px minmax(0, 1fr); }
-}
 @media (max-width: 760px) {
   .chat-page { padding: 0; }
   .chat-shell {
@@ -603,10 +771,12 @@ async function clearBrowserCaches(): Promise<void> {
     grid-template-columns: minmax(0, 1fr);
   }
   .workspace { border-radius: 0; }
-  .workspace-header { padding-top: max(12px, env(safe-area-inset-top)); }
+  .workspace-header {
+    padding: max(12px, env(safe-area-inset-top)) max(13px, env(safe-area-inset-right)) 12px max(13px, env(safe-area-inset-left));
+  }
   .workspace--admin-module {
     grid-template-rows: auto minmax(0, 1fr);
-    padding-bottom: 84px;
+    padding-bottom: env(safe-area-inset-bottom);
   }
   .mobile-module-header {
     display: flex;

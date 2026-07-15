@@ -64,6 +64,9 @@ public interface UserService extends IService<User> {
     /** 管理员删除用户（连带清理关联数据） */
     boolean deleteUserByAdmin(Long userId);
 
+    /** 管理员重置普通用户密码并撤销其全部设备会话 */
+    boolean resetPasswordByAdmin(Long userId, String newPassword);
+
     /** 用户修改密码 */
     boolean changePassword(ChangePasswordDTO dto);
 

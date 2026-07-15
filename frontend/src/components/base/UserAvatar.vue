@@ -137,8 +137,7 @@ function adjustColor(hex: string, amount: number): string {
   position: absolute;
   right: -2px;
   bottom: -2px;
-  width: 26%;
-  min-width: 10px;
+  width: clamp(7px, 26%, 18px);
   aspect-ratio: 1;
   border: 2px solid rgba(245, 251, 255, 0.96);
   border-radius: 50%;

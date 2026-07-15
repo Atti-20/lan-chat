@@ -2,8 +2,10 @@ package com.lanchat.controller;
 
 import com.lanchat.common.Result;
 import com.lanchat.dto.ChangePasswordDTO;
+import com.lanchat.dto.DeviceLoginVO;
 import com.lanchat.entity.DeviceLogin;
 import com.lanchat.entity.User;
+import com.lanchat.security.LoginUser;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,12 +50,20 @@ public class UserController {
     }
 
     @GetMapping("/devices")
-    public Result<List<DeviceLogin>> getDevices() {
+    public Result<List<DeviceLoginVO>> getDevices() {
         Long userId = UserContextHolder.getCurrentUserId();
         if (userId == null) {
             return Result.unauthorized("请先登录");
         }
-        return Result.success(userService.getDevices(userId));
+        LoginUser loginUser = UserContextHolder.getCurrentUser();
+        DeviceLogin currentDevice = loginUser == null ? null : userService.getActiveDevice(
+                loginUser.getToken(), userId, loginUser.getDeviceType());
+        Long currentDeviceId = currentDevice == null ? null : currentDevice.getId();
+        List<DeviceLoginVO> devices = userService.getDevices(userId).stream()
+                .map(device -> DeviceLoginVO.from(device,
+                        currentDeviceId != null && currentDeviceId.equals(device.getId())))
+                .toList();
+        return Result.success(devices);
     }
 
     @DeleteMapping("/devices/{deviceId}")

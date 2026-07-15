@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, shallowRef } from 'vue'
+import { computed, nextTick, onMounted, shallowRef, useTemplateRef } from 'vue'
 import UiIcon from '../components/base/UiIcon.vue'
 import NodeDiscoveryPanel from '../components/nodes/NodeDiscoveryPanel.vue'
 import { ApiError, api } from '../services/api'
@@ -17,6 +17,7 @@ const nickname = shallowRef('')
 const error = shallowRef('')
 const autoLogging = shallowRef(false)
 const registrationEnabled = shallowRef(true)
+const passwordInput = useTemplateRef<HTMLInputElement>('passwordInput')
 
 const heading = computed(() => mode.value === 'login' ? '回到对话' : '创建你的空间')
 const submitLabel = computed(() => {
@@ -25,6 +26,7 @@ const submitLabel = computed(() => {
 })
 
 onMounted(async () => {
+  clearPasswordInput()
   // Access Token 只保存在当前标签页；刷新时尝试通过 HttpOnly Cookie 恢复。
   autoLogging.value = true
   try {
@@ -38,6 +40,8 @@ onMounted(async () => {
   } finally {
     autoLogging.value = false
   }
+  await nextTick()
+  clearPasswordInput()
   try {
     const node = await api.node.info()
     registrationEnabled.value = node.selfRegistrationEnabled
@@ -50,7 +54,14 @@ onMounted(async () => {
   if (lastUsername) {
     username.value = lastUsername
   }
+  await nextTick()
+  clearPasswordInput()
 })
+
+function clearPasswordInput(): void {
+  password.value = ''
+  if (passwordInput.value) passwordInput.value.value = ''
+}
 
 function switchMode(next: 'login' | 'register'): void {
   mode.value = next
@@ -148,6 +159,7 @@ async function submit(): Promise<void> {
         <label class="field-group">
           <span>密码</span>
           <input
+            ref="passwordInput"
             v-model="password"
             class="field"
             type="password"

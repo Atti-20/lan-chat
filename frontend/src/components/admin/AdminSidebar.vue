@@ -7,13 +7,11 @@ import type { AdminModule } from './adminNavigation'
 interface Props {
   selected: AdminModule | null
   accountCount?: number
-  nodeName?: string
   connectionState: ConnectionState
 }
 
 const props = withDefaults(defineProps<Props>(), {
   accountCount: undefined,
-  nodeName: '当前 LanChat 节点',
 })
 const emit = defineEmits<{
   select: [module: AdminModule]
@@ -30,7 +28,7 @@ const modules: ModuleItem[] = [
   {
     id: 'accounts',
     title: '账号管理',
-    description: '创建账号、封禁、禁言与删除',
+    description: '创建账号、重置密码、封禁与删除',
     icon: 'users',
   },
   {
@@ -64,7 +62,6 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
     <header class="admin-sidebar-header">
       <p>节点控制台</p>
       <h1>管理</h1>
-      <span>{{ nodeName }}</span>
     </header>
 
     <nav class="module-list" aria-label="管理功能">
@@ -102,17 +99,16 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
 <style scoped>
 .admin-sidebar {
   display: flex;
-  width: 320px;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
   border-right: 1px solid var(--separator);
   background: var(--surface-raise);
 }
-.admin-sidebar-header { padding: 22px 18px 17px; border-bottom: 1px solid var(--separator); }
+.admin-sidebar-header { padding: 22px 18px 17px; }
 .admin-sidebar-header p { margin: 0 0 3px; color: var(--blue); font-size: 11px; font-weight: 600; }
 .admin-sidebar-header h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.03em; }
-.admin-sidebar-header span { display: block; margin-top: 7px; overflow: hidden; color: var(--ink-faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .module-list { display: grid; padding: 10px 8px; gap: 4px; }
 .module-item {
   display: grid;
@@ -145,16 +141,19 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
 .admin-sidebar-footer .ui-icon { color: var(--blue); }
 .module-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 55%, transparent); outline-offset: -2px; }
 
-@media (max-width: 1020px) {
-  .admin-sidebar { width: 294px; }
-}
 @media (max-width: 760px) {
   .admin-sidebar {
     width: 100%;
-    padding-bottom: 84px;
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
     border: 0;
     background: var(--surface);
   }
-  .admin-sidebar-header { padding-top: max(20px, env(safe-area-inset-top)); }
+  .admin-sidebar-header {
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 14px max(16px, env(safe-area-inset-left));
+  }
+  .module-list {
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-left: max(8px, env(safe-area-inset-left));
+  }
 }
 </style>

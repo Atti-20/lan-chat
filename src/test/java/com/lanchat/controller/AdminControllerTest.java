@@ -1,6 +1,7 @@
 package com.lanchat.controller;
 
 import com.lanchat.entity.User;
+import com.lanchat.dto.AdminResetPasswordDTO;
 import com.lanchat.dto.RegisterDTO;
 import com.lanchat.dto.RuntimeLogSnapshot;
 import com.lanchat.security.LoginUser;
@@ -78,6 +79,29 @@ class AdminControllerTest {
 
         assertEquals(200, result.getCode());
         verify(userService).register(request);
+    }
+
+    @Test
+    void administratorCanResetRegularAccountPassword() {
+        authenticateAs("admin");
+        AdminResetPasswordDTO request = new AdminResetPasswordDTO();
+        request.setNewPassword("Member5678");
+        when(userService.resetPasswordByAdmin(7L, "Member5678")).thenReturn(true);
+
+        var result = controller.resetUserPassword(7L, request);
+
+        assertEquals(200, result.getCode());
+        verify(userService).resetPasswordByAdmin(7L, "Member5678");
+    }
+
+    @Test
+    void regularAccountCannotResetAnotherPassword() {
+        authenticateAs("alice");
+        AdminResetPasswordDTO request = new AdminResetPasswordDTO();
+        request.setNewPassword("Member5678");
+
+        assertThrows(AccessDeniedException.class,
+                () -> controller.resetUserPassword(7L, request));
     }
 
     @Test

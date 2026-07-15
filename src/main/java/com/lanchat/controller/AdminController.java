@@ -2,6 +2,7 @@ package com.lanchat.controller;
 
 import com.lanchat.common.Result;
 import com.lanchat.dto.AdminDiagnostics;
+import com.lanchat.dto.AdminResetPasswordDTO;
 import com.lanchat.dto.RegisterDTO;
 import com.lanchat.dto.RuntimeLogSnapshot;
 import com.lanchat.entity.User;
@@ -116,6 +117,23 @@ public class AdminController {
         try {
             userService.deleteUserByAdmin(userId);
             return Result.success("用户已删除");
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /** Reset a regular account password and revoke all of its active sessions. */
+    @PutMapping("/user/{userId}/password")
+    public Result<Void> resetUserPassword(@PathVariable Long userId,
+                                          @RequestBody AdminResetPasswordDTO dto) {
+        checkAdminPermission();
+        try {
+            String newPassword = dto == null ? null : dto.getNewPassword();
+            boolean success = userService.resetPasswordByAdmin(userId, newPassword);
+            if (!success) return Result.error("密码重置失败");
+            log.info("Administrator {} reset the password for account id {}",
+                    UserContextHolder.getCurrentUser().getUsername(), userId);
+            return Result.success();
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

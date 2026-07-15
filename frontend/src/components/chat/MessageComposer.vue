@@ -148,7 +148,9 @@ function onFileChange(event: Event): void {
 .reply-bar button { padding: 0; border: 0; color: var(--ink-soft); font-size: 20px; background: transparent; cursor: pointer; }
 
 @media (max-width: 760px) {
-  .composer-wrap { padding: 7px 9px calc(76px + env(safe-area-inset-bottom)); }
+  .composer-wrap {
+    padding: 7px max(9px, env(safe-area-inset-right)) max(9px, env(safe-area-inset-bottom)) max(9px, env(safe-area-inset-left));
+  }
   .composer { padding: 5px 6px; gap: 3px; border-radius: 17px; }
   .composer-tools { gap: 0; }
   .tool-button { width: 32px; height: 36px; }

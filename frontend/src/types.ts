@@ -138,6 +138,7 @@ export interface DeviceLogin {
   loginTime: string
   expireTime?: string
   status: number
+  current?: boolean
 }
 
 export type ConnectionState =

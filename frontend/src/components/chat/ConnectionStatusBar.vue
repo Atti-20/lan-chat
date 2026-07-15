@@ -10,6 +10,7 @@ interface Props {
   latencyMs?: number | null
   nodeName?: string
   connectionPath?: ConnectionPath
+  canViewDiagnostics?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -17,6 +18,7 @@ const props = withDefaults(defineProps<Props>(), {
   latencyMs: null,
   nodeName: '当前节点',
   connectionPath: 'LAN',
+  canViewDiagnostics: false,
 })
 const emit = defineEmits<{
   reconnect: []
@@ -51,17 +53,17 @@ const tone = computed(() => {
 <template>
   <div class="connection-status" :class="`connection-status--${tone}`" role="status">
     <span class="status-dot" aria-hidden="true" />
-    <button class="status-copy" type="button" aria-label="打开连接诊断" @click="emit('details')">
+    <span class="status-copy">
       <strong>{{ nodeName }}</strong>
       <span>{{ pathCopy }} · {{ stateCopy }}</span>
-    </button>
+    </span>
     <span v-if="pendingCount > 0" class="status-count">待发送 {{ pendingCount }}</span>
     <span v-if="failedCount > 0" class="status-count status-count--failed">失败 {{ failedCount }}</span>
     <button v-if="failedCount > 0" type="button" @click="emit('retry')">重试失败项</button>
     <button v-if="state === 'OFFLINE' || state === 'DEGRADED'" type="button" @click="emit('reconnect')">
       立即重连
     </button>
-    <button class="details-button" type="button" @click="emit('details')">诊断</button>
+    <button v-if="canViewDiagnostics" class="details-button" type="button" @click="emit('details')">诊断</button>
   </div>
 </template>
 

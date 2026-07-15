@@ -99,8 +99,8 @@ function submit(): void {
   padding: 20px;
   place-items: center;
   background: var(--backdrop);
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(14px) saturate(125%);
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
 }
 
 .group-sheet {

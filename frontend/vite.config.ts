@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [vue()],
   build: {
     outDir: '../src/main/resources/static/app',
-    emptyOutDir: true,
+    // Keep prior hashed files available while a running Spring server still
+    // serves a cached index.html from the previous frontend build.
+    emptyOutDir: false,
     sourcemap: false,
   },
   server: {

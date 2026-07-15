@@ -221,7 +221,7 @@ function closeFromBackdrop(): void {
 </template>
 
 <style scoped>
-.diagnostics-backdrop { position: fixed; z-index: 140; inset: 0; display: grid; padding: 24px; place-items: center; background: rgba(18, 29, 43, .34); backdrop-filter: blur(12px); }
+.diagnostics-backdrop { position: fixed; z-index: 140; inset: 0; display: grid; padding: 24px; place-items: center; background: rgba(18, 29, 43, .34); backdrop-filter: blur(14px) saturate(125%); -webkit-backdrop-filter: blur(14px) saturate(125%); }
 .diagnostics-workspace { width: 100%; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
 .diagnostics-panel { display: grid; width: min(880px, 100%); max-height: min(860px, calc(100dvh - 48px)); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid var(--glass-border); border-radius: 24px; color: var(--ink); background: var(--surface-raise); box-shadow: 0 28px 80px rgba(18, 38, 64, .28); }
 .diagnostics-panel--embedded { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
