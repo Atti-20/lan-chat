@@ -7,12 +7,16 @@ export function useAdmin() {
   const toast = useToast()
   const users = ref<AdminUser[]>([])
   const loading = shallowRef(false)
+  const loaded = shallowRef(false)
+  const creating = shallowRef(false)
+  const createdUsername = shallowRef<string | null>(null)
   const busyUserId = shallowRef<number | null>(null)
 
   async function loadUsers(): Promise<void> {
     loading.value = true
     try {
       users.value = await api.admin.users()
+      loaded.value = true
     } catch (cause) {
       toast.push(errorMessage(cause, '管理数据加载失败'), 'danger')
     } finally {
@@ -25,6 +29,21 @@ export function useAdmin() {
       await api.admin.setStatus(payload.userId, payload.status)
       toast.push(payload.status === 0 ? '账号已封禁' : '账号已恢复', 'success')
     })
+  }
+
+  async function createUser(payload: { username: string; password: string; nickname: string }): Promise<void> {
+    creating.value = true
+    createdUsername.value = null
+    try {
+      await api.admin.createUser(payload)
+      toast.push(`账号 ${payload.username} 已创建`, 'success')
+      await loadUsers()
+      createdUsername.value = payload.username
+    } catch (cause) {
+      toast.push(errorMessage(cause, '账号创建失败'), 'danger')
+    } finally {
+      creating.value = false
+    }
   }
 
   async function setMutePeriod(payload: { userId: number; muteStart: string; muteEnd: string }): Promise<void> {
@@ -60,8 +79,12 @@ export function useAdmin() {
   return {
     users: readonly(users),
     loading: readonly(loading),
+    loaded: readonly(loaded),
+    creating: readonly(creating),
+    createdUsername: readonly(createdUsername),
     busyUserId: readonly(busyUserId),
     loadUsers,
+    createUser,
     setUserStatus,
     setMutePeriod,
     deleteUser,

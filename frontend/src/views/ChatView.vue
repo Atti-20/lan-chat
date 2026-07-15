@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import AdminConsole from '../components/admin/AdminConsole.vue'
+import AdminSidebar from '../components/admin/AdminSidebar.vue'
+import type { AdminModule } from '../components/admin/adminNavigation'
+import RuntimeLogConsole from '../components/admin/logs/RuntimeLogConsole.vue'
+import ConnectionDiagnosticsModal from '../components/diagnostics/ConnectionDiagnosticsModal.vue'
 import AppRail from '../components/chat/AppRail.vue'
 import ChangePasswordModal from '../components/chat/ChangePasswordModal.vue'
 import ConnectionStatusBar from '../components/chat/ConnectionStatusBar.vue'
@@ -14,9 +18,11 @@ import ProfileModal from '../components/chat/ProfileModal.vue'
 import SearchPeopleModal from '../components/chat/SearchPeopleModal.vue'
 import UserAvatar from '../components/base/UserAvatar.vue'
 import UiIcon from '../components/base/UiIcon.vue'
+import WorkspaceWelcome from '../components/chat/WorkspaceWelcome.vue'
 import { useAdmin } from '../composables/useAdmin'
 import { useAuth } from '../composables/useAuth'
 import { useChat, type ChatSection } from '../composables/useChat'
+import { useDiagnostics } from '../composables/useDiagnostics'
 import { useToast } from '../composables/useToast'
 import { ApiError } from '../services/api'
 import type { ChatMessage, Conversation, User } from '../types'
@@ -42,12 +48,17 @@ const {
   connectionState,
   reconnectAttempts,
   latencyMs,
+  lastHeartbeatAt,
+  lastSyncAt,
   pendingCount,
   failedCount,
 } = chat
 const {
   users: adminUsers,
   loading: adminLoading,
+  loaded: adminLoaded,
+  creating: adminCreating,
+  createdUsername: adminCreatedUsername,
   busyUserId: adminBusyUserId,
 } = admin
 const searchOpen = shallowRef(false)
@@ -56,6 +67,8 @@ const profileOpen = shallowRef(false)
 const contextOpen = shallowRef(false)
 const devicesOpen = shallowRef(false)
 const passwordOpen = shallowRef(false)
+const diagnosticsOpen = shallowRef(false)
+const adminModule = shallowRef<AdminModule | null>(null)
 const groupSaving = shallowRef(false)
 const profileSaving = shallowRef(false)
 const uploading = shallowRef(false)
@@ -70,8 +83,28 @@ const user = computed<User>(() => auth.currentUser.value || {
   avatar: auth.session.value?.avatar,
 })
 const isAdminSection = computed(() => section.value === 'admin')
-const showSidebar = computed(() => !isAdminSection.value && (!mobile.value || !selected.value))
-const showWorkspace = computed(() => !mobile.value || Boolean(selected.value) || isAdminSection.value)
+const isAdministrator = computed(() => user.value.username === 'admin')
+const diagnostics = useDiagnostics({
+  connectionState,
+  reconnectAttempts,
+  latencyMs,
+  lastHeartbeatAt,
+  lastSyncAt,
+  pendingCount,
+  failedCount,
+  isAdmin: isAdministrator,
+})
+const hasWorkspaceSelection = computed(() => isAdminSection.value
+  ? Boolean(adminModule.value)
+  : Boolean(selected.value))
+const showSidebar = computed(() => !mobile.value || !hasWorkspaceSelection.value)
+const showWorkspace = computed(() => !mobile.value || hasWorkspaceSelection.value)
+const adminModuleTitles: Record<AdminModule, string> = {
+  accounts: '账号管理',
+  diagnostics: '连接诊断',
+  logs: '运行日志',
+}
+const selectedAdminTitle = computed(() => adminModule.value ? adminModuleTitles[adminModule.value] : '管理')
 const friendIds = computed(() => friends.value.map((friend) => friend.friendId))
 const connectionCopy = computed(() => reconnecting.value
   ? '正在重连'
@@ -108,9 +141,24 @@ function changeSection(next: ChatSection): void {
   section.value = next
   query.value = ''
   selected.value = null
+  adminModule.value = null
   replyTo.value = null
   contextOpen.value = false
-  if (next === 'admin') void admin.loadUsers()
+  if (next === 'admin' && !adminLoaded.value) void admin.loadUsers()
+}
+
+function selectAdminModule(next: AdminModule): void {
+  adminModule.value = next
+  if (next === 'accounts' && !adminLoaded.value) void admin.loadUsers()
+  if (next === 'diagnostics') void diagnostics.refresh()
+}
+
+function handleWelcomeAction(activeSection: ChatSection): void {
+  if (activeSection === 'groups') {
+    groupOpen.value = true
+    return
+  }
+  if (activeSection === 'messages' || activeSection === 'contacts') searchOpen.value = true
 }
 
 async function selectConversation(conversation: Conversation): Promise<void> {
@@ -229,6 +277,15 @@ async function updateRemark(remark: string): Promise<void> {
 function handleError(cause: unknown, fallback: string): void {
   toast.push(cause instanceof ApiError || cause instanceof Error ? cause.message : fallback, 'danger')
 }
+
+async function clearBrowserCaches(): Promise<void> {
+  try {
+    const cleared = await diagnostics.clearBrowserCaches()
+    toast.push(cleared ? `已清理 ${cleared} 个浏览器缓存` : '没有可清理的浏览器缓存', 'success')
+  } catch (cause) {
+    handleError(cause, '浏览器缓存清理失败')
+  }
+}
 </script>
 
 <template>
@@ -242,8 +299,7 @@ function handleError(cause: unknown, fallback: string): void {
       v-else
       class="chat-shell"
       :class="{
-        'chat-shell--thread': mobile && selected,
-        'chat-shell--admin': isAdminSection,
+        'chat-shell--thread': mobile && hasWorkspaceSelection,
       }"
     >
       <AppRail
@@ -255,7 +311,18 @@ function handleError(cause: unknown, fallback: string): void {
         @profile="profileOpen = true"
       />
 
+      <AdminSidebar
+        v-if="isAdminSection"
+        v-show="showSidebar"
+        :selected="adminModule"
+        :account-count="adminLoaded ? adminUsers.length : undefined"
+        :node-name="diagnostics.nodeInfo.value?.nodeName"
+        :connection-state="connectionState"
+        @select="selectAdminModule"
+      />
+
       <ConversationSidebar
+        v-else
         v-show="showSidebar"
         v-model:query="query"
         :section="section"
@@ -270,16 +337,59 @@ function handleError(cause: unknown, fallback: string): void {
         @create-group="groupOpen = true"
       />
 
-      <section v-if="isAdminSection && showWorkspace" class="workspace workspace--admin">
+      <section
+        v-if="isAdminSection && adminModule && showWorkspace"
+        class="workspace workspace--admin-module"
+      >
+        <header v-if="mobile" class="mobile-module-header">
+          <button class="back-button" type="button" aria-label="返回管理模块" @click="adminModule = null">
+            <UiIcon name="back" :size="21" />
+          </button>
+          <div>
+            <span>节点控制台</span>
+            <strong>{{ selectedAdminTitle }}</strong>
+          </div>
+        </header>
         <AdminConsole
+          v-if="adminModule === 'accounts'"
           :users="adminUsers"
           :loading="adminLoading"
+          :creating="adminCreating"
+          :created-username="adminCreatedUsername"
           :busy-user-id="adminBusyUserId"
           @refresh="admin.loadUsers"
+          @create="admin.createUser"
           @status="admin.setUserStatus"
           @mute="admin.setMutePeriod"
           @delete="admin.deleteUser"
         />
+        <ConnectionDiagnosticsModal
+          v-else-if="adminModule === 'diagnostics'"
+          :open="true"
+          embedded
+          :state="connectionState"
+          :connection-path="diagnostics.connectionPath.value"
+          :node-address="diagnostics.nodeAddress.value"
+          :web-socket-address="diagnostics.webSocketAddress.value"
+          :node-info="diagnostics.nodeInfo.value"
+          :admin-diagnostics="diagnostics.adminDiagnostics.value"
+          :reconnect-attempts="reconnectAttempts"
+          :latency-ms="latencyMs"
+          :last-heartbeat-at="lastHeartbeatAt"
+          :last-sync-at="lastSyncAt"
+          :pending-count="pendingCount"
+          :failed-count="failedCount"
+          :browser-capabilities="diagnostics.browserCapabilities"
+          :loading="diagnostics.loading.value"
+          :error="diagnostics.error.value"
+          @close="adminModule = null"
+          @refresh="diagnostics.refresh"
+          @reconnect="chat.reconnect"
+          @retry="chat.retryOutbox"
+          @export="diagnostics.exportDiagnostics"
+          @clear-cache="clearBrowserCaches"
+        />
+        <RuntimeLogConsole v-else />
       </section>
 
       <section v-else-if="selected && showWorkspace" class="workspace">
@@ -298,12 +408,14 @@ function handleError(cause: unknown, fallback: string): void {
 
         <div class="connection-status-slot">
           <ConnectionStatusBar
-            v-if="connectionState !== 'ONLINE' || pendingCount > 0 || failedCount > 0"
             :state="connectionState"
             :pending-count="pendingCount"
             :failed-count="failedCount"
             :reconnect-attempts="reconnectAttempts"
             :latency-ms="latencyMs"
+            :node-name="diagnostics.nodeInfo.value?.nodeName"
+            :connection-path="diagnostics.connectionPath.value"
+            @details="diagnosticsOpen = true"
             @reconnect="chat.reconnect"
             @retry="chat.retryOutbox"
           />
@@ -334,14 +446,12 @@ function handleError(cause: unknown, fallback: string): void {
         />
       </section>
 
-      <section v-else-if="showWorkspace" class="workspace workspace--empty">
-        <div class="empty-prism" aria-hidden="true">
-          <UiIcon name="brand" :size="42" />
-        </div>
-        <h2>选择一段对话</h2>
-        <p>左侧是最近的消息、好友与群组。<br />选中后，就能从上次停下的地方继续。</p>
-        <button class="secondary-button" type="button" @click="searchOpen = true">开始新对话</button>
-      </section>
+      <WorkspaceWelcome
+        v-else-if="showWorkspace"
+        class="workspace"
+        :section="section"
+        @primary="handleWelcomeAction"
+      />
 
       <ContextPanel
         :open="contextOpen"
@@ -388,6 +498,30 @@ function handleError(cause: unknown, fallback: string): void {
       @close="passwordOpen = false"
       @password-changed="logout"
     />
+    <ConnectionDiagnosticsModal
+      :open="diagnosticsOpen"
+      :state="connectionState"
+      :connection-path="diagnostics.connectionPath.value"
+      :node-address="diagnostics.nodeAddress.value"
+      :web-socket-address="diagnostics.webSocketAddress.value"
+      :node-info="diagnostics.nodeInfo.value"
+      :admin-diagnostics="diagnostics.adminDiagnostics.value"
+      :reconnect-attempts="reconnectAttempts"
+      :latency-ms="latencyMs"
+      :last-heartbeat-at="lastHeartbeatAt"
+      :last-sync-at="lastSyncAt"
+      :pending-count="pendingCount"
+      :failed-count="failedCount"
+      :browser-capabilities="diagnostics.browserCapabilities"
+      :loading="diagnostics.loading.value"
+      :error="diagnostics.error.value"
+      @close="diagnosticsOpen = false"
+      @refresh="diagnostics.refresh"
+      @reconnect="chat.reconnect"
+      @retry="chat.retryOutbox"
+      @export="diagnostics.exportDiagnostics"
+      @clear-cache="clearBrowserCaches"
+    />
   </main>
 </template>
 
@@ -405,13 +539,7 @@ function handleError(cause: unknown, fallback: string): void {
 .workspace-more,
 .back-button { display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid var(--glass-border); border-radius: 13px; color: var(--ink-faint); background: var(--surface-glass); cursor: pointer; }
 .workspace-more .ui-icon { width: 21px; }.back-button { display: none; }.back-button .ui-icon { width: 21px; }
-.workspace--empty { place-items: center; align-content: center; text-align: center; grid-template-rows: auto; }
-.empty-prism { position: relative; display: grid; width: 150px; height: 150px; margin-bottom: 22px; place-items: center; border: 1px solid rgba(255,255,255,.74); border-radius: 46% 54% 52% 48%; color: var(--blue); background: linear-gradient(145deg, rgba(255,255,255,.66), rgba(205,233,255,.35)); box-shadow: inset 0 1px 0 #fff, 0 24px 46px rgba(52,91,132,.14); transform: rotate(-4deg); }
-.empty-prism::before { position: absolute; inset: 18px; border: 1px solid rgba(118,103,245,.14); border-radius: 55% 45% 49% 51%; content: ""; transform: rotate(12deg); }
-.empty-prism .ui-icon { z-index: 1; width: 72px; }
-.empty-prism span { position: absolute; z-index: 2; width: 11px; height: 11px; border: 3px solid white; border-radius: 50%; background: var(--cyan); box-shadow: 0 5px 12px rgba(10,132,255,.22); }
-.empty-prism span:nth-child(1) { top: 12px; right: 22px; }.empty-prism span:nth-child(2) { bottom: 19px; left: 7px; background: var(--green); }.empty-prism span:nth-child(3) { right: 5px; bottom: 39px; background: var(--violet); }
-.workspace--empty h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }.workspace--empty p { margin: 10px 0 20px; color: var(--ink-soft); font-size: 12px; line-height: 1.7; }
+.mobile-module-header { display: none; }
 .boot-screen { display: grid; width: min(420px, calc(100vw - 40px)); min-height: 180px; margin: calc(50dvh - 90px) auto 0; place-items: center; align-content: center; gap: 18px; border-radius: 30px; }
 .boot-screen span { width: 30px; height: 30px; border: 2px solid rgba(10,132,255,.16); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }.boot-screen strong { font-size: 13px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -423,7 +551,8 @@ function handleError(cause: unknown, fallback: string): void {
   .chat-page { padding: 9px; }
   .chat-shell { height: calc(100dvh - 18px); grid-template-columns: minmax(0, 1fr); }
   .chat-shell > :deep(.app-rail) { grid-column: 1; }
-  .chat-shell--thread > :deep(.conversation-sidebar) { display: none !important; }
+  .chat-shell--thread > :deep(.conversation-sidebar),
+  .chat-shell--thread > :deep(.admin-sidebar) { display: none !important; }
   .workspace { border-radius: 25px; }
   .back-button { display: grid; }
   .workspace-header { padding: 12px 13px; }
@@ -442,7 +571,7 @@ function handleError(cause: unknown, fallback: string): void {
   box-shadow: 0 22px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
 }
 .workspace { border-radius: 0; background: var(--surface); }
-.workspace--admin { display: block; min-width: 0; min-height: 0; overflow: hidden; }
+.workspace--admin-module { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
 .connection-status-slot { overflow: visible; }
 .workspace > :deep(.message-thread) { min-height: 0; overflow-y: auto; }
 .workspace > :deep(.composer-wrap) { min-height: 0; }
@@ -459,22 +588,6 @@ function handleError(cause: unknown, fallback: string): void {
 .workspace-title strong { font-size: 15px; }
 .workspace-title span { color: var(--ink-faint); font-size: 10px; font-weight: 500; }
 .workspace-title i { width: 6px; height: 6px; box-shadow: none; }
-.workspace--empty { background: var(--surface); }
-.empty-prism {
-  width: 84px;
-  height: 84px;
-  margin-bottom: 18px;
-  border: 0;
-  border-radius: 26px;
-  color: var(--blue);
-  background: var(--fill);
-  box-shadow: none;
-  transform: none;
-}
-.empty-prism::before { display: none; }
-.empty-prism .ui-icon { width: 42px; }
-.workspace--empty h2 { font-size: 20px; }
-.workspace--empty p { color: var(--ink-soft); font-size: 12px; }
 .boot-screen { border-radius: 22px; }
 
 @media (max-width: 1180px) {
@@ -491,11 +604,22 @@ function handleError(cause: unknown, fallback: string): void {
   }
   .workspace { border-radius: 0; }
   .workspace-header { padding-top: max(12px, env(safe-area-inset-top)); }
-}
-
-.chat-shell.chat-shell--admin { grid-template-columns: 72px minmax(0, 1fr); }
-
-@media (max-width: 760px) {
-  .chat-shell.chat-shell--admin { grid-template-columns: minmax(0, 1fr); }
+  .workspace--admin-module {
+    grid-template-rows: auto minmax(0, 1fr);
+    padding-bottom: 84px;
+  }
+  .mobile-module-header {
+    display: flex;
+    min-height: 58px;
+    padding: max(9px, env(safe-area-inset-top)) 12px 9px;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--separator);
+    background: var(--surface-raise);
+  }
+  .mobile-module-header .back-button { display: grid; }
+  .mobile-module-header div { display: grid; gap: 2px; }
+  .mobile-module-header span { color: var(--ink-faint); font-size: 9px; }
+  .mobile-module-header strong { font-size: 13px; }
 }
 </style>

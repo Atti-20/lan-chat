@@ -1,5 +1,6 @@
 package com.lanchat.controller;
 
+import com.lanchat.dto.FilePreviewGrant;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.service.FileService;
 import org.junit.jupiter.api.Test;
@@ -31,8 +32,9 @@ class FileControllerTest {
         metadata.setFilePath(storedName);
 
         FileService fileService = mock(FileService.class);
-        when(fileService.getFileNameFromToken(token)).thenReturn(storedName);
+        when(fileService.resolvePreviewToken(token)).thenReturn(new FilePreviewGrant(storedName, 7L));
         when(fileService.getByStoredName(storedName)).thenReturn(metadata);
+        when(fileService.canAccessFile(storedName, 7L)).thenReturn(true);
 
         FileController controller = new FileController();
         ReflectionTestUtils.setField(controller, "fileService", fileService);
@@ -44,7 +46,7 @@ class FileControllerTest {
         assertEquals(12, response.getHeaders().getContentLength());
         assertTrue(response.getHeaders().getContentDisposition().isAttachment());
         assertEquals("report.xlsx", response.getHeaders().getContentDisposition().getFilename());
-        assertEquals("public, max-age=600, s-maxage=600", response.getHeaders().getFirst("Cache-Control"));
+        assertEquals("no-store, private", response.getHeaders().getFirst("Cache-Control"));
     }
 
     @Test
@@ -67,8 +69,9 @@ class FileControllerTest {
         metadata.setFileName("unsafe.html");
         metadata.setFilePath(storedName);
         FileService fileService = mock(FileService.class);
-        when(fileService.getFileNameFromToken(token)).thenReturn(storedName);
+        when(fileService.resolvePreviewToken(token)).thenReturn(new FilePreviewGrant(storedName, 7L));
         when(fileService.getByStoredName(storedName)).thenReturn(metadata);
+        when(fileService.canAccessFile(storedName, 7L)).thenReturn(true);
         FileController controller = new FileController();
         ReflectionTestUtils.setField(controller, "fileService", fileService);
         ReflectionTestUtils.setField(controller, "filePath", storage.toString());
@@ -79,5 +82,20 @@ class FileControllerTest {
         assertTrue(response.getHeaders().getContentDisposition().isAttachment());
         assertEquals("application/octet-stream", response.getHeaders().getContentType().toString());
         assertEquals("nosniff", response.getHeaders().getFirst("X-Content-Type-Options"));
+    }
+
+    @Test
+    void signedUrlIsRejectedAfterFilePermissionIsRevoked() {
+        String token = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        String storedName = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf";
+        FileService fileService = mock(FileService.class);
+        when(fileService.resolvePreviewToken(token)).thenReturn(new FilePreviewGrant(storedName, 7L));
+        when(fileService.canAccessFile(storedName, 7L)).thenReturn(false);
+        FileController controller = new FileController();
+        ReflectionTestUtils.setField(controller, "fileService", fileService);
+
+        var response = controller.previewFile(token, false);
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
     }
 }

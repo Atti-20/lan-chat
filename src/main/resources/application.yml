@@ -1,6 +1,27 @@
 server:
   port: 8080
 
+lanchat:
+  node:
+    id: ${LANCHAT_NODE_ID:}
+    name: ${LANCHAT_NODE_NAME:LanChat Node}
+    organization-name: ${LANCHAT_ORGANIZATION_NAME:Local Organization}
+    mode: ${LANCHAT_MODE:LAN_FIRST}
+    version: 2.1.0
+    advertised-host: ${LANCHAT_ADVERTISED_HOST:}
+    advertised-port: ${LANCHAT_ADVERTISED_PORT:${server.port}}
+    secure: ${LANCHAT_NODE_SECURE:false}
+  discovery:
+    enabled: ${LANCHAT_DISCOVERY_ENABLED:false}
+    interface-address: ${LANCHAT_DISCOVERY_INTERFACE_ADDRESS:}
+  private-deployment:
+    enabled: ${LANCHAT_PRIVATE_DEPLOYMENT:false}
+    self-registration-enabled: ${LANCHAT_SELF_REGISTRATION_ENABLED:true}
+    bootstrap-admin-password: ${LANCHAT_BOOTSTRAP_ADMIN_PASSWORD:}
+    bootstrap-admin-nickname: ${LANCHAT_BOOTSTRAP_ADMIN_NICKNAME:系统管理员}
+  runtime-logs:
+    max-read-bytes: ${LANCHAT_RUNTIME_LOG_MAX_READ_BYTES:4194304}
+
 spring:
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8&connectionCollation=utf8mb4_general_ci}
@@ -14,6 +35,7 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
+      password: ${REDIS_PASSWORD:}
       timeout: 5000ms
 
   servlet:
@@ -45,6 +67,9 @@ file:
   path: ${FILE_STORAGE_PATH:./uploads/}
   allowed-types: jpg,jpeg,png,gif,bmp,webp,doc,docx,xls,xlsx,ppt,pptx,pdf,txt,csv,json,md,zip,rar,7z,tar,gz,mp4,mp3,wav,avi,mov
   max-size: 104857600          # 100MB
+  avatar-max-size: 5242880     # 5MB
+  min-free-space: ${FILE_MIN_FREE_SPACE:52428800} # 上传后至少保留 50MB
+  max-image-pixels: ${FILE_MAX_IMAGE_PIXELS:40000000}
 
 
 # ==================== Devtools (热加载) ====================
@@ -59,6 +84,18 @@ spring.devtools:
     port: 35729
 
 logging:
+  file:
+    name: ${LANCHAT_LOG_FILE:./logs/lan-chat.log}
+  charset:
+    file: UTF-8
+  pattern:
+    file: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [requestId=%X{requestId:-system}] %logger{48} - %msg%n%wEx"
+  logback:
+    rollingpolicy:
+      max-file-size: ${LANCHAT_LOG_MAX_FILE_SIZE:20MB}
+      max-history: ${LANCHAT_LOG_MAX_HISTORY:30}
+      total-size-cap: ${LANCHAT_LOG_TOTAL_SIZE_CAP:1GB}
+      clean-history-on-start: false
   level:
     com.lanchat: info
 

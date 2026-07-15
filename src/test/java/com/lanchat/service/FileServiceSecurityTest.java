@@ -6,8 +6,11 @@ import com.lanchat.entity.FileMetadata;
 import com.lanchat.mapper.FileAccessGrantMapper;
 import com.lanchat.service.impl.FileServiceImpl;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,6 +20,9 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 class FileServiceSecurityTest {
+
+    @TempDir
+    Path storage;
 
     @Test
     void hashCheckDoesNotGrantAccessToAnotherUsersFile() {
@@ -39,6 +45,9 @@ class FileServiceSecurityTest {
         ReflectionTestUtils.setField(service, "fileAccessGrantMapper", grantMapper);
         ReflectionTestUtils.setField(service, "allowedTypes", "pdf");
         ReflectionTestUtils.setField(service, "maxFileSize", 1024L);
+        ReflectionTestUtils.setField(service, "minimumFreeSpace", 0L);
+        ReflectionTestUtils.setField(service, "maxImagePixels", 40_000_000L);
+        ReflectionTestUtils.setField(service, "filePath", storage.toString());
         FileMetadata existing = new FileMetadata();
         existing.setId(8L);
         existing.setFilePath("0123456789abcdef0123456789abcdef.pdf");
@@ -46,9 +55,9 @@ class FileServiceSecurityTest {
         existing.setFileSuffix(".pdf");
         existing.setFileSize(7L);
         doReturn(existing).when(service).getByHash(
-                "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5");
+                "66ebae4f8038efcf6a3d0a9cdd07b4956c9094caaef2fd669f5f7c2f5e7176ad");
         MockMultipartFile upload = new MockMultipartFile(
-                "file", "manual.pdf", "application/pdf", "payload".getBytes());
+                "file", "manual.pdf", "application/pdf", "%PDF-payload".getBytes());
 
         FileUploadVO result = service.uploadFile(upload, 42L);
 

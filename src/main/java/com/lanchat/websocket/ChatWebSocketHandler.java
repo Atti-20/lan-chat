@@ -39,9 +39,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * LanChat WebSocket V1 可靠消息处理器。
@@ -62,6 +64,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private static final Map<Long, Set<WebSocketSession>> ONLINE_SESSIONS = new ConcurrentHashMap<>();
     private static final Map<Long, User> ONLINE_USERS = new ConcurrentHashMap<>();
+    private static final ConcurrentLinkedDeque<Map<String, Object>> CONNECTION_EVENTS = new ConcurrentLinkedDeque<>();
+    private static final LongAdder EVENT_COUNT = new LongAdder();
+    private static final LongAdder EVENT_PROCESSING_NANOS = new LongAdder();
+    private static final LongAdder ACK_COUNT = new LongAdder();
+    private static final LongAdder FAILURE_COUNT = new LongAdder();
+    private static final int MAX_CONNECTION_EVENTS = 50;
 
     private static final Set<String> BURN_FORBIDDEN_TYPES = Set.of("file", "voice");
     private static final Set<String> ALLOWED_CONTENT_TYPES =
@@ -111,6 +119,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
+        recordConnectionEvent("CONNECTED", session, null, null);
         authTimeoutExecutor.schedule(() -> {
             if (getUserId(session) == null && session.isOpen()) {
                 sendEvent(session, envelope("ERROR", null, null, null,
@@ -155,6 +164,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         if (!ensureSessionActive(session, incoming)) return;
 
+        long processingStarted = System.nanoTime();
+        EVENT_COUNT.increment();
         try {
             switch (event) {
                 case "PING" -> sendEvent(session, envelope(
@@ -177,12 +188,16 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         } catch (Exception exception) {
             log.error("WebSocket 事件处理失败: event={}, userId={}", event, getUserId(session), exception);
             sendError(session, incoming, "INTERNAL_ERROR", "服务暂时不可用，请稍后重试", true);
+        } finally {
+            EVENT_PROCESSING_NANOS.add(System.nanoTime() - processingStarted);
         }
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         Long userId = getUserId(session);
+        recordConnectionEvent("CLOSED", session, userId,
+                status.getCode() + ":" + status.getReason());
         if (userId == null) return;
 
         Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
@@ -200,7 +215,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
-        log.warn("WebSocket 传输错误: userId={}, error={}", getUserId(session), exception.getMessage());
+        FAILURE_COUNT.increment();
+        recordConnectionEvent("TRANSPORT_ERROR", session, getUserId(session),
+                exception == null ? null : exception.getClass().getSimpleName());
+        log.warn("WebSocket 传输错误: userId={}, error={}", getUserId(session),
+                exception == null ? "unknown" : exception.getMessage());
         closeQuietly(session, CloseStatus.SERVER_ERROR);
     }
 
@@ -250,7 +269,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 sendOnlineList(session);
             }
             log.info("用户 {} 完成 WebSocket 认证，设备 {}", userId, device.getId());
+            recordConnectionEvent("AUTHENTICATED", session, userId, null);
         } catch (Exception exception) {
+            FAILURE_COUNT.increment();
+            recordConnectionEvent("AUTH_FAILED", session, null, exception.getClass().getSimpleName());
             sendEvent(session, envelope("TOKEN_EXPIRED", incoming.getRequestId(), null, null,
                     Map.of("message", "连接认证失败")));
             closeQuietly(session, CloseStatus.POLICY_VIOLATION);
@@ -366,6 +388,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         ackPayload.put("duplicated", result.duplicated());
         sendEvent(session, envelope("CHAT_ACK", incoming.getRequestId(), saved.getClientMsgId(),
                 saved.getConversationId(), ackPayload));
+        ACK_COUNT.increment();
 
         if (!result.duplicated()) {
             WebSocketEnvelope deliver = envelope("CHAT_DELIVER", null, saved.getClientMsgId(),
@@ -698,6 +721,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                            String code,
                            String message,
                            boolean retryable) {
+        FAILURE_COUNT.increment();
         sendEvent(session, envelope("ERROR", incoming.getRequestId(), incoming.getClientMsgId(),
                 incoming.getConversationId(), errorPayload(code, message, retryable)));
     }
@@ -757,6 +781,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 }
             }
         } catch (IOException exception) {
+            FAILURE_COUNT.increment();
             log.warn("WebSocket 发送失败: userId={}, error={}", getUserId(session), exception.getMessage());
         }
     }
@@ -781,5 +806,52 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     public static int getOnlineCount() {
         return ONLINE_SESSIONS.size();
+    }
+
+    public static int getOnlineConnectionCount() {
+        return ONLINE_SESSIONS.values().stream().mapToInt(Set::size).sum();
+    }
+
+    public static WebSocketMetrics metricsSnapshot() {
+        long count = EVENT_COUNT.sum();
+        double averageMs = count == 0 ? 0.0
+                : EVENT_PROCESSING_NANOS.sum() / 1_000_000.0 / count;
+        return new WebSocketMetrics(
+                count,
+                ACK_COUNT.sum(),
+                FAILURE_COUNT.sum(),
+                averageMs,
+                List.copyOf(CONNECTION_EVENTS)
+        );
+    }
+
+    private static void recordConnectionEvent(String event,
+                                              WebSocketSession session,
+                                              Long userId,
+                                              String reason) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("timestamp", Instant.now().toString());
+        item.put("event", event);
+        if (userId != null) item.put("userId", userId);
+        if (session != null && session.getRemoteAddress() != null) {
+            String remoteAddress = session.getRemoteAddress().getAddress() == null
+                    ? session.getRemoteAddress().getHostString()
+                    : session.getRemoteAddress().getAddress().getHostAddress();
+            item.put("remoteAddress", remoteAddress.substring(0, Math.min(remoteAddress.length(), 64)));
+        }
+        if (StringUtils.hasText(reason)) {
+            item.put("reason", reason.substring(0, Math.min(reason.length(), 120)));
+        }
+        CONNECTION_EVENTS.addFirst(Map.copyOf(item));
+        while (CONNECTION_EVENTS.size() > MAX_CONNECTION_EVENTS) CONNECTION_EVENTS.pollLast();
+    }
+
+    public record WebSocketMetrics(
+            long events,
+            long acknowledgements,
+            long failures,
+            double averageProcessingMs,
+            List<Map<String, Object>> recentConnections
+    ) {
     }
 }

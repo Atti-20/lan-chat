@@ -19,6 +19,8 @@
     <properties>
         <java.version>17</java.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <jmdns.version>3.6.3</jmdns.version>
+        <twelvemonkeys.version>3.13.1</twelvemonkeys.version>
     </properties>
 
     <dependencies>
@@ -32,6 +34,20 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
+        <!-- LAN DNS-SD advertisement and peer node discovery -->
+        <dependency>
+            <groupId>org.jmdns</groupId>
+            <artifactId>jmdns</artifactId>
+            <version>${jmdns.version}</version>
+        </dependency>
+
+        <!-- Safe server-side WebP dimension inspection through ImageIO -->
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>${twelvemonkeys.version}</version>
         </dependency>
 
         <!-- security -->

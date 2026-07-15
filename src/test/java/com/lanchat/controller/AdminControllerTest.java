@@ -1,7 +1,10 @@
 package com.lanchat.controller;
 
 import com.lanchat.entity.User;
+import com.lanchat.dto.RegisterDTO;
+import com.lanchat.dto.RuntimeLogSnapshot;
 import com.lanchat.security.LoginUser;
+import com.lanchat.service.RuntimeLogService;
 import com.lanchat.service.UserService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,13 +26,16 @@ import static org.mockito.Mockito.when;
 class AdminControllerTest {
 
     private UserService userService;
+    private RuntimeLogService runtimeLogService;
     private AdminController controller;
 
     @BeforeEach
     void setUp() {
         userService = mock(UserService.class);
+        runtimeLogService = mock(RuntimeLogService.class);
         controller = new AdminController();
         ReflectionTestUtils.setField(controller, "userService", userService);
+        ReflectionTestUtils.setField(controller, "runtimeLogService", runtimeLogService);
     }
 
     @AfterEach
@@ -56,6 +63,52 @@ class AdminControllerTest {
         authenticateAs("alice");
 
         assertThrows(AccessDeniedException.class, controller::listAllUsers);
+    }
+
+    @Test
+    void administratorCanCreateRegularAccount() {
+        authenticateAs("admin");
+        RegisterDTO request = new RegisterDTO();
+        request.setUsername("new.member");
+        request.setNickname("新成员");
+        request.setPassword("Member1234");
+        when(userService.register(request)).thenReturn(true);
+
+        var result = controller.createUser(request);
+
+        assertEquals(200, result.getCode());
+        verify(userService).register(request);
+    }
+
+    @Test
+    void administratorCanReadRuntimeLogs() {
+        authenticateAs("admin");
+        RuntimeLogSnapshot snapshot = new RuntimeLogSnapshot(
+                true,
+                "lan-chat.log",
+                128,
+                null,
+                1,
+                false,
+                Map.of("ERROR", 1L, "WARN", 0L, "INFO", 0L, "DEBUG", 0L, "TRACE", 0L),
+                List.of(),
+                "ready"
+        );
+        when(runtimeLogService.read(200, "ERROR", "mysql")).thenReturn(snapshot);
+
+        var result = controller.runtimeLogs(200, "ERROR", "mysql");
+
+        assertEquals(200, result.getCode());
+        assertEquals(snapshot, result.getData());
+        verify(runtimeLogService).read(200, "ERROR", "mysql");
+    }
+
+    @Test
+    void regularAccountCannotReadRuntimeLogs() {
+        authenticateAs("alice");
+
+        assertThrows(AccessDeniedException.class,
+                () -> controller.runtimeLogs(200, "ALL", ""));
     }
 
     private void authenticateAs(String username) {

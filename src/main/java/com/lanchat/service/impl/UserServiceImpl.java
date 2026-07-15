@@ -100,6 +100,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 || !username.matches("^[a-zA-Z0-9_.@-]+$")) {
             throw new IllegalArgumentException("用户名需为3-50位字母、数字或 ._@-");
         }
+        if ("admin".equalsIgnoreCase(username)) {
+            throw new IllegalArgumentException("admin 为系统保留账号，不能通过注册接口创建");
+        }
 
         // 密码强度校验：8-20位，含字母和数字
         String password = dto.getPassword();
@@ -141,6 +144,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public LoginVO login(LoginDTO dto) {
         if (dto == null || !StringUtils.hasText(dto.getUsername()) || !StringUtils.hasText(dto.getPassword())) {
             throw new IllegalArgumentException("用户名和密码不能为空");
+        }
+        if (dto.getPassword().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+            throw new IllegalArgumentException("用户名或密码错误");
         }
 
         // 检查是否被锁定

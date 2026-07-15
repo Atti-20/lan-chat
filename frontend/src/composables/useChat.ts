@@ -956,6 +956,7 @@ export function useChat() {
     connectionState: ws.state,
     reconnectAttempts: ws.reconnectAttempts,
     latencyMs: ws.latencyMs,
+    lastHeartbeatAt: ws.lastHeartbeatAt,
     lastSyncAt: ws.lastSyncAt,
     pendingCount: outbox.pendingCount,
     failedCount: outbox.failedCount,

@@ -1,6 +1,7 @@
 package com.lanchat.controller;
 
 import com.lanchat.common.Result;
+import com.lanchat.config.LanChatPrivateDeploymentProperties;
 import com.lanchat.dto.*;
 import com.lanchat.security.LoginUser;
 import com.lanchat.security.UserContextHolder;
@@ -25,6 +26,9 @@ public class AuthController {
     @Autowired
     private UserService userService;
 
+    @Autowired(required = false)
+    private LanChatPrivateDeploymentProperties privateDeploymentProperties;
+
     @Value("${auth.refresh-cookie.secure:false}")
     private boolean refreshCookieSecure;
 
@@ -33,6 +37,10 @@ public class AuthController {
 
     @PostMapping("/register")
     public Result<Void> register(@RequestBody RegisterDTO dto) {
+        if (privateDeploymentProperties != null
+                && !privateDeploymentProperties.allowsSelfRegistration()) {
+            return Result.error(403, "当前私有节点已关闭自助注册，请联系管理员创建账号");
+        }
         boolean success = userService.register(dto);
         if (!success) {
             return Result.error("用户名已存在");

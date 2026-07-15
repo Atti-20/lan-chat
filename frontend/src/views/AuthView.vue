@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue'
 import UiIcon from '../components/base/UiIcon.vue'
-import { ApiError } from '../services/api'
+import NodeDiscoveryPanel from '../components/nodes/NodeDiscoveryPanel.vue'
+import { ApiError, api } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
 import { readLastUsername } from '../utils/storage'
@@ -15,6 +16,7 @@ const password = shallowRef('')
 const nickname = shallowRef('')
 const error = shallowRef('')
 const autoLogging = shallowRef(false)
+const registrationEnabled = shallowRef(true)
 
 const heading = computed(() => mode.value === 'login' ? '回到对话' : '创建你的空间')
 const submitLabel = computed(() => {
@@ -35,6 +37,13 @@ onMounted(async () => {
     // 没有有效设备会话时继续显示登录页。
   } finally {
     autoLogging.value = false
+  }
+  try {
+    const node = await api.node.info()
+    registrationEnabled.value = node.selfRegistrationEnabled
+    if (!registrationEnabled.value) mode.value = 'login'
+  } catch {
+    // 登录仍可继续；服务端会对注册策略做最终校验。
   }
   // 回填上次登录的用户名
   const lastUsername = readLastUsername()
@@ -109,6 +118,8 @@ async function submit(): Promise<void> {
         <p class="story-lead">消息、文件、群组，打开即用。</p>
       </div>
 
+      <NodeDiscoveryPanel />
+
     </section>
 
     <section class="auth-card glass-surface">
@@ -118,11 +129,12 @@ async function submit(): Promise<void> {
         <p>{{ mode === 'login' ? '输入账号以继续。' : '创建账号，即刻开聊。' }}</p>
       </div>
 
-      <div class="mode-switch" role="tablist" aria-label="登录方式">
+      <div v-if="registrationEnabled" class="mode-switch" role="tablist" aria-label="登录方式">
         <span class="mode-lens" :class="{ 'mode-lens--right': mode === 'register' }" />
         <button type="button" role="tab" :aria-selected="mode === 'login'" @click="switchMode('login')">登录</button>
         <button type="button" role="tab" :aria-selected="mode === 'register'" @click="switchMode('register')">注册</button>
       </div>
+      <p v-else class="registration-policy">此私有节点由管理员创建账号。</p>
 
       <form class="auth-form" @submit.prevent="submit">
         <label v-if="mode === 'register'" class="field-group">
@@ -140,8 +152,8 @@ async function submit(): Promise<void> {
             class="field"
             type="password"
             :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
-            maxlength="20"
-            placeholder="8–20 位字母与数字"
+            :maxlength="mode === 'login' ? 72 : 20"
+            :placeholder="mode === 'login' ? '输入账号密码' : '8–20 位字母与数字'"
           />
         </label>
 
@@ -279,6 +291,7 @@ async function submit(): Promise<void> {
 }
 .mode-switch button { position: relative; z-index: 1; border: 0; color: var(--ink-soft); font-weight: 700; background: none; cursor: pointer; }
 .mode-switch button[aria-selected="true"] { color: var(--ink); }
+.registration-policy { margin: 22px 0 18px; padding: 11px 13px; border-radius: 11px; color: var(--ink-soft); font-size: 12px; background: var(--active); }
 .mode-lens {
   position: absolute;
   top: 4px;

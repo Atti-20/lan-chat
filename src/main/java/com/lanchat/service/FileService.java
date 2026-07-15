@@ -1,6 +1,7 @@
 package com.lanchat.service;
 
 import com.lanchat.dto.FileCheckDTO;
+import com.lanchat.dto.FilePreviewGrant;
 import com.lanchat.dto.FileUploadVO;
 import com.lanchat.entity.FileMetadata;
 import org.springframework.web.multipart.MultipartFile;
@@ -12,6 +13,9 @@ public interface FileService {
 
     /** 上传文件 */
     FileUploadVO uploadFile(MultipartFile file, Long userId);
+
+    /** 上传头像；除通用附件校验外强制要求实际内容为安全图片。 */
+    FileUploadVO uploadAvatar(MultipartFile file, Long userId);
 
     /** 根据哈希获取文件元数据 */
     FileMetadata getByHash(String fileHash);
@@ -34,6 +38,14 @@ public interface FileService {
     /** 生成图片缩略图 */
     String generateThumbnail(String fileName);
 
-    /** 校验签名并获取文件名，无效或过期时返回 null */
-    String getFileNameFromToken(String signToken);
+    /** 校验签名并恢复原始授权，无效或过期时返回 null。 */
+    FilePreviewGrant resolvePreviewToken(String signToken);
+
+    /** 写入脱敏文件访问审计。审计失败不得暴露文件内容。 */
+    void recordAccess(String fileName,
+                      Long userId,
+                      String action,
+                      String result,
+                      String requestId,
+                      String clientAddress);
 }

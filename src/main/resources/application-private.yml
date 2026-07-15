@@ -1,0 +1,23 @@
+server:
+  forward-headers-strategy: native
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+
+lanchat:
+  private-deployment:
+    enabled: true
+    self-registration-enabled: ${LANCHAT_SELF_REGISTRATION_ENABLED:false}
+
+spring:
+  devtools:
+    restart:
+      enabled: false
+    livereload:
+      enabled: false
+
+logging:
+  level:
+    root: info
+    com.lanchat: info

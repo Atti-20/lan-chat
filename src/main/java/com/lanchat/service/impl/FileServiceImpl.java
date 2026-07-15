@@ -1,13 +1,17 @@
 package com.lanchat.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.lanchat.common.FileContentInspector;
 import com.lanchat.dto.FileCheckDTO;
+import com.lanchat.dto.FilePreviewGrant;
 import com.lanchat.dto.FileUploadVO;
+import com.lanchat.entity.FileAccessLog;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.GroupMember;
 import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.FileAccessGrantMapper;
+import com.lanchat.mapper.FileAccessLogMapper;
 import com.lanchat.mapper.FileMetadataMapper;
 import com.lanchat.mapper.GroupMemberMapper;
 import com.lanchat.service.FileService;
@@ -17,6 +21,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
@@ -26,6 +34,14 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileStore;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
@@ -43,7 +59,7 @@ public class FileServiceImpl implements FileService {
     /** 预览URL有效期：10分钟 */
     private static final long PREVIEW_URL_EXPIRE_MINUTES = 10;
 
-    /** 同一用户/文件在令牌有效期内复用同一个签名 URL，确保 CDN 缓存键稳定 */
+    /** 同一用户/文件在令牌有效期内复用同一个签名 URL，避免产生无界临时凭证。 */
     private static final String PREVIEW_URL_INDEX_PREFIX = "preview-url:";
 
     /** 图片文件后缀集合 */
@@ -54,6 +70,9 @@ public class FileServiceImpl implements FileService {
 
     @Autowired
     private FileAccessGrantMapper fileAccessGrantMapper;
+
+    @Autowired
+    private FileAccessLogMapper fileAccessLogMapper;
 
     @Autowired
     private ChatMessageMapper chatMessageMapper;
@@ -76,6 +95,15 @@ public class FileServiceImpl implements FileService {
     @Value("${file.max-size}")
     private long maxFileSize;
 
+    @Value("${file.avatar-max-size:5242880}")
+    private long maxAvatarSize;
+
+    @Value("${file.min-free-space:52428800}")
+    private long minimumFreeSpace;
+
+    @Value("${file.max-image-pixels:40000000}")
+    private long maxImagePixels;
+
     @Override
     public FileUploadVO checkFile(FileCheckDTO dto, Long userId) {
         if (dto == null) throw new IllegalArgumentException("文件参数不能为空");
@@ -91,87 +119,95 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Transactional
     public FileUploadVO uploadFile(MultipartFile file, Long userId) {
+        return uploadValidated(file, userId, false);
+    }
+
+    @Override
+    @Transactional
+    public FileUploadVO uploadAvatar(MultipartFile file, Long userId) {
+        return uploadValidated(file, userId, true);
+    }
+
+    private FileUploadVO uploadValidated(MultipartFile file, Long userId, boolean imageOnly) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("文件不能为空");
         }
 
-        String originalFilename = file.getOriginalFilename();
+        if (userId == null) throw new IllegalArgumentException("上传用户无效");
+
+        String originalFilename = sanitizeOriginalFilename(file.getOriginalFilename());
         if (!isAllowedType(originalFilename)) {
             throw new IllegalArgumentException("不支持的文件类型");
         }
 
-        if (file.getSize() > maxFileSize) {
-            throw new IllegalArgumentException("文件大小超过限制（100MB）");
+        long effectiveLimit = imageOnly ? Math.min(maxFileSize, maxAvatarSize) : maxFileSize;
+        if (file.getSize() <= 0 || file.getSize() > effectiveLimit) {
+            throw new IllegalArgumentException(imageOnly
+                    ? "头像图片不能超过 " + readableMegabytes(effectiveLimit)
+                    : "文件大小超过限制（" + readableMegabytes(effectiveLimit) + "）");
         }
 
-        String fileHash = calculateSha256(file);
-
-        // 秒传检测
-        FileMetadata existing = getByHash(fileHash);
-        if (existing != null) {
-            // 完整字节已经上传并由服务端完成 SHA-256 校验，因此可以建立显式授权。
-            // 仅调用 /check 并知道哈希不会获得这项授权。
-            fileAccessGrantMapper.grant(existing.getId(), userId, "UPLOAD_PROOF");
-            FileUploadVO vo = buildVOFromMetadata(existing);
-            vo.setOriginalName(originalFilename);
-            vo.setInstantUpload(true);
-            return vo;
-        }
-
-        // 获取文件后缀
-        String suffix = "";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            suffix = originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase();
-        }
-        String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
-
-        // 确保目录存在
-        File destDir = getStorageRoot().toFile();
-        if (!destDir.exists()) {
-            destDir.mkdirs();
-        }
-
-        // 保存文件
-        File destFile = resolveStoredFile(newFileName);
+        Path root = ensureStorageReady(file.getSize());
+        StagedUpload staged = stageUpload(file, root, effectiveLimit);
+        Path destination = null;
         try {
-            file.transferTo(destFile);
-        } catch (IOException e) {
-            log.error("文件写入失败", e);
-            throw new RuntimeException("文件上传失败");
+            FileContentInspector.Inspection inspection = FileContentInspector.inspect(
+                    staged.path(), originalFilename, file.getContentType(), maxImagePixels);
+            if (imageOnly && !inspection.image()) {
+                throw new IllegalArgumentException("头像必须是有效图片文件");
+            }
+
+            // Only a complete, signature-validated upload is accepted as proof that
+            // the caller owns duplicate bytes. Hash probing alone never grants access.
+            FileMetadata existing = getByHash(staged.sha256());
+            if (existing != null) {
+                fileAccessGrantMapper.grant(existing.getId(), userId, "UPLOAD_PROOF");
+                FileUploadVO vo = buildVOFromMetadata(existing);
+                vo.setOriginalName(originalFilename);
+                vo.setInstantUpload(true);
+                return vo;
+            }
+
+            String suffix = "." + inspection.extension();
+            String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
+            destination = resolveStoredFile(newFileName).toPath();
+            moveAtomically(staged.path(), destination);
+            deleteOnTransactionRollback(
+                    destination,
+                    inspection.image() ? resolveStoredFile("thumb_" + newFileName).toPath() : null
+            );
+
+            FileMetadata metadata = new FileMetadata();
+            metadata.setFileHash(staged.sha256());
+            metadata.setFileName(originalFilename);
+            metadata.setFilePath(newFileName);
+            metadata.setFileSize(staged.size());
+            metadata.setFileType(inspection.mediaType());
+            metadata.setFileSuffix(suffix);
+            metadata.setUploadUserId(userId);
+            metadata.setCreateTime(LocalDateTime.now());
+            fileMetadataMapper.insert(metadata);
+            fileAccessGrantMapper.grant(metadata.getId(), userId, "UPLOADER");
+
+            FileUploadVO vo = new FileUploadVO();
+            vo.setUrl(getFileUrl(newFileName));
+            vo.setOriginalName(originalFilename);
+            vo.setFileName(newFileName);
+            vo.setFileSize(staged.size());
+            vo.setFileType(inspection.mediaType());
+            vo.setFileHash(staged.sha256());
+            vo.setInstantUpload(false);
+
+            if (inspection.image()) vo.setThumbnailUrl(generateThumbnail(newFileName));
+            return vo;
+        } catch (RuntimeException exception) {
+            if (destination != null) deleteQuietly(destination);
+            throw exception;
+        } finally {
+            deleteQuietly(staged.path());
         }
-
-        // 保存文件元数据
-        FileMetadata metadata = new FileMetadata();
-        metadata.setFileHash(fileHash);
-        metadata.setFileName(originalFilename);
-        metadata.setFilePath(newFileName);
-        metadata.setFileSize(file.getSize());
-        metadata.setFileType(file.getContentType());
-        metadata.setFileSuffix(suffix);
-        metadata.setUploadUserId(userId);
-        metadata.setCreateTime(LocalDateTime.now());
-        fileMetadataMapper.insert(metadata);
-        fileAccessGrantMapper.grant(metadata.getId(), userId, "UPLOADER");
-
-        // 构建返回结果
-        FileUploadVO vo = new FileUploadVO();
-        vo.setUrl(getFileUrl(newFileName));
-        vo.setOriginalName(originalFilename);
-        vo.setFileName(newFileName);
-        vo.setFileSize(file.getSize());
-        vo.setFileType(file.getContentType());
-        vo.setFileHash(fileHash);
-        vo.setInstantUpload(false);
-
-        // 图片文件自动生成缩略图
-        String lowerSuffix = suffix.replace(".", "").toLowerCase();
-        if (IMAGE_SUFFIXES.contains(lowerSuffix)) {
-            String thumbnailUrl = generateThumbnail(newFileName);
-            vo.setThumbnailUrl(thumbnailUrl);
-        }
-
-        return vo;
     }
 
     @Override
@@ -242,11 +278,14 @@ public class FileServiceImpl implements FileService {
 
     @Override
     public boolean isAllowedType(String fileName) {
-        if (fileName == null || !fileName.contains(".")) {
-            return false;
-        }
-        String suffix = fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
-        Set<String> allowed = new HashSet<>(Arrays.asList(allowedTypes.split(",")));
+        String suffix = FileContentInspector.extensionOf(fileName);
+        if (suffix == null) return false;
+        Set<String> allowed = new HashSet<>();
+        Arrays.stream(allowedTypes.split(","))
+                .map(String::trim)
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .filter(value -> !value.isBlank())
+                .forEach(allowed::add);
         return allowed.contains(suffix);
     }
 
@@ -285,13 +324,41 @@ public class FileServiceImpl implements FileService {
      * 校验签名并获取文件名。签名由 122 位以上随机 UUID 生成，且仅保留 10 分钟。
      */
     @Override
-    public String getFileNameFromToken(String signToken) {
+    public FilePreviewGrant resolvePreviewToken(String signToken) {
         if (signToken == null || !signToken.matches("(?i)^[0-9a-f]{32}$")) return null;
         String redisKey = "preview:" + signToken;
         String value = redisTemplate.opsForValue().get(redisKey);
         if (value == null) return null;
         int separator = value.lastIndexOf(':');
-        return separator > 0 ? value.substring(0, separator) : null;
+        if (separator <= 0) return null;
+        try {
+            String fileName = value.substring(0, separator);
+            Long userId = Long.parseLong(value.substring(separator + 1));
+            return normalizeStoredName(fileName) == null ? null : new FilePreviewGrant(fileName, userId);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    @Override
+    public void recordAccess(String fileName,
+                             Long userId,
+                             String action,
+                             String result,
+                             String requestId,
+                             String clientAddress) {
+        FileMetadata metadata = getByStoredName(fileName);
+        if (metadata == null || userId == null) return;
+
+        FileAccessLog accessLog = new FileAccessLog();
+        accessLog.setFileId(metadata.getId());
+        accessLog.setUserId(userId);
+        accessLog.setAction(safeAuditValue(action, 20, "ACCESS"));
+        accessLog.setResult(safeAuditValue(result, 20, "UNKNOWN"));
+        accessLog.setRequestId(safeAuditValue(requestId, 80, null));
+        accessLog.setClientAddress(safeAuditValue(clientAddress, 64, null));
+        accessLog.setCreateTime(LocalDateTime.now());
+        fileAccessLogMapper.insert(accessLog);
     }
 
     /**
@@ -329,7 +396,14 @@ public class FileServiceImpl implements FileService {
             // 保存缩略图
             String suffix = fileName.substring(fileName.lastIndexOf(".") + 1);
             String thumbName = "thumb_" + fileName;
-            ImageIO.write(thumbnail, suffix, resolveStoredFile(thumbName));
+            File thumbnailFile = resolveStoredFile(thumbName);
+            if (!ImageIO.write(thumbnail, suffix, thumbnailFile)) {
+                // Some safe upload readers (notably WebP) intentionally have no
+                // matching ImageIO writer. In that case the original image stays
+                // available and no broken thumbnail URL is returned.
+                deleteQuietly(thumbnailFile.toPath());
+                return null;
+            }
 
             return getFileUrl(thumbName);
         } catch (IOException e) {
@@ -374,29 +448,15 @@ public class FileServiceImpl implements FileService {
         return vo;
     }
 
-    private String calculateSha256(MultipartFile file) {
-        try (InputStream input = file.getInputStream()) {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                if (read > 0) digest.update(buffer, 0, read);
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (IOException | NoSuchAlgorithmException e) {
-            throw new RuntimeException("读取文件失败");
-        }
-    }
-
-    private java.nio.file.Path getStorageRoot() {
-        return java.nio.file.Paths.get(filePath).toAbsolutePath().normalize();
+    private Path getStorageRoot() {
+        return Paths.get(filePath).toAbsolutePath().normalize();
     }
 
     private File resolveStoredFile(String fileName) {
         String normalized = normalizeStoredName(fileName);
         if (normalized == null) throw new IllegalArgumentException("文件名无效");
-        java.nio.file.Path root = getStorageRoot();
-        java.nio.file.Path resolved = root.resolve(normalized).normalize();
+        Path root = getStorageRoot();
+        Path resolved = root.resolve(normalized).normalize();
         if (!resolved.getParent().equals(root)) {
             throw new IllegalArgumentException("文件名无效");
         }
@@ -408,5 +468,123 @@ public class FileServiceImpl implements FileService {
         String value = fileName.trim();
         if (!value.matches("^(?:thumb_)?[0-9a-fA-F]{32}\\.[a-zA-Z0-9]{1,10}$")) return null;
         return value;
+    }
+
+    private Path ensureStorageReady(long incomingSize) {
+        Path root = getStorageRoot();
+        Path workingDirectory = Paths.get("").toAbsolutePath().normalize();
+        Path sourceStatic = workingDirectory.resolve("src/main/resources/static").normalize();
+        Path compiledStatic = workingDirectory.resolve("target/classes/static").normalize();
+        if (root.startsWith(sourceStatic) || root.startsWith(compiledStatic)) {
+            throw new IllegalStateException("文件存储目录不得位于静态资源目录中");
+        }
+
+        try {
+            Files.createDirectories(root);
+            if (!Files.isDirectory(root) || !Files.isWritable(root)) {
+                throw new IllegalStateException("文件存储目录不可写");
+            }
+            FileStore store = Files.getFileStore(root);
+            if (store.getUsableSpace() < Math.max(0, incomingSize) + Math.max(0, minimumFreeSpace)) {
+                throw new IllegalArgumentException("存储空间不足，请联系节点管理员");
+            }
+            return root;
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            throw new IllegalStateException("文件存储目录不可用");
+        }
+    }
+
+    private StagedUpload stageUpload(MultipartFile file, Path root, long limit) {
+        Path temporary = null;
+        try {
+            temporary = Files.createTempFile(root, ".upload-", ".tmp");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            long total = 0;
+            try (InputStream input = file.getInputStream();
+                 OutputStream output = Files.newOutputStream(temporary,
+                         StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                byte[] buffer = new byte[16 * 1024];
+                int read;
+                while ((read = input.read(buffer)) >= 0) {
+                    if (read == 0) continue;
+                    total += read;
+                    if (total > limit) throw new IllegalArgumentException("文件大小超过限制");
+                    digest.update(buffer, 0, read);
+                    output.write(buffer, 0, read);
+                }
+            }
+            if (total <= 0) throw new IllegalArgumentException("文件不能为空");
+            return new StagedUpload(temporary, HexFormat.of().formatHex(digest.digest()), total);
+        } catch (IllegalArgumentException exception) {
+            deleteQuietly(temporary);
+            throw exception;
+        } catch (IOException | NoSuchAlgorithmException exception) {
+            deleteQuietly(temporary);
+            throw new IllegalStateException("文件上传写入失败");
+        }
+    }
+
+    private void moveAtomically(Path source, Path destination) {
+        try {
+            try {
+                Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(source, destination);
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("文件上传写入失败");
+        }
+    }
+
+    private void deleteQuietly(Path path) {
+        if (path == null) return;
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException exception) {
+            log.warn("临时文件清理失败: {}", path.getFileName());
+        }
+    }
+
+    private void deleteOnTransactionRollback(Path... paths) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == TransactionSynchronization.STATUS_COMMITTED) return;
+                for (Path path : paths) deleteQuietly(path);
+            }
+        });
+    }
+
+    private String sanitizeOriginalFilename(String originalFilename) {
+        if (!StringUtils.hasText(originalFilename)) throw new IllegalArgumentException("文件名不能为空");
+        String normalized = originalFilename.replace('\\', '/');
+        normalized = normalized.substring(normalized.lastIndexOf('/') + 1).trim();
+        normalized = normalized.replaceAll("[\\p{Cntrl}]", "");
+        if (normalized.isBlank() || normalized.equals(".") || normalized.equals("..")) {
+            throw new IllegalArgumentException("文件名无效");
+        }
+        if (normalized.length() > 180) {
+            String extension = FileContentInspector.extensionOf(normalized);
+            if (extension == null) throw new IllegalArgumentException("文件名过长");
+            normalized = normalized.substring(0, Math.min(160, normalized.lastIndexOf('.')))
+                    + "." + extension;
+        }
+        return normalized;
+    }
+
+    private String readableMegabytes(long bytes) {
+        return Math.max(1, bytes / 1024 / 1024) + "MB";
+    }
+
+    private String safeAuditValue(String value, int maximumLength, String fallback) {
+        if (!StringUtils.hasText(value)) return fallback;
+        String sanitized = value.replaceAll("[\\p{Cntrl}]", "").trim();
+        return sanitized.substring(0, Math.min(maximumLength, sanitized.length()));
+    }
+
+    private record StagedUpload(Path path, String sha256, long size) {
     }
 }

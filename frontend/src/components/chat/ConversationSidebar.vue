@@ -4,7 +4,7 @@ import type { ChatSection } from '../../composables/useChat'
 import type { Conversation, FriendRequest } from '../../types'
 import { formatTime } from '../../utils/format'
 import UserAvatar from '../base/UserAvatar.vue'
-import UiIcon from '../base/UiIcon.vue'
+import UiIcon, { type IconName } from '../base/UiIcon.vue'
 
 interface Props {
   section: ChatSection
@@ -40,12 +40,31 @@ const title = computed(() => ({
   groups: '群组',
   admin: '管理',
 }[props.section]))
+const searchPlaceholder = computed(() => ({
+  messages: '搜索对话',
+  contacts: '搜索好友',
+  groups: '搜索群组',
+  admin: '搜索管理模块',
+}[props.section]))
+const emptyIcons: Record<ChatSection, IconName> = {
+  messages: 'messages',
+  contacts: 'contacts',
+  groups: 'groups',
+  admin: 'admin',
+}
+const emptyIcon = computed(() => emptyIcons[props.section])
 const emptyCopy = computed(() => {
   if (query.value.trim()) return '没有匹配的结果'
   if (props.section === 'admin') return '管理控制台已打开'
   if (props.section === 'groups') return '还没有加入群聊'
   if (props.section === 'contacts') return '搜索并添加第一位好友'
   return '新的对话会出现在这里'
+})
+const emptyDetail = computed(() => {
+  if (query.value.trim()) return '调整关键词后再试一次。'
+  if (props.section === 'groups') return '使用右上角按钮创建新的群组。'
+  if (props.section === 'contacts') return '使用右上角按钮搜索并添加好友。'
+  return '使用右上角按钮开始新的连接。'
 })
 </script>
 
@@ -57,10 +76,10 @@ const emptyCopy = computed(() => {
         <h1>{{ title }}</h1>
       </div>
       <div class="header-actions">
-        <button class="mini-button" type="button" aria-label="搜索用户" @click="emit('searchPeople')">
+        <button v-if="section !== 'groups'" class="mini-button" type="button" aria-label="搜索用户" @click="emit('searchPeople')">
           <UiIcon name="search" :size="18" />
         </button>
-        <button class="mini-button" type="button" aria-label="创建群聊" @click="emit('createGroup')">
+        <button v-if="section !== 'contacts'" class="mini-button" type="button" aria-label="创建群聊" @click="emit('createGroup')">
           <UiIcon name="plus" :size="18" />
         </button>
       </div>
@@ -69,7 +88,7 @@ const emptyCopy = computed(() => {
     <label class="sidebar-search">
       <span class="sr-only">搜索当前列表</span>
       <UiIcon name="search" :size="17" />
-      <input v-model="query" type="search" placeholder="搜索对话" />
+      <input v-model="query" type="search" :placeholder="searchPlaceholder" />
     </label>
 
     <div v-if="loading" class="sidebar-loading" aria-label="正在载入">
@@ -120,10 +139,10 @@ const emptyCopy = computed(() => {
 
       <div v-if="conversations.length === 0" class="empty-list">
         <span class="empty-icon">
-          <UiIcon name="messages" :size="24" />
+          <UiIcon :name="emptyIcon" :size="24" />
         </span>
         <strong>{{ emptyCopy }}</strong>
-        <p>使用右上角按钮开始新的连接。</p>
+        <p>{{ emptyDetail }}</p>
       </div>
     </div>
   </aside>

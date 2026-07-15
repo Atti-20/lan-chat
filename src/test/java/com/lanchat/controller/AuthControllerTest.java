@@ -3,7 +3,9 @@ package com.lanchat.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lanchat.dto.LoginDTO;
 import com.lanchat.dto.LoginVO;
+import com.lanchat.dto.RegisterDTO;
 import com.lanchat.dto.TokenRefreshDTO;
+import com.lanchat.config.LanChatPrivateDeploymentProperties;
 import com.lanchat.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,10 +13,12 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AuthControllerTest {
@@ -74,6 +78,20 @@ class AuthControllerTest {
         assertTrue(cookie.contains("lanchat_refresh="));
         assertTrue(cookie.contains("Max-Age=0"));
         assertTrue(cookie.contains("HttpOnly"));
+    }
+
+    @Test
+    void privateNodeCanDisableSelfRegistration() {
+        LanChatPrivateDeploymentProperties properties = new LanChatPrivateDeploymentProperties();
+        properties.setEnabled(true);
+        properties.setSelfRegistrationEnabled(true);
+        ReflectionTestUtils.setField(controller, "privateDeploymentProperties", properties);
+
+        var result = controller.register(new RegisterDTO());
+
+        assertEquals(403, result.getCode());
+        assertTrue(result.getMsg().contains("管理员创建"));
+        verifyNoInteractions(userService);
     }
 
     private LoginVO loginResult() {

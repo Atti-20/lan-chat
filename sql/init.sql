@@ -218,6 +218,24 @@ CREATE TABLE `file_access_grant` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件对象访问授权';
 
 -- ----------------------------
+-- 文件访问审计（不记录签名 Token 或文件正文）
+-- ----------------------------
+DROP TABLE IF EXISTS `file_access_log`;
+CREATE TABLE `file_access_log` (
+    `id`             BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `file_id`        BIGINT      NOT NULL COMMENT '文件元数据ID',
+    `user_id`        BIGINT      NOT NULL COMMENT '访问用户ID',
+    `action`         VARCHAR(20) NOT NULL COMMENT 'PREVIEW_URL/PREVIEW/DOWNLOAD/CONTENT',
+    `result`         VARCHAR(20) NOT NULL COMMENT 'ALLOWED/DENIED/REVOKED',
+    `request_id`     VARCHAR(80) DEFAULT NULL COMMENT '请求追踪ID',
+    `client_address` VARCHAR(64) DEFAULT NULL COMMENT '客户端地址',
+    `create_time`    DATETIME    DEFAULT CURRENT_TIMESTAMP COMMENT '访问时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_file_access_file_time` (`file_id`, `create_time`),
+    KEY `idx_file_access_user_time` (`user_id`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件访问审计日志';
+
+-- ----------------------------
 -- 设备登录表
 -- ----------------------------
 DROP TABLE IF EXISTS `device_login`;
@@ -236,10 +254,6 @@ CREATE TABLE `device_login` (
     KEY `idx_token` (`token`(100))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备登录表';
 
--- ----------------------------
--- 仅供本地演示的测试用户（统一密码: LanChat123!，禁止用于生产）
--- ----------------------------
-INSERT INTO `user` (`username`, `password`, `nickname`, `avatar`, `status`) VALUES
-('admin', '$2a$10$VWOWjY7EBONKq/JPLNs/oO69k7SM4xG2qMskNP5MIH55T6ZwciU.C', '管理员', '', 1),
-('alice', '$2a$10$VWOWjY7EBONKq/JPLNs/oO69k7SM4xG2qMskNP5MIH55T6ZwciU.C', '爱丽丝', '', 1),
-('bob',   '$2a$10$VWOWjY7EBONKq/JPLNs/oO69k7SM4xG2qMskNP5MIH55T6ZwciU.C', '鲍勃', '', 1);
+-- 不在结构脚本中写入任何默认账号或口令。
+-- 私有部署由 LANCHAT_BOOTSTRAP_ADMIN_PASSWORD 首次创建 admin；
+-- 如需本地演示账号，可在开发数据库中手动执行 sql/demo-data.sql。

@@ -7,8 +7,12 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 @Slf4j
 @Component
@@ -21,6 +25,7 @@ public class CloudflareTunnelRunner implements ApplicationRunner {
     private String hostname;
 
     private Process tunnelProcess;
+    private Thread tunnelOutputThread;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -50,12 +55,43 @@ public class CloudflareTunnelRunner implements ApplicationRunner {
             ProcessBuilder pb = new ProcessBuilder(
                     "cloudflared", "tunnel", "--config", configPath, "run"
             );
-            pb.inheritIO();
+            // Route child-process output through SLF4J so console and rolling-file logs stay identical.
+            pb.redirectErrorStream(true);
             tunnelProcess = pb.start();
+            startOutputPump(tunnelProcess);
 
             log.info("Cloudflare Tunnel 已启动 → https://{}", hostname);
         } catch (IOException e) {
-            log.error("Cloudflare Tunnel 启动失败: {}", e.getMessage());
+            log.error("Cloudflare Tunnel 启动失败", e);
+        }
+    }
+
+    private void startOutputPump(Process process) {
+        tunnelOutputThread = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    logTunnelLine(line);
+                }
+            } catch (IOException exception) {
+                if (process.isAlive()) log.warn("cloudflared 输出读取失败: {}", exception.getMessage());
+            }
+        }, "cloudflared-output");
+        tunnelOutputThread.setDaemon(true);
+        tunnelOutputThread.start();
+    }
+
+    private void logTunnelLine(String rawLine) {
+        String line = rawLine.replaceAll("[\\p{Cntrl}&&[^\\t]]", "");
+        line = line.substring(0, Math.min(2_000, line.length()));
+        String normalized = line.toLowerCase(Locale.ROOT);
+        if (normalized.contains("level=error") || normalized.contains("\"level\":\"error\"")) {
+            log.error("cloudflared | {}", line);
+        } else if (normalized.contains("level=warn") || normalized.contains("\"level\":\"warn\"")) {
+            log.warn("cloudflared | {}", line);
+        } else {
+            log.info("cloudflared | {}", line);
         }
     }
 
@@ -87,5 +123,6 @@ public class CloudflareTunnelRunner implements ApplicationRunner {
             tunnelProcess.destroy();
             log.info("Cloudflare Tunnel 已停止");
         }
+        if (tunnelOutputThread != null) tunnelOutputThread.interrupt();
     }
 }

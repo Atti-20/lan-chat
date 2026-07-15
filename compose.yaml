@@ -1,10 +1,14 @@
+name: lanchat-private
+
 services:
   mysql:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-lanchat_dev_password}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: lan_chat
+      MYSQL_USER: lanchat
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -13,49 +17,95 @@ services:
       - mysql-data:/var/lib/mysql
       - ./sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --user=root --password=\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 5s
       timeout: 5s
       retries: 30
+    networks: [data]
 
   redis:
     image: redis:7.4-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
+    networks: [data]
 
   lanchat:
     build:
       context: .
     restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "${LANCHAT_PORT:-8080}:8080"
     environment:
+      SPRING_PROFILES_ACTIVE: private
       DB_URL: jdbc:mysql://mysql:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8&connectionCollation=utf8mb4_general_ci
-      DB_USERNAME: root
-      DB_PASSWORD: ${DB_PASSWORD:-lanchat_dev_password}
+      DB_USERNAME: lanchat
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       REDIS_HOST: redis
-      JWT_SECRET: ${JWT_SECRET:-local-compose-secret-change-before-exposing-this-node-2026}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set a random JWT_SECRET in .env}
+      LANCHAT_PRIVATE_DEPLOYMENT: "true"
+      LANCHAT_SELF_REGISTRATION_ENABLED: "false"
+      LANCHAT_BOOTSTRAP_ADMIN_PASSWORD: ${LANCHAT_BOOTSTRAP_ADMIN_PASSWORD:-}
+      LANCHAT_BOOTSTRAP_ADMIN_NICKNAME: ${LANCHAT_BOOTSTRAP_ADMIN_NICKNAME:-系统管理员}
+      LANCHAT_NODE_ID: ${LANCHAT_NODE_ID:-}
+      LANCHAT_NODE_NAME: ${LANCHAT_NODE_NAME:-LanChat Private Node}
+      LANCHAT_ORGANIZATION_NAME: ${LANCHAT_ORGANIZATION_NAME:-Private Organization}
+      LANCHAT_MODE: ${LANCHAT_MODE:-LOCAL_INDEPENDENT}
+      LANCHAT_ADVERTISED_HOST: ${LANCHAT_ADVERTISED_HOST:-}
+      LANCHAT_ADVERTISED_PORT: ${LANCHAT_ADVERTISED_PORT:-8080}
+      LANCHAT_NODE_SECURE: ${LANCHAT_NODE_SECURE:-false}
+      LANCHAT_DISCOVERY_ENABLED: ${LANCHAT_DISCOVERY_ENABLED:-false}
+      LANCHAT_DISCOVERY_INTERFACE_ADDRESS: ${LANCHAT_DISCOVERY_INTERFACE_ADDRESS:-}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       FILE_STORAGE_PATH: /app/uploads/
+      LANCHAT_LOG_FILE: /app/logs/lan-chat.log
+      LANCHAT_LOG_MAX_FILE_SIZE: ${LANCHAT_LOG_MAX_FILE_SIZE:-20MB}
+      LANCHAT_LOG_MAX_HISTORY: ${LANCHAT_LOG_MAX_HISTORY:-30}
+      LANCHAT_LOG_TOTAL_SIZE_CAP: ${LANCHAT_LOG_TOTAL_SIZE_CAP:-1GB}
+      LANCHAT_RUNTIME_LOG_MAX_READ_BYTES: ${LANCHAT_RUNTIME_LOG_MAX_READ_BYTES:-4194304}
       WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       TUNNEL_ENABLED: "false"
       TZ: Asia/Shanghai
+    tmpfs:
+      - /tmp:size=128m,mode=1777
     volumes:
       - uploads:/app/uploads
+      - logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/api/v1/node/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks: [edge, data]
+
+networks:
+  edge:
+  data:
+    internal: true
 
 volumes:
   mysql-data:
   redis-data:
   uploads:
+  logs:

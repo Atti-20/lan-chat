@@ -12,6 +12,10 @@ export type IconName =
   | 'contacts'
   | 'groups'
   | 'admin'
+  | 'users'
+  | 'activity'
+  | 'terminal'
+  | 'refresh'
   | 'search'
   | 'plus'
   | 'image'
@@ -105,6 +109,28 @@ const iconClasses = computed(() => [
     <template v-else-if="name === 'admin'">
       <path d="M20 13c0 5-3.5 7.5-8 8.5C7.5 20.5 4 18 4 13V5l8-3 8 3v8Z" />
       <path d="m9 12 2 2 4-4" />
+    </template>
+
+    <template v-else-if="name === 'users'">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+    </template>
+
+    <template v-else-if="name === 'activity'">
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </template>
+
+    <template v-else-if="name === 'terminal'">
+      <path d="m4 17 6-6-6-6" />
+      <path d="M12 19h8" />
+    </template>
+
+    <template v-else-if="name === 'refresh'">
+      <path d="M21 12a9 9 0 0 0-15.2-6.5L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M3 12a9 9 0 0 0 15.2 6.5L21 16" />
+      <path d="M21 21v-5h-5" />
     </template>
 
     <template v-else-if="name === 'search'">

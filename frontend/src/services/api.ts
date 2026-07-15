@@ -8,6 +8,11 @@ import type {
   Friend,
   FriendRequest,
   GroupMember,
+  AdminDiagnostics,
+  DiscoveredNode,
+  NodePublicInfo,
+  RuntimeLogLevelFilter,
+  RuntimeLogSnapshot,
   User,
 } from '../types'
 import { clearSession, readSession, writeSession } from '../utils/storage'
@@ -98,12 +103,69 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   return result.data
 }
 
+async function download(path: string, fallbackName: string, retry = true): Promise<{ blob: Blob; fileName: string }> {
+  const headers = new Headers()
+  headers.set('X-Request-ID', `req_${crypto.randomUUID?.().replace(/-/g, '') || Date.now()}`)
+  Object.entries(authHeaders()).forEach(([key, value]) => headers.set(key, value))
+
+  let response: Response
+  try {
+    response = await fetch(`/api/v1${path}`, { headers })
+  } catch {
+    throw new ApiError('无法连接服务器，请检查网络', 0)
+  }
+
+  if (response.status === 401 && retry) {
+    if (await refreshAccessToken()) return download(path, fallbackName, false)
+    clearSession()
+    throw new ApiError('登录已过期，请重新登录', 401)
+  }
+
+  if (!response.ok) {
+    let message = '文件导出失败'
+    try {
+      const result = await response.json() as ApiResult<unknown>
+      message = result.msg || message
+    } catch {
+      // The export endpoint may return an empty 404 response before the first log line is written.
+    }
+    throw new ApiError(message, response.status)
+  }
+
+  if (response.headers.get('Content-Type')?.includes('application/json')) {
+    const result = await response.json() as ApiResult<unknown>
+    throw new ApiError(result.msg || '文件导出失败', result.code || response.status)
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: responseFileName(response.headers.get('Content-Disposition'), fallbackName),
+  }
+}
+
+function responseFileName(contentDisposition: string | null, fallback: string): string {
+  if (!contentDisposition) return fallback
+  const encoded = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      return fallback
+    }
+  }
+  return contentDisposition.match(/filename="?([^";]+)"?/i)?.[1] || fallback
+}
+
 function storedFileName(rawUrl: string): string {
   const pathname = new URL(rawUrl, window.location.origin).pathname
   return decodeURIComponent(pathname.split('/').pop() || '')
 }
 
 export const api = {
+  node: {
+    info: () => request<NodePublicInfo>('/node/info'),
+    discoveries: () => request<DiscoveredNode[]>('/node/discoveries'),
+  },
   auth: {
     login: (username: string, password: string) => request<AuthSession>('/auth/login', {
       method: 'POST',
@@ -191,6 +253,10 @@ export const api = {
   },
   admin: {
     users: () => request<AdminUser[]>('/admin/users'),
+    createUser: (payload: { username: string; password: string; nickname: string }) => request<void>(
+      '/admin/users',
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
     setStatus: (userId: number, status: 0 | 1) => request<string>(
       `/admin/user/status?userId=${userId}&status=${status}`,
       { method: 'POST' },
@@ -200,5 +266,15 @@ export const api = {
       { method: 'POST' },
     ),
     deleteUser: (userId: number) => request<string>(`/admin/user/${userId}`, { method: 'DELETE' }),
+    diagnostics: () => request<AdminDiagnostics>('/admin/diagnostics'),
+    runtimeLogs: (options: { limit?: number; level?: RuntimeLogLevelFilter; keyword?: string } = {}) => {
+      const params = new URLSearchParams({
+        limit: String(options.limit ?? 300),
+        level: options.level ?? 'ALL',
+      })
+      if (options.keyword?.trim()) params.set('keyword', options.keyword.trim())
+      return request<RuntimeLogSnapshot>(`/admin/logs?${params}`)
+    },
+    exportRuntimeLog: () => download('/admin/logs/export', 'lan-chat-runtime.log'),
   },
 }

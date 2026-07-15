@@ -15,6 +15,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const state = shallowRef<ConnectionState>('OFFLINE')
   const reconnectAttempts = shallowRef(0)
   const latencyMs = shallowRef<number | null>(null)
+  const lastHeartbeatAt = shallowRef<string | null>(null)
   const lastSyncAt = shallowRef<string | null>(null)
   // SYNCING 阶段已完成认证，但尚未补齐服务端序列缺口；业务发送必须等同步结束。
   const connected = computed(() => ['ONLINE', 'DEGRADED'].includes(state.value))
@@ -113,6 +114,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
     if (envelope.event === 'PONG') {
       lastPongAt = Date.now()
+      lastHeartbeatAt.value = new Date(lastPongAt).toISOString()
       latencyMs.value = lastPingAt > 0 ? Math.max(0, lastPongAt - lastPingAt) : null
       return
     }
@@ -264,6 +266,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
     reconnecting,
     reconnectAttempts: readonly(reconnectAttempts),
     latencyMs: readonly(latencyMs),
+    lastHeartbeatAt: readonly(lastHeartbeatAt),
     lastSyncAt: readonly(lastSyncAt),
     connect,
     reconnect,

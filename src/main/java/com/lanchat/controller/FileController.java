@@ -1,7 +1,9 @@
 package com.lanchat.controller;
 
 import com.lanchat.common.Result;
+import com.lanchat.common.RequestIdFilter;
 import com.lanchat.dto.FileCheckDTO;
+import com.lanchat.dto.FilePreviewGrant;
 import com.lanchat.dto.FileUploadVO;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.security.UserContextHolder;
@@ -14,6 +16,8 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -68,7 +72,7 @@ public class FileController {
         if (file.getContentType() == null || !file.getContentType().startsWith("image/")) {
             return Result.error(400, "头像必须是图片文件");
         }
-        return Result.success(fileService.uploadFile(file, userId));
+        return Result.success(fileService.uploadAvatar(file, userId));
     }
 
     /**
@@ -81,7 +85,14 @@ public class FileController {
         if (userId == null) {
             return Result.unauthorized("请先登录");
         }
-        return Result.success(fileService.generatePreviewUrl(fileName, userId));
+        try {
+            String previewUrl = fileService.generatePreviewUrl(fileName, userId);
+            recordAccess(fileName, userId, "PREVIEW_URL", "ALLOWED");
+            return Result.success(previewUrl);
+        } catch (IllegalArgumentException exception) {
+            recordAccess(fileName, userId, "PREVIEW_URL", "DENIED");
+            throw exception;
+        }
     }
 
     /**
@@ -92,8 +103,10 @@ public class FileController {
         Long userId = UserContextHolder.getCurrentUserId();
         if (userId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         if (!fileService.canAccessFile(fileName, userId)) {
+            recordAccess(fileName, userId, "CONTENT", "DENIED");
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
+        recordAccess(fileName, userId, "CONTENT", "ALLOWED");
         return buildFileResponse(fileName, false, false);
     }
 
@@ -109,8 +122,8 @@ public class FileController {
 
     /**
      * The display name is intentionally cosmetic. The signed token remains the
-     * source of truth, while the extension makes the URL eligible for the
-     * default extension-based CDN cache rules.
+     * source of truth; the cosmetic extension only helps browsers choose a
+     * suitable native preview. Private responses are never shared-cacheable.
      */
     @GetMapping("/preview/{signToken}/{displayName:.+}")
     public ResponseEntity<Resource> previewFileWithDisplayName(@PathVariable String signToken,
@@ -120,13 +133,20 @@ public class FileController {
     }
 
     private ResponseEntity<Resource> streamPreview(String signToken, String displayName, boolean download) {
-        String fileName = fileService.getFileNameFromToken(signToken);
-        if (fileName == null) {
+        FilePreviewGrant grant = fileService.resolvePreviewToken(signToken);
+        if (grant == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
+        String fileName = grant.fileName();
         if (displayName != null && !displayName.equals(fileName)) {
+            recordAccess(fileName, grant.userId(), download ? "DOWNLOAD" : "PREVIEW", "DENIED");
             return ResponseEntity.notFound().build();
         }
+        if (!fileService.canAccessFile(fileName, grant.userId())) {
+            recordAccess(fileName, grant.userId(), download ? "DOWNLOAD" : "PREVIEW", "REVOKED");
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        recordAccess(fileName, grant.userId(), download ? "DOWNLOAD" : "PREVIEW", "ALLOWED");
         return buildFileResponse(fileName, download, true);
     }
 
@@ -142,7 +162,8 @@ public class FileController {
 
         MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
         try {
-            String detected = Files.probeContentType(resolved);
+            String detected = metadata.getFileType();
+            if (detected == null || detected.isBlank()) detected = Files.probeContentType(resolved);
             if (detected != null) mediaType = MediaType.parseMediaType(detected);
         } catch (Exception ignored) {
             // 未识别类型时按二进制流返回。
@@ -167,12 +188,13 @@ public class FileController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .header("X-Content-Type-Options", "nosniff")
-                .header("Cross-Origin-Resource-Policy", "same-origin");
+                .header("Cross-Origin-Resource-Policy", "same-origin")
+                .header("Content-Security-Policy", "sandbox; default-src 'none'")
+                .header("X-Frame-Options", "SAMEORIGIN");
         if (signedPreview) {
-            // Authorization has already happened while creating the short-lived
-            // bearer URL. Keep the public cache lifetime within token lifetime.
-            response.header(HttpHeaders.CACHE_CONTROL, "public, max-age=600, s-maxage=600");
-            response.header("CDN-Cache-Control", "public, max-age=600");
+            // A signed URL is still a bearer credential. Shared/CDN caches must not
+            // retain private bytes after the token or conversation grant expires.
+            response.cacheControl(CacheControl.noStore().cachePrivate());
         } else {
             // Authorization-header responses must remain private.
             response.cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePrivate());
@@ -190,5 +212,15 @@ public class FileController {
             return Set.of("jpeg", "png", "gif", "bmp", "webp").contains(subtype);
         }
         return "audio".equals(type) || "video".equals(type);
+    }
+
+    private void recordAccess(String fileName, Long userId, String action, String result) {
+        ServletRequestAttributes attributes = RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes value
+                ? value : null;
+        String requestId = attributes == null ? null
+                : String.valueOf(attributes.getRequest().getAttribute(RequestIdFilter.REQUEST_ID_ATTRIBUTE));
+        String remoteAddress = attributes == null ? null : attributes.getRequest().getRemoteAddr();
+        fileService.recordAccess(fileName, userId, action, result,
+                "null".equals(requestId) ? null : requestId, remoteAddress);
     }
 }
