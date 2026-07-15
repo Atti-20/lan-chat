@@ -1,4 +1,4 @@
-import { computed, readonly, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, readonly, ref, shallowRef } from 'vue'
 import { api } from '../services/api'
 import {
   cacheMessages,
@@ -33,7 +33,7 @@ import { useOutbox } from './useOutbox'
 import { useToast } from './useToast'
 import { useWebSocket } from './useWebSocket'
 
-export type ChatSection = 'messages' | 'contacts' | 'groups'
+export type ChatSection = 'messages' | 'contacts' | 'groups' | 'admin'
 
 type AckOutcome = 'ACK' | 'ERROR'
 
@@ -60,6 +60,8 @@ export function useChat() {
   const onlineIds = ref<Set<number>>(new Set())
 
   const ackWaiters = new Map<string, AckWaiter>()
+  const burnTimers = new Map<string, number>()
+  const burnConversationIds = new Map<string, string>()
   const runtimePositions = new Map<string, number>()
   let flushPromise: Promise<void> | null = null
   let warnedAboutVolatileOutbox = false
@@ -67,6 +69,12 @@ export function useChat() {
   let syncRejecter: ((cause: Error) => void) | null = null
   let syncRequestId: string | null = null
   let syncTimer: number | null = null
+
+  onBeforeUnmount(() => {
+    burnTimers.forEach((timer) => window.clearTimeout(timer))
+    burnTimers.clear()
+    burnConversationIds.clear()
+  })
 
   const conversations = computed<Conversation[]>(() => {
     const me = currentUser.value?.id
@@ -117,7 +125,9 @@ export function useChat() {
       ? conversations.value.filter((item) => item.kind === 'private')
       : section.value === 'groups'
         ? conversations.value.filter((item) => item.kind === 'group')
-        : conversations.value
+        : section.value === 'admin'
+          ? []
+          : conversations.value
     const needle = query.value.trim().toLocaleLowerCase('zh-CN')
     return needle
       ? base.filter((item) => item.name.toLocaleLowerCase('zh-CN').includes(needle))
@@ -174,9 +184,6 @@ export function useChat() {
       }
       restoreOptimisticMessages()
       ws.connect()
-      if (!selected.value && conversations.value.length > 0 && window.innerWidth >= 760) {
-        await selectConversation(conversations.value[0])
-      }
     } finally {
       loading.value = false
     }
@@ -231,12 +238,14 @@ export function useChat() {
       .filter((entry) => entry.conversationId === conversationId)
       .map((entry) => optimisticMessage(entry, user))
     messages.value = mergeMessages(cached, optimistic)
+    scheduleBurnCountdowns(messages.value)
     await recordReceivedPositions(cached)
 
     try {
       const history = await api.chat.history(conversationId)
       const normalized = (history || []).map(normalizeMessage)
       messages.value = mergeMessages(normalized, optimistic)
+      scheduleBurnCountdowns(messages.value)
       await cacheMessages(messages.value).catch(() => undefined)
       await recordReceivedPositions(normalized)
       members.value = conversation.kind === 'group' ? await api.groups.members(conversation.id) : []
@@ -383,6 +392,7 @@ export function useChat() {
     if (belongsToSelected(delivered)) {
       mergeCurrentMessages([delivered])
       if (delivered.fromUserId !== currentUser.value?.id) {
+        startBurnCountdown(delivered)
         sendReadPosition(delivered.conversationId, [delivered])
       }
     }
@@ -404,7 +414,10 @@ export function useChat() {
     await cacheMessages(synced).catch(() => undefined)
     await recordReceivedPositions(synced)
     const selectedItems = synced.filter((message) => belongsToSelected(message))
-    if (selectedItems.length > 0) mergeCurrentMessages(selectedItems)
+    if (selectedItems.length > 0) {
+      mergeCurrentMessages(selectedItems)
+      scheduleBurnCountdowns(selectedItems)
+    }
     synced.forEach(updateConversationPreview)
 
     const denied = Array.isArray(envelope.payload.deniedConversationIds)
@@ -421,12 +434,14 @@ export function useChat() {
 
   async function handleMessageMutation(envelope: WsEnvelope): Promise<void> {
     const messageId = String(envelope.payload.messageId || '')
+    if (envelope.event === 'CHAT_BURN') clearBurnCountdown(messageId)
     const target = messages.value.find((message) => message.messageId === messageId)
     if (!target) return
     if (envelope.event === 'CHAT_RECALL') target.isRecalled = 1
     if (envelope.event === 'CHAT_BURN') {
       target.status = 2
       target.content = ''
+      updateConversationPreview(target)
     }
     await cacheMessages([target]).catch(() => undefined)
   }
@@ -708,11 +723,80 @@ export function useChat() {
   }
 
   function burn(messageId: string): void {
-    const conversationId = selected.value?.conversationId
+    requestBurn(messageId, true)
+  }
+
+  function scheduleBurnCountdowns(source: readonly ChatMessage[]): void {
+    source.forEach(startBurnCountdown)
+  }
+
+  function startBurnCountdown(message: ChatMessage): void {
+    if (message.fromUserId === currentUser.value?.id
+      || Number(message.isBurn) !== 1
+      || message.isRecalled === 1
+      || message.status === 2
+      || !message.messageId
+      || message.messageId.startsWith('local:')) return
+    if (burnTimers.has(message.messageId)) return
+
+    const conversationId = message.conversationId || selected.value?.conversationId
+    if (!conversationId) return
+    burnConversationIds.set(message.messageId, conversationId)
+    const seconds = Math.min(60, Math.max(1, Number(message.burnDuration) || 5))
+    burnTimers.set(message.messageId, window.setTimeout(() => {
+      burnTimers.delete(message.messageId)
+      if (!shouldContinueBurn(message.messageId)) return
+      if (!requestBurn(message.messageId, false)) scheduleBurnRetry(message.messageId)
+    }, seconds * 1000))
+  }
+
+  function scheduleBurnRetry(messageId: string): void {
+    if (!burnConversationIds.has(messageId) || burnTimers.has(messageId)) return
+    burnTimers.set(messageId, window.setTimeout(() => {
+      burnTimers.delete(messageId)
+      if (!shouldContinueBurn(messageId)) return
+      if (!requestBurn(messageId, false)) scheduleBurnRetry(messageId)
+    }, 1_500))
+  }
+
+  function shouldContinueBurn(messageId: string): boolean {
+    if (!burnConversationIds.has(messageId)) return false
+    const target = messages.value.find((message) => message.messageId === messageId)
+    if (target && (target.status === 2 || target.isRecalled === 1)) {
+      clearBurnCountdown(messageId)
+      return false
+    }
+    return true
+  }
+
+  function clearBurnCountdown(messageId: string): void {
+    const timer = burnTimers.get(messageId)
+    if (timer !== undefined) window.clearTimeout(timer)
+    burnTimers.delete(messageId)
+    burnConversationIds.delete(messageId)
+  }
+
+  function requestBurn(messageId: string, notifyOnFailure: boolean): boolean {
+    const target = messages.value.find((message) => message.messageId === messageId)
+    const conversationId = target?.conversationId
+      || burnConversationIds.get(messageId)
+      || selected.value?.conversationId
     if (!conversationId || !ws.sendEvent('CHAT_BURN', { messageId }, {
       requestId: createRequestId(),
       conversationId,
-    })) toast.push('连接已断开，暂时无法焚毁', 'warning')
+    })) {
+      if (notifyOnFailure) toast.push('连接已断开，暂时无法焚毁', 'warning')
+      return false
+    }
+
+    clearBurnCountdown(messageId)
+    if (target) {
+      target.status = 2
+      target.content = ''
+      updateConversationPreview(target)
+      void cacheMessages([target]).catch(() => undefined)
+    }
+    return true
   }
 
   function sendReadPosition(conversationId: string, source: readonly ChatMessage[]): void {
@@ -779,10 +863,11 @@ export function useChat() {
   }
 
   function updateConversationPreview(message: ChatMessage): void {
+    const previewContent = message.status === 2 ? '消息已焚毁' : message.content
     if (message.groupId) {
       const group = groups.value.find((item) => item.id === message.groupId)
       if (group) {
-        group.lastMessage = message.content
+        group.lastMessage = previewContent
         group.lastMessageType = message.type
         group.lastMessageTime = message.createTime
         persistConversationDirectory()
@@ -793,7 +878,7 @@ export function useChat() {
     const otherId = message.fromUserId === me ? message.toUserId : message.fromUserId
     const friend = friends.value.find((item) => item.friendId === otherId)
     if (friend) {
-      friend.lastMessage = message.content
+      friend.lastMessage = previewContent
       friend.lastMessageType = message.type
       friend.lastMessageTime = message.createTime
       persistConversationDirectory()

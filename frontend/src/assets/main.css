@@ -131,6 +131,25 @@ textarea:focus-visible {
   -webkit-backdrop-filter: blur(18px) saturate(150%);
 }
 
+/* Profile and conversation details share one browser-safe glass contract. */
+.modal-backdrop.detail-backdrop,
+.context-backdrop.detail-backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(14px) saturate(125%);
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  isolation: isolate;
+  will-change: backdrop-filter;
+}
+
+.profile-sheet.detail-panel,
+.context-panel.detail-panel {
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  isolation: isolate;
+}
+
 .primary-button,
 .secondary-button,
 .icon-button {
@@ -230,19 +249,24 @@ textarea:focus-visible {
   }
 }
 
-/* ── View Transitions: theme reveal ── */
+/* ── Theme reveal: new theme expands from the control that was clicked ── */
+::view-transition-group(root) {
+  animation-duration: 500ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   mix-blend-mode: normal;
+  animation: none;
 }
 
 ::view-transition-old(root) {
   z-index: 1;
-  animation: none;
 }
 
 ::view-transition-new(root) {
-  z-index: 9999;
+  z-index: 2;
   animation: theme-reveal 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 

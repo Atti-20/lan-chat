@@ -1,19 +1,26 @@
 <script setup lang="ts">
-import { computed, onMounted, shallowRef } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
 import UserAvatar from '../components/base/UserAvatar.vue'
 import UiIcon from '../components/base/UiIcon.vue'
-import { ApiError } from '../services/api'
+import { api, ApiError } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
 
 const auth = useAuth()
 const toast = useToast()
 const nickname = shallowRef('')
-const selectedAvatar = shallowRef('emoji:🫧:#5AC8FA')
+const selectedAvatar = shallowRef('text')
 const saving = shallowRef(false)
+const uploadingAvatar = shallowRef(false)
 const error = shallowRef('')
+const avatarInput = ref<HTMLInputElement | null>(null)
 const avatars = ['🫧', '🐼', '🐰', '🦊', '🐧', '🦉', '🌊', '🌙']
 const displayName = computed(() => nickname.value.trim() || auth.currentUser.value?.nickname || '新朋友')
+const isCustomAvatar = computed(() => Boolean(selectedAvatar.value)
+  && selectedAvatar.value !== 'text'
+  && !selectedAvatar.value.startsWith('emoji:')
+  && !selectedAvatar.value.startsWith('svg:')
+  && !selectedAvatar.value.startsWith('letter:'))
 
 onMounted(async () => {
   const user = auth.currentUser.value || await auth.hydrate()
@@ -22,8 +29,39 @@ onMounted(async () => {
     return
   }
   nickname.value = user.nickname
-  if (user.avatar) selectedAvatar.value = user.avatar
+  selectedAvatar.value = user.avatar || 'text'
 })
+
+function chooseAvatarFile(): void {
+  avatarInput.value?.click()
+}
+
+async function onAvatarFileChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    error.value = '请选择图片文件'
+    return
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    error.value = '头像图片不能超过 5MB'
+    return
+  }
+
+  uploadingAvatar.value = true
+  error.value = ''
+  try {
+    const result = await api.files.uploadAvatar(file)
+    selectedAvatar.value = result.thumbnailUrl || result.url
+    toast.push('头像已上传', 'success', 1200)
+  } catch (cause) {
+    error.value = cause instanceof ApiError ? cause.message : '头像上传失败，请稍后重试'
+  } finally {
+    uploadingAvatar.value = false
+  }
+}
 
 async function finish(): Promise<void> {
   const cleanName = nickname.value.trim()
@@ -67,6 +105,26 @@ async function finish(): Promise<void> {
           <legend>选择头像</legend>
           <div class="avatar-grid">
             <button
+              type="button"
+              class="avatar-choice avatar-choice--text"
+              :class="{ 'avatar-choice--selected': selectedAvatar === 'text' }"
+              aria-label="使用昵称首字符作为头像"
+              :aria-pressed="selectedAvatar === 'text'"
+              @click="selectedAvatar = 'text'"
+            >{{ displayName.slice(0, 1).toUpperCase() || '?' }}</button>
+            <button
+              type="button"
+              class="avatar-choice avatar-choice--upload"
+              :class="{ 'avatar-choice--selected': isCustomAvatar }"
+              :disabled="uploadingAvatar"
+              aria-label="上传自定义头像"
+              :aria-pressed="isCustomAvatar"
+              @click="chooseAvatarFile"
+            >
+              <UiIcon name="edit" :size="22" />
+              <small>{{ uploadingAvatar ? '上传中' : '上传图片' }}</small>
+            </button>
+            <button
               v-for="(emoji, index) in avatars"
               :key="emoji"
               type="button"
@@ -79,6 +137,7 @@ async function finish(): Promise<void> {
               {{ emoji }}
             </button>
           </div>
+          <input ref="avatarInput" class="sr-only" type="file" accept="image/*" @change="onAvatarFileChange" />
         </fieldset>
 
         <label class="name-field">
@@ -87,8 +146,8 @@ async function finish(): Promise<void> {
         </label>
 
         <p v-if="error" class="welcome-error" role="alert">{{ error }}</p>
-        <button class="primary-button finish-button" type="submit" :disabled="saving">
-          {{ saving ? '正在保存…' : '进入聊天' }}
+        <button class="primary-button finish-button" type="submit" :disabled="saving || uploadingAvatar">
+          {{ uploadingAvatar ? '正在上传头像…' : saving ? '正在保存…' : '进入聊天' }}
           <UiIcon name="arrow-right" :size="18" />
         </button>
       </form>
@@ -154,6 +213,10 @@ async function finish(): Promise<void> {
 }
 .avatar-choice:hover { transform: translateY(-3px); background: rgba(255,255,255,.68); }
 .avatar-choice--selected { border-color: rgba(10,132,255,.48); background: rgba(217,238,255,.8); box-shadow: 0 0 0 4px rgba(10,132,255,.09), inset 0 1px 0 #fff; transform: scale(1.04); }
+.avatar-choice--text { color: #fff; font-weight: 750; background: linear-gradient(145deg, var(--blue), var(--violet)); }
+.avatar-choice--upload { display: grid; place-items: center; align-content: center; gap: 4px; color: var(--blue); }
+.avatar-choice--upload small { font-size: 10px; font-weight: 650; }
+.avatar-choice--upload:disabled { cursor: wait; opacity: .65; }
 .name-field { display: grid; }
 .welcome-error { margin: -8px 0 0; color: var(--coral); font-size: 13px; }
 .finish-button { display: flex; width: 100%; align-items: center; justify-content: center; gap: 8px; }
@@ -212,4 +275,10 @@ async function finish(): Promise<void> {
   .profile-stage { min-height: 200px; }
   .welcome-header h1 { font-size: 36px; }
 }
+
+/* Keep the two functional choices distinct from the emoji presets after the
+ * compact theme overrides above. */
+.avatar-choice.avatar-choice--text { color: #fff; background: linear-gradient(145deg, var(--blue), var(--violet)); }
+.avatar-choice.avatar-choice--upload { color: var(--blue); }
+.avatar-choice.avatar-choice--upload .ui-icon { width: 22px; }
 </style>

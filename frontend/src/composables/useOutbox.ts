@@ -25,7 +25,12 @@ export function useOutbox() {
     entries.value = stored.map((entry) => entry.state === 'SENDING'
       ? { ...entry, state: 'WAITING_NETWORK' }
       : entry)
-    await Promise.all(entries.value.map((entry) => persist(saveOutboxEntry(entry))))
+    for (const entry of entries.value) {
+      const storedEntry = stored.find((item) => item.clientMsgId === entry.clientMsgId)
+      if (storedEntry?.state === 'SENDING') {
+        await persist(() => saveOutboxEntry(entry))
+      }
+    }
     hydrated.value = true
   }
 
@@ -34,7 +39,7 @@ export function useOutbox() {
     entries.value = index < 0
       ? [...entries.value, entry]
       : entries.value.map((item, itemIndex) => itemIndex === index ? entry : item)
-    await persist(saveOutboxEntry(entry))
+    await persist(() => saveOutboxEntry(entry))
   }
 
   async function update(
@@ -45,20 +50,22 @@ export function useOutbox() {
     if (!current) return
     const next = { ...current, ...patch }
     entries.value = entries.value.map((entry) => entry.clientMsgId === clientMsgId ? next : entry)
-    await persist(saveOutboxEntry(next))
+    await persist(() => saveOutboxEntry(next))
   }
 
   async function remove(clientMsgId: string): Promise<void> {
     entries.value = entries.value.filter((entry) => entry.clientMsgId !== clientMsgId)
-    await persist(deleteOutboxEntry(clientMsgId))
+    await persist(() => deleteOutboxEntry(clientMsgId))
   }
 
   async function retryFailed(): Promise<void> {
     const failed = entries.value.filter((entry) => entry.state === 'FAILED')
-    await Promise.all(failed.map((entry) => update(entry.clientMsgId, {
-      state: 'WAITING_NETWORK',
-      lastError: undefined,
-    })))
+    for (const entry of failed) {
+      await update(entry.clientMsgId, {
+        state: 'WAITING_NETWORK',
+        lastError: undefined,
+      })
+    }
   }
 
   function readyEntries(): OutboxEntry[] {
@@ -67,9 +74,10 @@ export function useOutbox() {
       .sort((first, second) => first.createdAt.localeCompare(second.createdAt))
   }
 
-  async function persist(operation: Promise<void>): Promise<void> {
+  async function persist(operation: () => Promise<void>): Promise<void> {
     try {
-      await operation
+      await operation()
+      durable.value = true
     } catch {
       // 保留内存队列，让当前页面仍可恢复发送；UI 会提示关闭页面前不要退出。
       durable.value = false

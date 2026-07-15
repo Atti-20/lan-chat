@@ -62,8 +62,8 @@ function saveRemark(): void {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="context-backdrop" role="presentation" @click.self="emit('close')">
-      <aside class="context-panel" role="dialog" aria-modal="true" aria-label="详情">
+    <div v-if="open" class="context-backdrop detail-backdrop" role="presentation" @click.self="emit('close')">
+      <aside class="context-panel detail-panel" role="dialog" aria-modal="true" aria-label="详情">
         <button class="context-close" type="button" aria-label="关闭" @click="emit('close')">
           <UiIcon name="close" :size="15" />
         </button>
@@ -151,9 +151,6 @@ function saveRemark(): void {
   inset: 0;
   display: grid;
   place-items: center;
-  background: var(--backdrop);
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
 }
 
 .context-panel {
@@ -165,11 +162,8 @@ function saveRemark(): void {
   flex-direction: column;
   gap: 16px;
   border-radius: 22px;
-  background: var(--surface-raise);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   overflow-y: auto;
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
 }
 
 .context-close {

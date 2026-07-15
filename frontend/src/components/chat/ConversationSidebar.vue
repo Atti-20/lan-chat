@@ -32,14 +32,17 @@ const kicker = computed(() => ({
   messages: 'MESSAGE',
   contacts: 'FRIENDS',
   groups: 'GROUPS',
+  admin: 'ADMINISTRATION',
 }[props.section]))
 const title = computed(() => ({
   messages: '消息',
   contacts: '好友',
   groups: '群组',
+  admin: '管理',
 }[props.section]))
 const emptyCopy = computed(() => {
   if (query.value.trim()) return '没有匹配的结果'
+  if (props.section === 'admin') return '管理控制台已打开'
   if (props.section === 'groups') return '还没有加入群聊'
   if (props.section === 'contacts') return '搜索并添加第一位好友'
   return '新的对话会出现在这里'

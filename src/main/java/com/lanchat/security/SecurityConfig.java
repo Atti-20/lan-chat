@@ -51,10 +51,7 @@ public class SecurityConfig {
                                 "/welcome.html",
                                 "/chat",
                                 "/chat.html",
-                                "/css/**",
-                                "/js/**",
                                 "/app/**",
-                                "/favicon.svg",
                                 "/favicon.ico"
                         ).permitAll()
                         .anyRequest().authenticated()

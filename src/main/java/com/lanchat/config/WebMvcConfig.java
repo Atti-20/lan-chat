@@ -17,8 +17,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addViewController("/app/welcome").setViewName("forward:/app/index.html");
         registry.addViewController("/chat").setViewName("forward:/app/index.html");
         registry.addViewController("/welcome").setViewName("forward:/app/index.html");
-        // 旧版静态页面仍留在仓库作样式历史，但其 WebSocket 协议已经废弃；
-        // 直接访问旧 .html 时也统一进入 V2 Vue 客户端。
+        // 保留旧版入口地址的兼容重定向，避免书签继续落到已移除的 V1 页面。
         registry.addViewController("/index.html").setViewName("redirect:/app/");
         registry.addViewController("/chat.html").setViewName("redirect:/app/chat");
         registry.addViewController("/welcome.html").setViewName("redirect:/app/welcome");

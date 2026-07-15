@@ -157,7 +157,6 @@ export const api = {
   },
   groups: {
     list: () => request<ChatGroup[]>('/group/my'),
-    byId: (groupId: number) => request<ChatGroup>(`/group/${groupId}`),
     members: (groupId: number) => request<GroupMember[]>(`/group/${groupId}/members`),
     create: (groupName: string, memberIds: number[]) => request<ChatGroup>('/group', {
       method: 'POST',
@@ -170,23 +169,6 @@ export const api = {
         beforeSequence ? `&beforeSequence=${beforeSequence}` : ''
       }`,
     ),
-    privateHistory: (targetId: number, limit = 50) => request<ChatMessage[]>(
-      `/chat/history/private?targetId=${targetId}&limit=${limit}`,
-    ),
-    groupHistory: (groupId: number, limit = 50) => request<ChatMessage[]>(
-      `/chat/history/group?groupId=${groupId}&limit=${limit}`,
-    ),
-    markRead: (fromUserId: number) => request<void>(`/chat/read?fromUserId=${fromUserId}`, { method: 'PUT' }),
-    markConversationRead: (conversationId: string, lastReadSequence: number) => request<void>(
-      `/chat/conversation/read?conversationId=${encodeURIComponent(conversationId)}&lastReadSequence=${lastReadSequence}`,
-      { method: 'PUT' },
-    ),
-    recall: (messageId: string) => request<void>(`/chat/recall?messageId=${encodeURIComponent(messageId)}`, {
-      method: 'POST',
-    }),
-    burn: (messageId: string) => request<void>(`/chat/burn?messageId=${encodeURIComponent(messageId)}`, {
-      method: 'POST',
-    }),
   },
   files: {
     upload: (file: File, conversationId: string) => {

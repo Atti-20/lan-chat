@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, useTemplateRef, watch } from 'vue'
 import type { ChatMessage, Conversation, GroupMember, User } from '../../types'
 import { formatMessageTime } from '../../utils/format'
 import UserAvatar from '../base/UserAvatar.vue'
@@ -27,15 +27,54 @@ const emit = defineEmits<{
 }>()
 const threadRef = useTemplateRef<HTMLDivElement>('thread')
 const memberMap = computed(() => new Map(props.members.map((member) => [member.userId, member])))
+let scrollFrame: number | null = null
+let scrollRequestId = 0
 
 watch(
-  () => [props.messages.length, props.conversation.id] as const,
-  async () => {
-    await nextTick()
-    threadRef.value?.scrollTo({ top: threadRef.value.scrollHeight, behavior: 'smooth' })
+  () => [
+    props.conversation.conversationId,
+    props.conversation.kind,
+    props.messages,
+    props.loading,
+  ] as const,
+  ([conversationId, conversationKind, messages, loading], previous) => {
+    const conversationChanged = !previous
+      || previous[0] !== conversationId
+      || previous[1] !== conversationKind
+    const loadingFinished = previous?.[3] === true && !loading
+    const messagesChanged = previous?.[2] !== messages
+
+    if (conversationChanged || loadingFinished) {
+      // The history response can replace cached messages without changing the
+      // message count. Scroll after the final layout, without an animation,
+      // so opening a conversation always lands exactly at its last message.
+      scheduleScrollToBottom('auto')
+    } else if (messagesChanged && !loading) {
+      scheduleScrollToBottom('smooth')
+    }
   },
-  { immediate: true },
+  { immediate: true, flush: 'post' },
 )
+
+onBeforeUnmount(() => {
+  scrollRequestId += 1
+  if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+})
+
+function scheduleScrollToBottom(behavior: ScrollBehavior): void {
+  const requestId = ++scrollRequestId
+  if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+
+  void nextTick(() => {
+    if (requestId !== scrollRequestId) return
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = null
+      if (requestId !== scrollRequestId) return
+      const thread = threadRef.value
+      thread?.scrollTo({ top: thread.scrollHeight, behavior })
+    })
+  })
+}
 
 function isSelf(message: ChatMessage): boolean {
   return message.fromUserId === props.user.id

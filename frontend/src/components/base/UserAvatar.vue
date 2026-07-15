@@ -31,6 +31,15 @@ const emoji = computed(() => {
   return ''
 })
 
+// `text` is an explicit choice, while an empty avatar remains compatible with
+// older accounts. Both render the same deterministic nickname initial.
+const textInitial = computed(() => {
+  if (props.avatar?.startsWith('letter:')) {
+    return props.avatar.slice('letter:'.length).slice(0, 1).toUpperCase() || '?'
+  }
+  return props.name?.slice(0, 1).toUpperCase() || '?'
+})
+
 const customColor = computed(() => {
   if (props.avatar?.startsWith('emoji:')) {
     const parts = props.avatar.split(':')
@@ -39,23 +48,13 @@ const customColor = computed(() => {
   return ''
 })
 
-// 判断是否是需要签名的受保护路径
-const isProtectedUrl = computed(() =>
-  props.avatar?.startsWith('/api/v1/file/content/') || false
-)
-
-// 判断是否是图片 URL（受保护或普通 URL）
-const isImageAvatar = computed(() =>
-  props.avatar && !props.avatar.startsWith('emoji:') && !props.avatar.startsWith('svg:')
-)
-
 // 签名后的可用图片 URL
 const resolvedImageUrl = shallowRef('')
 
 watch(
   () => props.avatar,
   async (avatar) => {
-    if (!avatar || avatar.startsWith('emoji:') || avatar.startsWith('svg:')) {
+    if (!avatar || avatar === 'text' || avatar.startsWith('letter:') || avatar.startsWith('emoji:') || avatar.startsWith('svg:')) {
       resolvedImageUrl.value = ''
       return
     }
@@ -104,8 +103,7 @@ function adjustColor(hex: string, amount: number): string {
   <span class="avatar" :style="avatarStyle" :aria-label="`${name}的头像`">
     <img v-if="resolvedImageUrl" class="avatar-image" :src="resolvedImageUrl" alt="" />
     <span v-else-if="emoji" aria-hidden="true">{{ emoji }}</span>
-    <span v-else-if="isImageAvatar" class="avatar-letter" aria-hidden="true">{{ name?.slice(0, 1).toUpperCase() || '?' }}</span>
-    <span v-else class="avatar-letter" aria-hidden="true">{{ name?.slice(0, 1).toUpperCase() || '?' }}</span>
+    <span v-else class="avatar-letter" aria-hidden="true">{{ textInitial }}</span>
     <span v-if="online" class="online-dot" aria-label="在线" />
   </span>
 </template>

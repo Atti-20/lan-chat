@@ -16,6 +16,7 @@ function resolveInitial(): ThemeMode {
 }
 
 const mode = shallowRef<ThemeMode>(resolveInitial())
+let activeOverlay: HTMLDivElement | null = null
 
 function applyMode(next: ThemeMode): void {
   document.documentElement.setAttribute('data-theme', next)
@@ -32,24 +33,34 @@ function maxCoverRadius(x: number, y: number): number {
   )
 }
 
-/* ── View Transition path ── */
+function isMicrosoftEdge(): boolean {
+  // Edge exposes startViewTransition, but its view-transition pseudo-elements
+  // can render the clip-path reveal incorrectly. Keep its theme switch
+  // immediate, including Android and iOS Edge user agents.
+  return /\bEdg(?:A|iOS)?\//.test(navigator.userAgent)
+}
+
+/* ── Native view transition path ── */
 
 function revealWithViewTransition(x: number, y: number, next: ThemeMode): void {
-  const endRadius = maxCoverRadius(x, y)
   const root = document.documentElement
   const transitionDocument = document as ViewTransitionDocument
+  const endRadius = maxCoverRadius(x, y)
 
   root.style.setProperty('--theme-reveal-x', `${x}px`)
   root.style.setProperty('--theme-reveal-y', `${y}px`)
   root.style.setProperty('--theme-reveal-radius', `${endRadius}px`)
+  activeOverlay?.remove()
+  activeOverlay = null
 
   try {
     const transition = transitionDocument.startViewTransition!(() => {
+      // The document theme changes inside the update callback, before the
+      // browser starts animating the captured new-theme snapshot.
       mode.value = next
       applyMode(next)
       writeTheme(next)
     })
-
     const clearRevealProperties = () => {
       root.style.removeProperty('--theme-reveal-x')
       root.style.removeProperty('--theme-reveal-y')
@@ -64,17 +75,22 @@ function revealWithViewTransition(x: number, y: number, next: ThemeMode): void {
   }
 }
 
-/* ── Overlay fallback path ── */
+/* ── CSS overlay fallback path ── */
 
 function revealWithOverlay(x: number, y: number, next: ThemeMode): void {
   const endRadius = maxCoverRadius(x, y)
 
-  // Temporarily apply target theme to read its canvas color
+  // Apply the new variables immediately. The overlay is only a visual reveal
+  // layer, so it expands from the click point without delaying the state.
+  mode.value = next
   applyMode(next)
-  const targetBg = getComputedStyle(document.documentElement)
+  writeTheme(next)
+
+  const targetStyles = getComputedStyle(document.documentElement)
+  const targetBg = targetStyles
     .getPropertyValue('--canvas').trim() || (next === 'dark' ? '#0f0f10' : '#edf0f4')
-  // Revert to current
-  applyMode(mode.value)
+  const targetBodyBackground = getComputedStyle(document.body).backgroundImage
+  activeOverlay?.remove()
 
   const overlay = document.createElement('div')
   const initClip = `circle(0px at ${x}px ${y}px)`
@@ -84,32 +100,39 @@ function revealWithOverlay(x: number, y: number, next: ThemeMode): void {
     'position:fixed',
     'inset:0',
     'z-index:99999',
-    `background:${targetBg}`,
+    `background:${targetBodyBackground && targetBodyBackground !== 'none' ? targetBodyBackground : targetBg}`,
+    'opacity:.86',
     'pointer-events:none',
     `clip-path:${initClip}`,
     `-webkit-clip-path:${initClip}`,
-    'will-change:clip-path',
+    'will-change:clip-path,backdrop-filter',
+    'backdrop-filter:blur(18px) saturate(140%)',
+    '-webkit-backdrop-filter:blur(18px) saturate(140%)',
   ].join(';')
 
   document.body.appendChild(overlay)
-  overlay.getBoundingClientRect() // force reflow
-
-  overlay.style.transition = 'clip-path 500ms cubic-bezier(0.4,0,0.2,1),-webkit-clip-path 500ms cubic-bezier(0.4,0,0.2,1)'
-  overlay.style.clipPath = endClip
-  ;(overlay.style as any).webkitClipPath = endClip
+  activeOverlay = overlay
 
   let done = false
+  let timer = 0
   const cleanup = () => {
     if (done) return
     done = true
-    mode.value = next
-    applyMode(next)
-    writeTheme(next)
+    window.clearTimeout(timer)
+    if (activeOverlay === overlay) activeOverlay = null
     overlay.remove()
   }
 
-  overlay.addEventListener('transitionend', cleanup, { once: true })
-  setTimeout(cleanup, 560)
+  overlay.addEventListener('transitionend', (event) => {
+    if (event.propertyName === 'clip-path' || event.propertyName === '-webkit-clip-path') cleanup()
+  })
+  timer = window.setTimeout(cleanup, 560)
+  requestAnimationFrame(() => {
+    if (done) return
+    overlay.style.transition = 'clip-path 500ms cubic-bezier(0.4,0,0.2,1),-webkit-clip-path 500ms cubic-bezier(0.4,0,0.2,1)'
+    overlay.style.clipPath = endClip
+    ;(overlay.style as any).webkitClipPath = endClip
+  })
 }
 
 /* ── Public API ── */
@@ -132,6 +155,14 @@ export function useTheme() {
       return
     }
 
+    // Avoid Edge's inconsistent view-transition compositing altogether.
+    if (isMicrosoftEdge()) {
+      mode.value = next
+      applyMode(next)
+      writeTheme(next)
+      return
+    }
+
     const x = event.clientX
     const y = event.clientY
 
@@ -141,7 +172,7 @@ export function useTheme() {
         revealWithViewTransition(x, y, next)
         return
       } catch {
-        // Edge versions with an incomplete View Transition implementation use the CSS overlay fallback.
+        // Fall back to the CSS circle when the browser exposes an incomplete API.
       }
     }
     revealWithOverlay(x, y, next)

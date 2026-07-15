@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
-import AdminConsoleModal from '../components/admin/AdminConsoleModal.vue'
+import AdminConsole from '../components/admin/AdminConsole.vue'
 import AppRail from '../components/chat/AppRail.vue'
 import ChangePasswordModal from '../components/chat/ChangePasswordModal.vue'
 import ConnectionStatusBar from '../components/chat/ConnectionStatusBar.vue'
@@ -53,7 +53,6 @@ const {
 const searchOpen = shallowRef(false)
 const groupOpen = shallowRef(false)
 const profileOpen = shallowRef(false)
-const adminOpen = shallowRef(false)
 const contextOpen = shallowRef(false)
 const devicesOpen = shallowRef(false)
 const passwordOpen = shallowRef(false)
@@ -70,8 +69,9 @@ const user = computed<User>(() => auth.currentUser.value || {
   nickname: auth.session.value?.nickname || 'LanChat 用户',
   avatar: auth.session.value?.avatar,
 })
-const showSidebar = computed(() => !mobile.value || !selected.value)
-const showWorkspace = computed(() => !mobile.value || Boolean(selected.value))
+const isAdminSection = computed(() => section.value === 'admin')
+const showSidebar = computed(() => !isAdminSection.value && (!mobile.value || !selected.value))
+const showWorkspace = computed(() => !mobile.value || Boolean(selected.value) || isAdminSection.value)
 const friendIds = computed(() => friends.value.map((friend) => friend.friendId))
 const connectionCopy = computed(() => reconnecting.value
   ? '正在重连'
@@ -83,7 +83,9 @@ const connectionCopy = computed(() => reconnecting.value
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
-  const hydrated = auth.currentUser.value || await auth.hydrate()
+  // 登录响应中的用户资料可能是旧快照；进入聊天前以 /user/info 的结果为准，
+  // 确保导航栏、个人资料弹窗和消息头像使用同一份头像数据。
+  const hydrated = await auth.hydrate()
   if (!hydrated) {
     window.location.replace('/')
     return
@@ -102,15 +104,13 @@ function handleResize(): void {
 }
 
 function changeSection(next: ChatSection): void {
+  if (next === 'admin' && user.value.username !== 'admin') return
   section.value = next
   query.value = ''
-  if (mobile.value) selected.value = null
-}
-
-async function openAdminConsole(): Promise<void> {
-  if (user.value.username !== 'admin') return
-  adminOpen.value = true
-  await admin.loadUsers()
+  selected.value = null
+  replyTo.value = null
+  contextOpen.value = false
+  if (next === 'admin') void admin.loadUsers()
 }
 
 async function selectConversation(conversation: Conversation): Promise<void> {
@@ -162,7 +162,7 @@ async function createGroup(name: string, memberIds: number[]): Promise<void> {
   try {
     await chat.createGroup(name, memberIds)
     groupOpen.value = false
-    section.value = 'groups'
+    changeSection('groups')
   } catch (cause) {
     handleError(cause, '创建群聊失败')
   } finally {
@@ -243,6 +243,7 @@ function handleError(cause: unknown, fallback: string): void {
       class="chat-shell"
       :class="{
         'chat-shell--thread': mobile && selected,
+        'chat-shell--admin': isAdminSection,
       }"
     >
       <AppRail
@@ -251,7 +252,6 @@ function handleError(cause: unknown, fallback: string): void {
         :request-count="requests.length"
         :connected="connected"
         @change="changeSection"
-        @admin="openAdminConsole"
         @profile="profileOpen = true"
       />
 
@@ -270,7 +270,19 @@ function handleError(cause: unknown, fallback: string): void {
         @create-group="groupOpen = true"
       />
 
-      <section v-if="selected && showWorkspace" class="workspace">
+      <section v-if="isAdminSection && showWorkspace" class="workspace workspace--admin">
+        <AdminConsole
+          :users="adminUsers"
+          :loading="adminLoading"
+          :busy-user-id="adminBusyUserId"
+          @refresh="admin.loadUsers"
+          @status="admin.setUserStatus"
+          @mute="admin.setMutePeriod"
+          @delete="admin.deleteUser"
+        />
+      </section>
+
+      <section v-else-if="selected && showWorkspace" class="workspace">
         <header class="workspace-header">
           <button v-if="mobile" class="back-button" type="button" aria-label="返回会话列表" @click="selected = null">
             <UiIcon name="back" :size="21" />
@@ -284,16 +296,18 @@ function handleError(cause: unknown, fallback: string): void {
           </button>
         </header>
 
-        <ConnectionStatusBar
-          v-if="connectionState !== 'ONLINE' || pendingCount > 0 || failedCount > 0"
-          :state="connectionState"
-          :pending-count="pendingCount"
-          :failed-count="failedCount"
-          :reconnect-attempts="reconnectAttempts"
-          :latency-ms="latencyMs"
-          @reconnect="chat.reconnect"
-          @retry="chat.retryOutbox"
-        />
+        <div class="connection-status-slot">
+          <ConnectionStatusBar
+            v-if="connectionState !== 'ONLINE' || pendingCount > 0 || failedCount > 0"
+            :state="connectionState"
+            :pending-count="pendingCount"
+            :failed-count="failedCount"
+            :reconnect-attempts="reconnectAttempts"
+            :latency-ms="latencyMs"
+            @reconnect="chat.reconnect"
+            @retry="chat.retryOutbox"
+          />
+        </div>
 
         <MessageThread
           :conversation="selected"
@@ -374,24 +388,14 @@ function handleError(cause: unknown, fallback: string): void {
       @close="passwordOpen = false"
       @password-changed="logout"
     />
-    <AdminConsoleModal
-      :open="adminOpen"
-      :users="adminUsers"
-      :loading="adminLoading"
-      :busy-user-id="adminBusyUserId"
-      @close="adminOpen = false"
-      @refresh="admin.loadUsers"
-      @status="admin.setUserStatus"
-      @mute="admin.setMutePeriod"
-      @delete="admin.deleteUser"
-    />
   </main>
 </template>
 
 <style scoped>
 .chat-page { width: 100%; min-height: 100dvh; padding: 18px; }
 .chat-shell { display: grid; width: 100%; height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: 78px 330px minmax(0, 1fr); gap: 10px; }
-.workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: 76px auto minmax(0, 1fr) auto; border-radius: 18px; overflow: hidden; }
+.workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr) max-content; border-radius: 18px; overflow: hidden; }
+.connection-status-slot { min-width: 0; min-height: 0; }
 .workspace-header { display: flex; padding: 14px 19px; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.54); background: rgba(255,255,255,.16); }
 .workspace-title { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .workspace-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
@@ -438,6 +442,10 @@ function handleError(cause: unknown, fallback: string): void {
   box-shadow: 0 22px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
 }
 .workspace { border-radius: 0; background: var(--surface); }
+.workspace--admin { display: block; min-width: 0; min-height: 0; overflow: hidden; }
+.connection-status-slot { overflow: visible; }
+.workspace > :deep(.message-thread) { min-height: 0; overflow-y: auto; }
+.workspace > :deep(.composer-wrap) { min-height: 0; }
 .workspace-header {
   min-height: 70px;
   padding: 12px 18px;
@@ -481,8 +489,13 @@ function handleError(cause: unknown, fallback: string): void {
     box-shadow: none;
     grid-template-columns: minmax(0, 1fr);
   }
-  .chat-shell--thread > :deep(.app-rail) { display: none; }
   .workspace { border-radius: 0; }
   .workspace-header { padding-top: max(12px, env(safe-area-inset-top)); }
+}
+
+.chat-shell.chat-shell--admin { grid-template-columns: 72px minmax(0, 1fr); }
+
+@media (max-width: 760px) {
+  .chat-shell.chat-shell--admin { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

@@ -127,11 +127,15 @@ FROM `chat_group`;
 
 INSERT IGNORE INTO `conversation`
     (`id`, `type`, `source_id`, `last_sequence`, `status`, `create_time`, `update_time`)
-SELECT DISTINCT
-    CONCAT('private:', LEAST(`user_id`, `friend_id`), ':', GREATEST(`user_id`, `friend_id`)),
-    'PRIVATE', NULL, 0, 'ACTIVE', MIN(`create_time`), MIN(`create_time`)
-FROM `friendship`
-GROUP BY LEAST(`user_id`, `friend_id`), GREATEST(`user_id`, `friend_id`);
+SELECT CONCAT('private:', `user_low`, ':', `user_high`),
+       'PRIVATE', NULL, 0, 'ACTIVE', `first_created_at`, `first_created_at`
+FROM (
+    SELECT LEAST(`user_id`, `friend_id`) AS `user_low`,
+           GREATEST(`user_id`, `friend_id`) AS `user_high`,
+           MIN(`create_time`) AS `first_created_at`
+    FROM `friendship`
+    GROUP BY LEAST(`user_id`, `friend_id`), GREATEST(`user_id`, `friend_id`)
+) AS `private_pairs`;
 
 INSERT IGNORE INTO `conversation`
     (`id`, `type`, `source_id`, `last_sequence`, `status`, `create_time`, `update_time`)

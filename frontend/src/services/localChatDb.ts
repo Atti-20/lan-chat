@@ -1,7 +1,8 @@
+import { toRaw } from 'vue'
 import type { ChatGroup, ChatMessage, Friend, OutboxEntry } from '../types'
 
 const DATABASE_NAME = 'lanchat_local_v2'
-const DATABASE_VERSION = 2
+const DATABASE_VERSION = 3
 const OUTBOX_STORE = 'outbox'
 const MESSAGE_STORE = 'messages'
 const POSITION_STORE = 'positions'
@@ -31,18 +32,35 @@ let databasePromise: Promise<IDBDatabase> | null = null
 
 function openDatabase(): Promise<IDBDatabase> {
   if (databasePromise) return databasePromise
+  if (typeof indexedDB === 'undefined') {
+    return Promise.reject(new Error('当前浏览器不支持本地消息存储'))
+  }
   databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION)
     request.onupgradeneeded = () => {
       const database = request.result
+      const upgradeTransaction = request.transaction
       if (!database.objectStoreNames.contains(OUTBOX_STORE)) {
         const outbox = database.createObjectStore(OUTBOX_STORE, { keyPath: 'clientMsgId' })
         outbox.createIndex('byCreatedAt', 'createdAt')
+      } else {
+        const outbox = upgradeTransaction!.objectStore(OUTBOX_STORE)
+        if (!outbox.indexNames.contains('byCreatedAt')) {
+          outbox.createIndex('byCreatedAt', 'createdAt')
+        }
       }
       if (!database.objectStoreNames.contains(MESSAGE_STORE)) {
         const messages = database.createObjectStore(MESSAGE_STORE, { keyPath: 'cacheKey' })
         messages.createIndex('byConversationOrder', ['conversationId', 'sortValue'])
         messages.createIndex('byClientMsgId', 'clientMsgId', { unique: false })
+      } else {
+        const messages = upgradeTransaction!.objectStore(MESSAGE_STORE)
+        if (!messages.indexNames.contains('byConversationOrder')) {
+          messages.createIndex('byConversationOrder', ['conversationId', 'sortValue'])
+        }
+        if (!messages.indexNames.contains('byClientMsgId')) {
+          messages.createIndex('byClientMsgId', 'clientMsgId', { unique: false })
+        }
       }
       if (!database.objectStoreNames.contains(POSITION_STORE)) {
         database.createObjectStore(POSITION_STORE, { keyPath: 'conversationId' })
@@ -51,10 +69,54 @@ function openDatabase(): Promise<IDBDatabase> {
         database.createObjectStore(DIRECTORY_STORE, { keyPath: 'key' })
       }
     }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error || new Error('无法打开本地消息数据库'))
+    request.onsuccess = () => {
+      const database = request.result
+      database.onversionchange = () => {
+        database.close()
+        databasePromise = null
+      }
+      resolve(database)
+    }
+    request.onerror = () => {
+      databasePromise = null
+      reject(request.error || new Error('无法打开本地消息数据库'))
+    }
   })
   return databasePromise
+}
+
+function unwrapStorageValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
+  const raw = toRaw(value)
+  if (raw === null || typeof raw !== 'object') return raw
+  if (raw instanceof Date) return new Date(raw.getTime())
+  if (seen.has(raw)) return seen.get(raw)
+
+  if (Array.isArray(raw)) {
+    const result: unknown[] = []
+    seen.set(raw, result)
+    raw.forEach((item) => result.push(unwrapStorageValue(item, seen)))
+    return result
+  }
+
+  const result: Record<string, unknown> = {}
+  seen.set(raw, result)
+  Object.entries(raw).forEach(([key, item]) => {
+    result[key] = unwrapStorageValue(item, seen)
+  })
+  return result
+}
+
+function storageSnapshot<T>(value: T): T {
+  const raw = unwrapStorageValue(value)
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(raw) as T
+    } catch {
+      // Older WebKit versions can still reject an object containing a nested
+      // proxy; the JSON fallback keeps the local cache usable for message data.
+    }
+  }
+  return JSON.parse(JSON.stringify(raw)) as T
 }
 
 function transactionDone(transaction: IDBTransaction): Promise<void> {
@@ -84,7 +146,7 @@ export async function loadOutbox(): Promise<OutboxEntry[]> {
 export async function saveOutboxEntry(entry: OutboxEntry): Promise<void> {
   const database = await openDatabase()
   const transaction = database.transaction(OUTBOX_STORE, 'readwrite')
-  transaction.objectStore(OUTBOX_STORE).put(entry)
+  transaction.objectStore(OUTBOX_STORE).put(storageSnapshot(entry))
   await transactionDone(transaction)
 }
 
@@ -111,9 +173,9 @@ export async function cacheMessages(messages: readonly ChatMessage[]): Promise<v
       conversationId,
       clientMsgId: message.clientMsgId,
       sortValue: Number.isFinite(sortValue) ? sortValue : Date.now(),
-      message,
+      message: storageSnapshot(message),
     }
-    store.put(record)
+    store.put(storageSnapshot(record))
   })
   await transactionDone(transaction)
 }
@@ -188,12 +250,12 @@ export async function saveConversationDirectory(
 ): Promise<void> {
   const database = await openDatabase()
   const transaction = database.transaction(DIRECTORY_STORE, 'readwrite')
-  transaction.objectStore(DIRECTORY_STORE).put({
+  transaction.objectStore(DIRECTORY_STORE).put(storageSnapshot({
     key: 'current',
     friends: [...friends],
     groups: [...groups],
     savedAt: new Date().toISOString(),
-  } satisfies ConversationDirectoryRecord)
+  } satisfies ConversationDirectoryRecord))
   await transactionDone(transaction)
 }
 

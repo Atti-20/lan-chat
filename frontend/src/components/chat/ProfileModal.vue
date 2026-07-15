@@ -47,13 +47,22 @@ const currentEmoji = computed(() => {
 })
 
 const isImageAvatar = computed(() => {
-  return avatar.value && !avatar.value.startsWith('emoji:') && !avatar.value.startsWith('svg:')
+  return Boolean(avatar.value)
+    && avatar.value !== 'text'
+    && !avatar.value.startsWith('letter:')
+    && !avatar.value.startsWith('emoji:')
+    && !avatar.value.startsWith('svg:')
 })
+const isTextAvatar = computed(() =>
+  !avatar.value || avatar.value === 'text' || avatar.value.startsWith('letter:'),
+)
 
 watch(() => [props.open, props.user.nickname, props.user.avatar] as const, ([open]) => {
   if (open) {
     nickname.value = props.user.nickname
-    avatar.value = props.user.avatar || 'emoji:🫧:#5AC8FA'
+    // 空头像代表文字头像，不能在资料弹窗中偷偷替换成气泡头像，
+    // 否则个人资料与导航栏会显示成两个不同的头像。
+    avatar.value = props.user.avatar || 'text'
   }
 }, { immediate: true })
 
@@ -64,6 +73,10 @@ function selectEmoji(emoji: string): void {
 function selectColor(color: string): void {
   const emojiChar = currentEmoji.value || '🫧'
   avatar.value = `emoji:${emojiChar}:${color}`
+}
+
+function selectTextAvatar(): void {
+  avatar.value = 'text'
 }
 
 /* ===== 头像裁切相关 ===== */
@@ -280,14 +293,14 @@ function uploadAvatar(): void {
   input.click()
 }
 
-function resetToEmoji(): void {
-  avatar.value = 'emoji:🫧:#5AC8FA'
+function resetToTextAvatar(): void {
+  avatar.value = 'text'
 }
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="profile-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+  <div v-if="open" class="modal-backdrop detail-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="profile-sheet detail-panel" role="dialog" aria-modal="true" aria-labelledby="profile-title">
       <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
         <UiIcon name="close" :size="16" />
       </button>
@@ -299,7 +312,7 @@ function resetToEmoji(): void {
             <UiIcon name="edit" :size="14" />
           </button>
         </div>
-        <button v-if="isImageAvatar" class="reset-avatar" type="button" @click="resetToEmoji">使用默认头像</button>
+        <button v-if="isImageAvatar" class="reset-avatar" type="button" @click="resetToTextAvatar">使用文字头像</button>
       </div>
 
       <h2 id="profile-title">个人资料</h2>
@@ -307,6 +320,14 @@ function resetToEmoji(): void {
 
       <template v-if="!isImageAvatar">
         <div class="emoji-row">
+          <button
+            type="button"
+            class="text-avatar-choice"
+            :class="{ selected: isTextAvatar }"
+            aria-label="使用昵称首字符作为头像"
+            :aria-pressed="isTextAvatar"
+            @click="selectTextAvatar"
+          >{{ (nickname || user.nickname).slice(0, 1).toUpperCase() || '?' }}</button>
           <button
             v-for="e in emojis"
             :key="e"
@@ -402,9 +423,6 @@ function resetToEmoji(): void {
   display: grid;
   padding: 20px;
   place-items: center;
-  background: var(--backdrop);
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
 }
 
 .profile-sheet {
@@ -415,11 +433,8 @@ function resetToEmoji(): void {
   padding: 34px 30px 26px;
   justify-items: center;
   border-radius: 22px;
-  background: var(--surface-raise);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   overflow-y: auto;
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
 }
 
 .close-button {
@@ -488,7 +503,7 @@ function resetToEmoji(): void {
   display: grid;
   width: 100%;
   margin: 8px 0 4px;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(9, 1fr);
   gap: 5px;
 }
 .emoji-row button {
@@ -503,6 +518,12 @@ function resetToEmoji(): void {
 }
 .emoji-row button.selected { border-color: rgba(0, 122, 255, 0.38); background: rgba(0, 122, 255, 0.09); }
 .emoji-row button:hover { transform: scale(1.06); }
+.emoji-row .text-avatar-choice {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 750;
+  background: linear-gradient(145deg, var(--blue), var(--violet));
+}
 
 .color-section {
   width: 100%;
@@ -577,7 +598,7 @@ function resetToEmoji(): void {
 .logout-button:hover { text-decoration: underline; }
 
 @media (max-width: 430px) {
-  .emoji-row { grid-template-columns: repeat(4, 1fr); }
+  .emoji-row { grid-template-columns: repeat(5, 1fr); }
   .color-row { grid-template-columns: repeat(6, 1fr); }
 }
 
@@ -592,6 +613,7 @@ function resetToEmoji(): void {
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  isolation: isolate;
 }
 .cropper-dialog {
   display: grid;

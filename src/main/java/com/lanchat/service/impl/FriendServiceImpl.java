@@ -104,7 +104,17 @@ public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship>
         request.setMessage(msg);
         request.setStatus(0);
         request.setCreateTime(LocalDateTime.now());
-        return friendRequestMapper.insert(request) > 0;
+        boolean inserted = friendRequestMapper.insert(request) > 0;
+        if (inserted) {
+            // 申请方和被申请方都可能在线。通知只在申请落库成功后发送，
+            // 这样接收端无需刷新页面就能重新拉取申请列表。
+            User sourceUser = userMapper.selectById(fromUserId);
+            String senderName = sourceUser == null || sourceUser.getNickname() == null
+                    ? "有人"
+                    : sourceUser.getNickname();
+            webSocketHandler.sendFriendNotification(toUserId, senderName + " 向你发送了好友申请");
+        }
+        return inserted;
     }
 
     @Override

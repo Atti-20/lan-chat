@@ -15,12 +15,11 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   change: [section: ChatSection]
-  admin: []
   profile: []
 }>()
 
 interface RailItem {
-  id: ChatSection | 'admin'
+  id: ChatSection
   label: string
   icon: IconName
 }
@@ -43,10 +42,6 @@ const lensStyle = computed(() => ({
 }))
 
 function activateItem(item: RailItem): void {
-  if (item.id === 'admin') {
-    emit('admin')
-    return
-  }
   emit('change', item.id)
 }
 </script>
@@ -77,6 +72,7 @@ function activateItem(item: RailItem): void {
 
     <button class="rail-profile" type="button" aria-label="打开个人资料" @click="emit('profile')">
       <UserAvatar :name="user.nickname" :avatar="user.avatar" :size="42" :online="connected" />
+      <span class="rail-profile-label">我的</span>
     </button>
   </nav>
 </template>
@@ -129,7 +125,8 @@ function activateItem(item: RailItem): void {
   transition: transform 420ms var(--ease-liquid), border-radius 420ms var(--ease-liquid);
 }
 .rail-badge { position: absolute; top: 6px; right: 7px; display: grid; min-width: 17px; height: 17px; padding: 0 4px; place-items: center; border: 2px solid rgba(246,251,255,.94); border-radius: 999px; color: white; font-size: 9px; background: var(--coral); }
-.rail-profile { padding: 0; border: 0; border-radius: 16px; background: none; cursor: pointer; }
+.rail-profile { display: grid; width: 42px; min-height: 42px; padding: 0; place-items: center; border: 0; border-radius: 16px; background: none; cursor: pointer; }
+.rail-profile-label { display: none; }
 
 @media (max-width: 760px) {
   .app-rail {
@@ -145,8 +142,7 @@ function activateItem(item: RailItem): void {
     flex-direction: row;
     border-radius: 24px;
   }
-  .rail-brand,
-  .rail-profile { display: none; }
+  .rail-brand { display: none; }
   .rail-items { flex: 1; grid-template-columns: repeat(var(--item-count), 1fr); margin: 0; gap: 4px; }
   .rail-item { height: 56px; }
   .liquid-lens { left: 0; width: calc(100% / var(--item-count)); height: 56px; transform: translateX(calc(var(--active-index) * 100%)); }
@@ -212,6 +208,18 @@ function activateItem(item: RailItem): void {
     -webkit-backdrop-filter: blur(20px) saturate(150%);
   }
   .rail-item { height: 50px; }
+  .rail-profile {
+    width: 50px;
+    height: 50px;
+    min-height: 50px;
+    flex: 0 0 50px;
+    gap: 1px;
+    border-radius: 14px;
+    color: var(--ink-faint);
+  }
+  .rail-profile:hover { color: var(--blue); background: var(--hover); }
+  .rail-profile :deep(.avatar) { transform: scale(.72); margin-bottom: -8px; }
+  .rail-profile-label { display: block; font-size: 10px; line-height: 1; }
   .liquid-lens {
     left: 0;
     width: calc(100% / var(--item-count));

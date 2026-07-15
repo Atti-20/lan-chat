@@ -88,17 +88,18 @@ const iconClasses = computed(() => [
     </template>
 
     <template v-else-if="name === 'contacts'">
-      <path d="M16 21a6 6 0 0 0-12 0" />
-      <circle cx="10" cy="7" r="4" />
-      <path d="M22 21a6 6 0 0 0-4-5.65" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <rect x="5" y="3" width="14" height="18" rx="2" />
+      <circle cx="12" cy="9" r="2.5" />
+      <path d="M8.5 16a4 4 0 0 1 7 0" />
+      <path d="M3 7h2M3 12h2M3 17h2" />
     </template>
 
     <template v-else-if="name === 'groups'">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <circle cx="12" cy="7" r="3" />
+      <circle cx="5" cy="9" r="2.5" />
+      <circle cx="19" cy="9" r="2.5" />
+      <path d="M6 21v-2a6 6 0 0 1 12 0v2" />
+      <path d="M1.5 20v-1.5a4.5 4.5 0 0 1 3.1-4.27M22.5 20v-1.5a4.5 4.5 0 0 0-3.1-4.27" />
     </template>
 
     <template v-else-if="name === 'admin'">
