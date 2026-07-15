@@ -3,6 +3,7 @@ package com.lanchat.controller;
 import com.lanchat.security.LoginUser;
 import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.GroupService;
+import com.lanchat.service.ConversationService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,15 +23,18 @@ class ChatControllerTest {
 
     private ChatMessageService chatMessageService;
     private GroupService groupService;
+    private ConversationService conversationService;
     private ChatController controller;
 
     @BeforeEach
     void setUp() {
         chatMessageService = mock(ChatMessageService.class);
         groupService = mock(GroupService.class);
+        conversationService = mock(ConversationService.class);
         controller = new ChatController();
         ReflectionTestUtils.setField(controller, "chatMessageService", chatMessageService);
         ReflectionTestUtils.setField(controller, "groupService", groupService);
+        ReflectionTestUtils.setField(controller, "conversationService", conversationService);
 
         LoginUser loginUser = new LoginUser(7L, "alice", "web", "access-token");
         SecurityContextHolder.getContext().setAuthentication(
@@ -60,5 +64,16 @@ class ChatControllerTest {
 
         assertEquals(403, result.getCode());
         verify(chatMessageService, never()).getGroupHistory(12L, 50);
+    }
+
+    @Test
+    void unifiedHistoryUsesAuthenticatedUserAndSequenceCursor() {
+        when(chatMessageService.getConversationHistory("private:7:8", 7L, 41L, 25))
+                .thenReturn(List.of());
+
+        var result = controller.getConversationHistory("private:7:8", 41L, 25);
+
+        assertEquals(200, result.getCode());
+        verify(chatMessageService).getConversationHistory("private:7:8", 7L, 41L, 25);
     }
 }

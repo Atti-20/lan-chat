@@ -2,6 +2,7 @@
 import { shallowRef, ref, watch, computed, nextTick } from 'vue'
 import type { User } from '../../types'
 import UserAvatar from '../base/UserAvatar.vue'
+import UiIcon from '../base/UiIcon.vue'
 import { api } from '../../services/api'
 import { useToast } from '../../composables/useToast'
 import { useTheme } from '../../composables/useTheme'
@@ -204,7 +205,7 @@ async function confirmCrop(): Promise<void> {
   try {
     const blob = await cropImage(pendingFile, cropX.value, cropY.value, cropSize.value)
     const croppedFile = new File([blob], 'avatar.jpg', { type: 'image/jpeg' })
-    const result = await api.files.upload(croppedFile)
+    const result = await api.files.uploadAvatar(croppedFile)
     const avatarUrl = result.thumbnailUrl || result.url
     avatar.value = avatarUrl
     toast.push('头像已上传', 'success', 1200)
@@ -288,14 +289,14 @@ function resetToEmoji(): void {
   <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
     <section class="profile-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-title">
       <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <UiIcon name="close" :size="16" />
       </button>
 
       <div class="avatar-section">
         <div class="avatar-preview">
           <UserAvatar :name="nickname || user.nickname" :avatar="avatar" :size="88" online />
           <button class="avatar-upload-btn" type="button" :disabled="uploadingAvatar" @click="uploadAvatar">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M15.2 3.8a2.4 2.4 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4L9 20H4v-5L15.2 3.8Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <UiIcon name="edit" :size="14" />
           </button>
         </div>
         <button v-if="isImageAvatar" class="reset-avatar" type="button" @click="resetToEmoji">使用默认头像</button>
@@ -343,21 +344,15 @@ function resetToEmoji(): void {
 
       <div class="profile-links">
         <button type="button" @click="toggleTheme">
-          <svg v-if="themeMode === 'dark'" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          <svg v-else viewBox="0 0 24 24" fill="none">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+          <UiIcon :name="themeMode === 'dark' ? 'sun' : 'moon'" :size="18" />
           <span>{{ themeMode === 'dark' ? '切换到浅色模式' : '切换到深色模式' }}</span>
         </button>
         <button type="button" @click="emit('openDevices')">
-          <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <UiIcon name="monitor" :size="18" />
           <span>登录设备管理</span>
         </button>
         <button type="button" @click="emit('openPassword')">
-          <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>
+          <UiIcon name="lock" :size="18" />
           <span>修改密码</span>
         </button>
       </div>
@@ -443,7 +438,7 @@ function resetToEmoji(): void {
   cursor: pointer;
 }
 .close-button:hover { background: var(--button-hover); }
-.close-button svg { width: 16px; }
+.close-button .ui-icon { width: 16px; }
 
 .avatar-section {
   display: grid;
@@ -473,7 +468,7 @@ function resetToEmoji(): void {
 }
 .avatar-upload-btn:hover { transform: scale(1.1); }
 .avatar-upload-btn:disabled { opacity: 0.5; cursor: wait; }
-.avatar-upload-btn svg { width: 14px; }
+.avatar-upload-btn .ui-icon { width: 14px; }
 
 .reset-avatar {
   padding: 0;
@@ -567,7 +562,7 @@ function resetToEmoji(): void {
   transition: background-color 150ms ease;
 }
 .profile-links button:hover { background: var(--fill); }
-.profile-links svg { width: 18px; color: var(--ink-soft); flex-shrink: 0; }
+.profile-links .ui-icon { width: 18px; color: var(--ink-soft); flex-shrink: 0; }
 
 .logout-button {
   margin-top: 10px;

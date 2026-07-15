@@ -22,6 +22,8 @@ const emit = defineEmits<{
   recall: [messageId: string]
   burn: [messageId: string]
   reply: [message: ChatMessage]
+  retry: [clientMsgId: string]
+  cancelPending: [clientMsgId: string]
 }>()
 const threadRef = useTemplateRef<HTMLDivElement>('thread')
 const memberMap = computed(() => new Map(props.members.map((member) => [member.userId, member])))
@@ -57,8 +59,30 @@ function messageType(message: ChatMessage): string {
 }
 
 function canRecall(message: ChatMessage): boolean {
-  if (!isSelf(message) || !message.createTime || message.isRecalled === 1 || message.status === 2) return false
+  if (!isSelf(message)
+    || !message.createTime
+    || message.messageId.startsWith('local:')
+    || message.deliveryState === 'FAILED'
+    || message.isRecalled === 1
+    || message.status === 2) return false
   return Date.now() - new Date(message.createTime).getTime() <= 120_000
+}
+
+function deliveryLabel(message: ChatMessage): string {
+  return ({
+    WAITING_NETWORK: '等待连接',
+    SENDING: '发送中',
+    SENT: '已发送',
+    DELIVERED: '已送达',
+    READ: '已读',
+    FAILED: '发送失败',
+  } as const)[message.deliveryState || 'SENT']
+}
+
+function canManagePending(message: ChatMessage): boolean {
+  return isSelf(message)
+    && Boolean(message.clientMsgId)
+    && ['WAITING_NETWORK', 'FAILED'].includes(message.deliveryState || '')
 }
 
 function repliedMessage(message: ChatMessage): ChatMessage | undefined {
@@ -86,6 +110,12 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
         class="message-row"
         :class="{ 'message-row--self': isSelf(message) }"
       >
+        <UserAvatar
+          class="message-avatar"
+          :name="senderName(message)"
+          :avatar="senderAvatar(message)"
+          :size="34"
+        />
         <div class="message-stack">
           <span v-if="conversation.kind === 'group' && !isSelf(message)" class="sender-name">{{ senderName(message) }}</span>
           <div
@@ -114,8 +144,22 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
           </div>
           <div class="message-meta">
             <time>{{ formatMessageTime(message.createTime) }}</time>
-            <span v-if="isSelf(message) && message.status === 1">已读</span>
+            <span
+              v-if="isSelf(message)"
+              :class="{ 'delivery-failed': message.deliveryState === 'FAILED' }"
+              :title="message.errorMessage"
+            >{{ deliveryLabel(message) }}</span>
             <div v-if="message.isRecalled !== 1 && message.status !== 2" class="message-actions">
+              <button
+                v-if="canManagePending(message) && message.deliveryState === 'FAILED'"
+                type="button"
+                @click="emit('retry', message.clientMsgId!)"
+              >重试</button>
+              <button
+                v-if="canManagePending(message)"
+                type="button"
+                @click="emit('cancelPending', message.clientMsgId!)"
+              >取消</button>
               <button type="button" @click="emit('reply', message)">回复</button>
               <button v-if="canRecall(message)" type="button" @click="emit('recall', message.messageId)">撤回</button>
               <button v-if="!isSelf(message) && Number(message.isBurn) === 1" type="button" @click="emit('burn', message.messageId)">焚毁</button>
@@ -133,10 +177,11 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
 </template>
 
 <style scoped>
-.message-thread { position: relative; min-height: 0; padding: 24px clamp(18px, 3vw, 42px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(92,124,156,.2) transparent; }
-.message-list { display: grid; max-width: 880px; padding: 0; margin: 0 auto; gap: 14px; list-style: none; }
-.message-row { display: flex; align-items: flex-end; gap: 4px; }
+.message-thread { position: relative; min-width: 0; min-height: 0; padding: 24px clamp(18px, 3vw, 42px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(92,124,156,.2) transparent; }
+.message-list { display: grid; width: 100%; max-width: none; min-height: 100%; padding: 0; margin: 0; align-content: start; gap: 14px; list-style: none; }
+.message-row { display: flex; align-items: flex-end; gap: 10px; }
 .message-row--self { flex-direction: row-reverse; }
+.message-avatar { margin-bottom: 18px; }
 .message-stack { display: grid; max-width: min(72%, 620px); gap: 4px; }
 .message-row--self .message-stack { justify-items: end; }
 .sender-name { padding-left: 7px; color: #657a90; font-size: 10px; font-weight: 650; }
@@ -150,6 +195,7 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
 .reply-quote span { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .burn-label { display: inline-block; margin-top: 6px; padding: 3px 6px; border: 1px solid currentColor; border-radius: 7px; font-size: 8px; font-weight: 750; opacity: .68; }
 .message-meta { display: flex; min-height: 15px; padding: 0 5px; align-items: center; gap: 6px; color: #8a9bad; font-size: 9px; }
+.delivery-failed { color: var(--coral); font-weight: 650; }
 .message-actions { display: flex; gap: 3px; opacity: 0; transition: opacity 150ms ease; }
 .message-row:hover .message-actions,
 .message-actions:focus-within { opacity: 1; }
@@ -171,8 +217,9 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
 }
 
 .message-thread { padding: 22px clamp(18px, 3vw, 38px); background: var(--surface); }
-.message-list { max-width: 820px; gap: 12px; }
-.message-row { gap: 4px; }
+.message-list { width: 100%; max-width: none; gap: 12px; }
+.message-row { gap: 10px; }
+.message-avatar { margin-bottom: 17px; }
 .message-stack { gap: 3px; }
 .sender-name { color: var(--ink-faint); font-weight: 500; }
 .message-bubble {

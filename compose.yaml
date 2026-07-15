@@ -1,0 +1,61 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-lanchat_dev_password}
+      MYSQL_DATABASE: lan_chat
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  lanchat:
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "${LANCHAT_PORT:-8080}:8080"
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8&connectionCollation=utf8mb4_general_ci
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-lanchat_dev_password}
+      REDIS_HOST: redis
+      JWT_SECRET: ${JWT_SECRET:-local-compose-secret-change-before-exposing-this-node-2026}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      FILE_STORAGE_PATH: /app/uploads/
+      WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      TUNNEL_ENABLED: "false"
+      TZ: Asia/Shanghai
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  redis-data:
+  uploads:

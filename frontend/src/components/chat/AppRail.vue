@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { User } from '../../types'
 import type { ChatSection } from '../../composables/useChat'
 import UserAvatar from '../base/UserAvatar.vue'
+import UiIcon, { type IconName } from '../base/UiIcon.vue'
 
 interface Props {
   section: ChatSection
@@ -21,7 +22,7 @@ const emit = defineEmits<{
 interface RailItem {
   id: ChatSection | 'admin'
   label: string
-  icon: string
+  icon: IconName
 }
 
 const items: RailItem[] = [
@@ -35,7 +36,7 @@ const adminItem: RailItem = {
   icon: 'admin',
 }
 const navigationItems = computed(() => props.user.username === 'admin' ? [...items, adminItem] : items)
-const activeIndex = computed(() => Math.max(0, items.findIndex((item) => item.id === props.section)))
+const activeIndex = computed(() => Math.max(0, navigationItems.value.findIndex((item) => item.id === props.section)))
 const lensStyle = computed(() => ({
   '--active-index': activeIndex.value,
   '--item-count': navigationItems.value.length,
@@ -52,12 +53,8 @@ function activateItem(item: RailItem): void {
 
 <template>
   <nav class="app-rail" aria-label="主导航" :style="lensStyle">
-    <div class="rail-brand" aria-label="LanChat">
-      <svg viewBox="0 0 36 36" fill="none" aria-hidden="true">
-        <rect x="4" y="6" width="28" height="20" rx="6" fill="currentColor" opacity="0.15"/>
-        <path d="M10 10h16a5 5 0 0 1 5 5v6a5 5 0 0 1-5 5h-6l-5 4v-4h-5a5 5 0 0 1-5-5v-6a5 5 0 0 1 5-5Z" fill="currentColor"/>
-        <path d="M14 17h8M14 20h5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
-      </svg>
+    <div class="rail-brand" role="img" aria-label="LanChat">
+      <UiIcon name="brand" :size="36" />
     </div>
 
     <div class="rail-items">
@@ -72,30 +69,7 @@ function activateItem(item: RailItem): void {
         :aria-label="item.label"
         @click="activateItem(item)"
       >
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <!-- 消息 -->
-          <template v-if="item.icon === 'messages'">
-            <path d="M8 10h8M8 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-            <path d="M4 7a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4h-3.5L8 21v-4H8a4 4 0 0 1-4-4V7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-          </template>
-          <!-- 好友 -->
-          <template v-else-if="item.icon === 'contacts'">
-            <circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.6"/>
-            <path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-          </template>
-          <!-- 群组 -->
-          <template v-else-if="item.icon === 'groups'">
-            <circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="1.6"/>
-            <path d="M3 21a6 6 0 0 1 12 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-            <circle cx="17.5" cy="8.5" r="2.5" stroke="currentColor" stroke-width="1.4"/>
-            <path d="M21 21a4.5 4.5 0 0 0-5-4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-          </template>
-          <!-- 管理 -->
-          <template v-else-if="item.icon === 'admin'">
-            <path d="M12 3 5 7v5c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V7l-7-4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-            <path d="m9 12 2 2 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </template>
-        </svg>
+        <UiIcon :name="item.icon" :size="23" />
         <span>{{ item.label }}</span>
         <b v-if="item.id === 'contacts' && requestCount" class="rail-badge">{{ Math.min(requestCount, 9) }}</b>
       </button>
@@ -118,7 +92,7 @@ function activateItem(item: RailItem): void {
   border-radius: 28px 18px 18px 28px;
 }
 .rail-brand { display: grid; width: 52px; height: 52px; flex: 0 0 auto; place-items: center; border-radius: 19px 19px 19px 9px; color: var(--blue); background: rgba(255,255,255,.64); box-shadow: inset 0 1px 0 #fff, 0 10px 20px rgba(10,132,255,.12); }
-.rail-brand svg { width: 36px; }
+.rail-brand .ui-icon { width: 36px; }
 .rail-items { position: relative; display: grid; width: 100%; margin: auto 0; gap: 8px; }
 .rail-item {
   position: relative;
@@ -139,7 +113,7 @@ function activateItem(item: RailItem): void {
 }
 .rail-item:hover { color: var(--blue); transform: translateY(-1px); }
 .rail-item--active { color: #0877ef; }
-.rail-item svg { width: 23px; height: 23px; }
+.rail-item .ui-icon { width: 23px; height: 23px; }
 .liquid-lens {
   position: absolute;
   z-index: 0;
@@ -196,7 +170,7 @@ function activateItem(item: RailItem): void {
   background: transparent;
   box-shadow: none;
 }
-.rail-brand svg { width: 32px; }
+.rail-brand .ui-icon { width: 32px; }
 .rail-items { gap: 4px; }
 .rail-item {
   height: 58px;

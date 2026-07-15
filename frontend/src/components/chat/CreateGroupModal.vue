@@ -2,6 +2,7 @@
 import { ref, shallowRef, watch } from 'vue'
 import type { Friend } from '../../types'
 import UserAvatar from '../base/UserAvatar.vue'
+import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
   open: boolean
@@ -41,7 +42,7 @@ function submit(): void {
   <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
     <section class="group-sheet" role="dialog" aria-modal="true" aria-labelledby="group-title">
       <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <UiIcon name="close" :size="16" />
       </button>
 
       <h2 id="group-title">创建群聊</h2>
@@ -71,9 +72,7 @@ function submit(): void {
           <UserAvatar :name="friend.remark || friend.nickname" :avatar="friend.avatar" :size="38" />
           <span class="friend-name">{{ friend.remark || friend.nickname }}</span>
           <span class="checkbox">
-            <svg v-if="selectedIds.includes(friend.friendId)" viewBox="0 0 24 24" fill="none">
-              <path d="M5 13l4 4L19 7" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <UiIcon v-if="selectedIds.includes(friend.friendId)" name="check" :size="14" />
           </span>
         </div>
         <p v-if="friends.length === 0" class="empty-tip">先添加好友，再邀请他们进入群聊。</p>
@@ -135,7 +134,7 @@ function submit(): void {
   cursor: pointer;
 }
 .close-button:hover { background: var(--button-hover); }
-.close-button svg { width: 16px; }
+.close-button .ui-icon { width: 16px; }
 
 .group-sheet h2 {
   margin: 0 0 4px;
@@ -220,10 +219,11 @@ function submit(): void {
   background: transparent;
   transition: background-color 150ms ease, border-color 150ms ease;
 }
-.checkbox svg { width: 14px; }
+.checkbox .ui-icon { width: 14px; }
 .friend-row--selected .checkbox {
   border-color: var(--blue);
   background: var(--blue);
+  color: #fff;
 }
 
 .empty-tip {

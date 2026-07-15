@@ -1,262 +1,216 @@
-# LanChat - 网络聊天室应用
+# LanChat — LAN-first 私有即时协作系统
 
-一款支持私聊、群聊、文件共享与在线协作的即时通讯平台，基于 Java / Spring Boot / MyBatis Plus / WebSocket / Redis 构建。
+LanChat 面向校园、工厂、办公室、项目现场和应急环境，目标是在组织自有网络中提供可控、可靠的即时沟通能力。
+
+当前代码已经完成第一阶段 P0 改造：**可靠消息协议、断网文本发件箱、重连补拉、统一会话模型、设备会话鉴权和私有化部署骨架**。WebRTC 局域网直传、临时房间、应急广播和多节点同步仍在后续路线图中，尚未标记为已实现。
+
+## 当前完成状态
+
+| 能力 | 状态 | 当前范围 |
+|---|---|---|
+| 账号、好友、私聊、群聊、设备管理 | 已实现 | Web 客户端与单节点服务端 |
+| 统一会话模型 | 已实现 | 私聊 `private:min:max`、群聊 `group:id` |
+| 可靠消息 | 已实现 | `clientMsgId`、事务后 ACK、会话序列号、幂等去重 |
+| 断网文本消息 | 已实现 | 当前已认证标签页内：会话目录/消息缓存、IndexedDB 发件箱、恢复后自动补发 |
+| 遗漏消息恢复 | 已实现 | 按会话位置增量补拉，单次 100 条、自动分页 |
+| 连接诊断 | 部分实现 | 连接阶段、延迟、重连次数、待发/失败数量 |
+| 文件安全 | 已实现基础版 | SHA-256、100 MB、会话权限、显式文件授权、短期预览链接 |
+| 私有部署 | 已实现基础版 | Dockerfile、Compose、MySQL、Redis、本地文件卷 |
+| 局域网节点自动发现 | 规划中 | 尚无 mDNS/桌面端 Agent |
+| WebRTC 文件直传与中转降级 | 规划中 | 尚未实现 |
+| 临时协作房间、应急广播 | 规划中 | 尚未实现 |
+| 分片上传、断点续传、MinIO | 规划中 | 当前仍为单请求本地文件存储 |
+| 多节点同步、跨实例消息路由 | 规划中 | 当前为单 Spring Boot 节点 |
+| 端到端加密、本地 AI | 暂缓 | 不属于当前版本 |
+
+更完整的需求到代码映射见 [实施状态-LAN-first-V2.0.md](实施状态-LAN-first-V2.0.md)。
+
+## 可靠消息主链路
+
+```text
+本地创建消息并写入 IndexedDB
+  → 生成 clientMsgId，显示“等待网络/发送中”
+  → WebSocket CHAT_SEND
+  → 服务端校验会话权限与附件权限
+  → 同一事务内分配 conversation sequence、保存消息、更新会话摘要
+  → CHAT_ACK（只有事务成功后才返回）
+  → 发送端移出发件箱，接收端收到 CHAT_DELIVER
+  → 断线重连后发送 SYNC_REQUEST，按最后 sequence 补齐缺口
+```
+
+数据库唯一约束共同保证重试安全：
+
+```sql
+UNIQUE (from_user_id, client_msg_id)
+UNIQUE (conversation_id, sequence)
+```
+
+协议详情见 [可靠消息协议-V1.md](可靠消息协议-V1.md)。
 
 ## 技术栈
 
 | 层面 | 技术 |
-|------|------|
-| 后端框架 | Spring Boot 3.5 + Java 17 |
-| Web 前端 | Vue 3.5 + TypeScript + Vite 8 |
-| 安全认证 | Spring Security + JWT（JJWT 0.12.6） |
-| 数据库 | MySQL 8.0 + MyBatis Plus 3.5.7 |
-| 缓存 | Redis（登录锁定 / 预览签名 / 会话缓存） |
-| 实时通信 | Spring WebSocket |
-| 工具库 | Hutool 5.8 + Lombok |
+|---|---|
+| 后端 | Java 17、Spring Boot 3.5、Spring Security |
+| 实时通信 | Spring WebSocket、自定义 V1 JSON 信封 |
+| 数据 | MySQL 8、MyBatis Plus 3.5、Redis |
+| Web 前端 | Vue 3.5、TypeScript 5.9、Vite 8、Composition API |
+| 本地离线 | IndexedDB |
+| 认证 | JWT Access Token、轮换 Refresh Token、HttpOnly Cookie |
+| 部署 | 多阶段 Dockerfile、Docker Compose |
 
-## 功能模块
+## 安全与权限边界
 
-### 用户账户与认证
-- 注册（密码强度校验：8-20位含字母和数字，昵称2-16字符）
-- 登录（JWT双令牌：Access Token 2h + Refresh Token 7d）
-- 登录失败锁定（连续5次错误锁定30分钟，基于Redis计数）
-- 多端设备管理（Web + App 同时在线，同类型设备互踢）
-- 设备列表查看与主动下线
-
-### 好友与私聊
-- 好友申请（验证信息20字内，7天自动过期，黑名单互斥校验）
-- 好友管理（备注名、分组、置顶上限5个、免打扰、拉黑/删除）
-- 好友列表按最后通信时间排序，置顶优先
-- 私聊消息类型：文本、图片、文件、语音
-- 消息引用回复、@提及、正在输入提示
-- 已读回执多端同步
-- 非好友关系消息发送拦截
-
-### 群聊管理
-- 创建群组（群名2-20字符，上限200人）
-- 群成员管理（添加/移除/禁言1分钟~30天）
-- 群主转让、管理员设置（上限3名）
-- 解散群聊
-- 群聊消息发送前校验成员身份和禁言状态
-- @群成员功能
-
-### 消息增强
-- 消息撤回（2分钟内，仅发送者可操作，撤回时清理文件存储）
-- 阅后即焚（文本/图片/视频，5秒倒计时，file/voice不支持，截屏检测提醒）
-- 多端同步焚毁
-- 焚毁消息未阅读才可撤回
-
-### 文件服务
-- 文件上传（SHA-256哈希秒传检测，类型白名单校验，100MB限制）
-- 图片自动生成300x300缩略图
-- 临时签名预览URL（10分钟有效期，与用户Token绑定）
-- 文件消息卡片展示
-
-### 通知与免打扰
-- 全局免打扰时段设置（如22:00-08:00，支持跨天）
-- 单会话免打扰
-- WebSocket实时推送上下线通知、在线用户列表
+- WebSocket 地址固定为 `/ws/chat`，访问令牌通过连接后的 `AUTH` 事件提交，不进入 URL 或代理访问日志。
+- Access Token 校验固定算法、`iss`、`aud`、有效期和设备会话状态。
+- Refresh Token 仅放入 `HttpOnly + SameSite=Strict` Cookie，并在刷新时轮换；退出时同时吊销设备会话。
+- 浏览器仅在 `sessionStorage` 保存短期 Access Token，不把 Refresh Token 暴露给 JavaScript。
+- 普通令牌过期不会删除离线发件箱；本地缓存按用户属主隔离。明确退出或设备强制下线会清理本地数据。
+- 历史、同步、发送、撤回、焚毁、文件上传和预览均在服务端重新校验权限。
+- 文件哈希存在不代表有访问权。完整上传并通过服务端 SHA-256 校验后才创建显式授权；单纯哈希探测不会获得他人的物理文件。
+- 默认拒绝网页与可执行格式；非受控媒体类型以 `application/octet-stream` 强制下载，避免同源上传内容被浏览器执行。
+- REST 响应与日志使用 `X-Request-ID` 关联，在线用户事件不序列化密码或设备令牌。
 
 ## 项目结构
 
-```
+```text
+frontend/                              Vue 3 Web 客户端
+  src/composables/useWebSocket.ts      认证、心跳、重连和连接状态
+  src/composables/useOutbox.ts         离线发件箱状态
+  src/services/localChatDb.ts          IndexedDB 消息、位置和发件箱
 src/main/java/com/lanchat/
-├── LanChatServerApplication.java     # 启动类
-├── common/                           # 通用层
-│   ├── Result.java                   # 统一返回格式
-│   └── GlobalExceptionHandler.java   # 全局异常处理
-├── config/                           # 配置层
-│   ├── WebSocketConfig.java          # WebSocket配置
-│   └── WebMvcConfig.java             # Vue 应用入口映射
-├── security/                         # 安全层
-│   ├── JwtUtil.java                  # JWT工具类
-│   ├── JwtAuthenticationFilter.java  # JWT认证过滤器
-│   ├── SecurityConfig.java           # Spring Security配置
-│   ├── LoginUser.java               # 登录用户信息
-│   └── UserContextHolder.java       # 用户上下文工具
-├── controller/                       # 控制器层
-│   ├── AuthController.java           # 认证接口
-│   ├── UserController.java           # 用户接口
-│   ├── FriendController.java         # 好友接口
-│   ├── GroupController.java          # 群组接口
-│   ├── ChatController.java           # 消息接口
-│   └── FileController.java           # 文件接口
-├── dto/                              # 数据传输对象
-├── entity/                           # 实体类
-├── mapper/                           # MyBatis Plus Mapper
-├── service/                          # 服务接口
-│   └── impl/                         # 服务实现
-└── websocket/                        # WebSocket处理器
-    └── ChatWebSocketHandler.java     # 聊天WebSocket核心处理器
-frontend/                              # Vue 3 + Vite 前端源码
-└── src/
-    ├── components/                    # 液态玻璃 UI 与聊天组件
-    ├── composables/                   # 认证、聊天、WebSocket 状态
-    ├── services/                      # 类型安全 API 封装
-    └── views/                         # 登录、欢迎、聊天页面
+  websocket/ChatWebSocketHandler.java  V1 实时协议入口
+  service/impl/ChatMessageServiceImpl  可靠消息事务与历史查询
+  service/impl/ConversationServiceImpl 统一会话、序列号和成员位置
+  service/impl/FileServiceImpl         文件存储、授权和签名预览
+sql/
+  init.sql                             新环境完整结构
+  migration-v2.0-reliable-messaging.sql 已有 V1 数据升级脚本
+compose.yaml                           单节点私有部署
 ```
 
-## API 接口
+## 快速启动
 
-所有接口统一前缀 `/api/v1`，返回格式 `{"code":200, "data":{}, "msg":"success"}`。
+### 方式一：Docker Compose
 
-### 认证
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/auth/register` | 注册 |
-| POST | `/api/v1/auth/login` | 登录 |
-| POST | `/api/v1/auth/refresh` | 刷新Token |
-| POST | `/api/v1/auth/logout` | 退出登录 |
+需要 Docker Compose v2。首次启动会创建 MySQL、Redis、LanChat 服务和持久化卷：
 
-### 用户
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/user/info` | 当前用户信息 |
-| GET | `/api/v1/user/{id}` | 指定用户信息 |
-| GET | `/api/v1/user/online` | 在线用户列表 |
-| GET | `/api/v1/user/search` | 搜索用户 |
-| GET | `/api/v1/user/devices` | 登录设备列表 |
-| DELETE | `/api/v1/user/devices/{id}` | 退出指定设备 |
-| PUT | `/api/v1/user/mute-period` | 设置免打扰时段 |
-| GET | `/api/v1/user/mute-status` | 查询免打扰状态 |
-
-### 好友
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/friend/request` | 发送好友申请 |
-| GET | `/api/v1/friend/requests` | 好友申请列表 |
-| POST | `/api/v1/friend/handle` | 处理好友申请 |
-| GET | `/api/v1/friend/list` | 好友列表 |
-| DELETE | `/api/v1/friend/{id}` | 删除好友 |
-| PUT | `/api/v1/friend/{id}/block` | 拉黑/取消 |
-| PUT | `/api/v1/friend/{id}/remark` | 设置备注 |
-| PUT | `/api/v1/friend/{id}/group` | 设置分组 |
-| PUT | `/api/v1/friend/{id}/pin` | 置顶切换 |
-| PUT | `/api/v1/friend/{id}/mute` | 免打扰切换 |
-
-### 群组
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/group` | 创建群组 |
-| GET | `/api/v1/group/{id}` | 群组信息 |
-| PUT | `/api/v1/group/{id}` | 更新群组 |
-| GET | `/api/v1/group/my` | 我的群组 |
-| GET | `/api/v1/group/{id}/members` | 群成员列表 |
-| POST | `/api/v1/group/{id}/members` | 添加成员 |
-| DELETE | `/api/v1/group/{id}/members/{memberId}` | 移除成员 |
-| POST | `/api/v1/group/{id}/leave` | 退群 |
-| PUT | `/api/v1/group/{id}/transfer` | 转让群主 |
-| PUT | `/api/v1/group/{id}/admin` | 设置管理员 |
-| PUT | `/api/v1/group/{id}/mute` | 禁言成员 |
-| DELETE | `/api/v1/group/{id}/dissolve` | 解散群聊 |
-
-### 消息
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/chat/history/group` | 群聊历史 |
-| GET | `/api/v1/chat/history/private` | 私聊历史 |
-| PUT | `/api/v1/chat/read` | 标记已读 |
-| POST | `/api/v1/chat/recall` | 撤回消息 |
-| POST | `/api/v1/chat/burn` | 焚毁消息 |
-| GET | `/api/v1/chat/search` | 搜索消息 |
-
-### 文件
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/file/check` | 秒传检测 |
-| POST | `/api/v1/file/upload` | 文件上传 |
-| GET | `/api/v1/file/content/{fileName}` | 鉴权读取文件内容 |
-| POST | `/api/v1/file/preview-url` | 生成预览URL |
-| GET | `/api/v1/file/preview/{signToken}` | 签名预览 |
-
-### WebSocket
-| 路径 | 说明 |
-|------|------|
-| `/ws/chat?token={accessToken}` | WebSocket连接（握手校验访问令牌） |
-
-消息类型：`chat` / `recall` / `burn` / `read` / `typing` / `screenshot` / `system` / `online-list`
-
-## 快速开始
-
-### 环境要求
-- JDK 17+
-- Node.js 20.19+
-- MySQL 8.0+
-- Redis
-
-### 步骤
-
-1. 克隆仓库
 ```bash
-git clone git@github.com:Atti-20/lan-chat.git
-cd lan-chat
+export JWT_SECRET='replace-with-at-least-32-random-characters'
+export DB_PASSWORD='replace-with-a-strong-database-password'
+docker compose up --build
 ```
 
-2. 初始化数据库
+浏览器访问 `http://localhost:8080/app/`。
+
+若通过局域网 IP 访问，例如 `http://192.168.1.20:8080`，还需允许对应浏览器来源：
+
+```bash
+export WEBSOCKET_ALLOWED_ORIGINS='http://192.168.1.20:8080'
+docker compose up --build
+```
+
+HTTPS 部署时同时设置 `AUTH_COOKIE_SECURE=true`，并把实际 HTTPS Origin 加入允许列表。
+
+### 方式二：本地开发
+
+环境要求：JDK 17、Node.js 20.19+、MySQL 8、Redis。
+
+1. 初始化数据库：
+
 ```bash
 mysql -u root -p < sql/init.sql
 ```
 
-已有数据库升级到文件权限索引和 CDN 缓存支持时，执行：
+2. 构建前端：
+
 ```bash
-mysql -u root -p lan_chat < sql/migration-v1.1-file-access-cache.sql
+cd frontend
+npm ci
+npm run build
+cd ..
 ```
 
-3. 设置运行环境（生产环境务必设置独立的 `JWT_SECRET`）
+3. 设置环境变量并启动：
+
 ```bash
 export DB_URL='jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true'
 export DB_USERNAME='root'
 export DB_PASSWORD='your_password'
 export REDIS_HOST='localhost'
-export JWT_SECRET='replace-with-a-long-random-production-secret'
-```
-
-4. 构建 Vue 前端
-```bash
-cd frontend
-npm install
-npm run build
-cd ..
-```
-
-构建产物会写入 `src/main/resources/static/app/`，继续由 Spring Boot 同源托管。
-
-5. 创建文件上传目录
-```bash
-mkdir -p uploads
-```
-
-6. 启动项目
-```bash
+export JWT_SECRET='replace-with-at-least-32-random-characters'
 ./mvnw spring-boot:run
 ```
 
-### 测试账号
+Vite 构建产物写入 `src/main/resources/static/app/`，由 Spring Boot 同源托管。
 
-| 用户名 | 密码 | 昵称 |
-|--------|------|------|
-| admin | admin123456 | 管理员 |
-| alice | 123456 | 爱丽丝 |
-| bob | 123456 | 鲍勃 |
+### 已有 V1 数据库升级
 
-## 数据库表结构
+执行前先备份数据库，然后运行：
 
-| 表名 | 说明 |
-|------|------|
-| user | 用户表 |
-| friendship | 好友关系表 |
-| friend_request | 好友申请表 |
-| chat_group | 群组表 |
-| group_member | 群成员表 |
-| chat_message | 聊天消息表 |
-| message_recall | 消息撤回记录表 |
-| file_metadata | 文件元数据表 |
-| device_login | 设备登录表 |
+```bash
+mysql -u root -p lan_chat < sql/migration-v2.0-reliable-messaging.sql
+```
 
-## 文档
+迁移会创建统一会话、会话成员和文件授权表，回填旧消息的 `conversation_id` 与 `sequence`，并增加幂等唯一索引。不要对已有数据执行 `sql/init.sql`，因为初始化脚本会重建表。
 
-- [需求分析文档](需求分析.md)
-- [功能分析文档](功能分析.md)
+### 本地演示账号
+
+`sql/init.sql` 只为开发环境写入以下账号，统一密码为 `LanChat123!`：
+
+| 用户名 | 昵称 |
+|---|---|
+| `admin` | 管理员 |
+| `alice` | 爱丽丝 |
+| `bob` | 鲍勃 |
+
+生产环境必须删除演示账号、更换 JWT 密钥，并启用 HTTPS 安全 Cookie。
+
+## 常用接口
+
+所有 REST 接口使用 `/api/v1` 前缀，响应包含 `code`、`msg`、`data` 和 `requestId`。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/api/v1/auth/login` | 登录并设置 Refresh Cookie |
+| POST | `/api/v1/auth/refresh` | 轮换 Refresh Token，获取新 Access Token |
+| POST | `/api/v1/auth/logout` | 吊销当前设备会话 |
+| GET | `/api/v1/chat/history` | 按 `conversationId` 与 `beforeSequence` 游标查询 |
+| PUT | `/api/v1/chat/conversation/read` | 更新会话最后已读序列 |
+| POST | `/api/v1/file/upload` | 在指定会话权限下上传附件 |
+| POST | `/api/v1/file/avatar` | 上传头像图片 |
+| POST | `/api/v1/file/preview-url` | 生成 10 分钟签名预览地址 |
+
+旧的私聊/群聊历史接口暂时保留兼容，新前端统一使用 `/api/v1/chat/history`。
+
+## 验证
+
+```bash
+./mvnw test
+cd frontend && npm run typecheck && npm run build
+```
+
+当前自动化覆盖会话 ID、消息幂等、序列分配、WebSocket 连接后认证、敏感字段不外泄、Refresh Cookie 轮换、文件哈希权限边界、控制器权限与应用上下文。
+
+## 配置项
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `DB_URL` | 本机 `lan_chat` | MySQL JDBC 地址 |
+| `DB_USERNAME` / `DB_PASSWORD` | `root` / `root` | 数据库认证；生产必须覆盖 |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Redis 节点 |
+| `JWT_SECRET` | 本地开发密钥 | 生产必须覆盖 |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | `lanchat-node` / `lanchat-client` | JWT 约束 |
+| `WEBSOCKET_ALLOWED_ORIGINS` | localhost、127.0.0.1 | WebSocket Origin 白名单 |
+| `AUTH_COOKIE_SECURE` | `false` | HTTPS 部署设为 `true` |
+| `FILE_STORAGE_PATH` | `./uploads/` | 私有文件目录 |
+| `TUNNEL_ENABLED` | `false` | 默认不启动外部隧道 |
+
+## 文档说明
+
+- 本轮代码重构依据用户提供的《需求分析-LAN-first-V2.0》和《功能分析-LAN-first-V2.0》。两份文档描述目标状态，不等于全部完成。
+- 仓库内 [需求分析.md](需求分析.md) 与 [功能分析.md](功能分析.md) 是 V1.0 历史稿，仅用于版本对照。
+- 实际完成边界以本 README 和 [实施状态-LAN-first-V2.0.md](实施状态-LAN-first-V2.0.md) 为准。
 
 ## License
 

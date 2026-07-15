@@ -1,7 +1,6 @@
 package com.lanchat.config;
 
 import com.lanchat.websocket.ChatWebSocketHandler;
-import com.lanchat.security.WebSocketAuthInterceptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
@@ -14,23 +13,19 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private final ChatWebSocketHandler chatWebSocketHandler;
-    private final WebSocketAuthInterceptor webSocketAuthInterceptor;
     private final String[] allowedOrigins;
 
     public WebSocketConfig(ChatWebSocketHandler chatWebSocketHandler,
-                           WebSocketAuthInterceptor webSocketAuthInterceptor,
                            @Value("${websocket.allowed-origins:http://localhost:8080,http://127.0.0.1:8080}")
                            String[] allowedOrigins) {
         this.chatWebSocketHandler = chatWebSocketHandler;
-        this.webSocketAuthInterceptor = webSocketAuthInterceptor;
         this.allowedOrigins = allowedOrigins;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         WebSocketHandlerRegistration registration = registry
-                .addHandler(chatWebSocketHandler, "/ws/chat")
-                .addInterceptors(webSocketAuthInterceptor);
+                .addHandler(chatWebSocketHandler, "/ws/chat");
         registration.setAllowedOrigins(allowedOrigins);
     }
 }

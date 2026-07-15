@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue'
+import UiIcon from '../components/base/UiIcon.vue'
 import { ApiError } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
@@ -22,20 +23,18 @@ const submitLabel = computed(() => {
 })
 
 onMounted(async () => {
-  // 如果已有有效 session，尝试自动登录
-  if (auth.session.value?.token) {
-    autoLogging.value = true
-    try {
-      const user = await auth.hydrate()
-      if (user) {
-        window.location.assign(`${base}/chat`)
-        return
-      }
-    } catch {
-      // session 无效，继续显示登录页
-    } finally {
-      autoLogging.value = false
+  // Access Token 只保存在当前标签页；刷新时尝试通过 HttpOnly Cookie 恢复。
+  autoLogging.value = true
+  try {
+    const user = await auth.hydrate()
+    if (user) {
+      window.location.assign(`${base}/chat`)
+      return
     }
+  } catch {
+    // 没有有效设备会话时继续显示登录页。
+  } finally {
+    autoLogging.value = false
   }
   // 回填上次登录的用户名
   const lastUsername = readLastUsername()
@@ -79,7 +78,9 @@ async function submit(): Promise<void> {
       window.location.assign(`${base}/welcome`)
     }
   } catch (cause) {
-    const message = cause instanceof ApiError ? cause.message : '操作失败，请稍后重试'
+    const message = cause instanceof ApiError || cause instanceof Error
+      ? cause.message
+      : '操作失败，请稍后重试'
     error.value = message
     // 如果错误包含"其他设备"或"已登录"相关信息，显示更友好的提示
     if (message.includes('已登录') || message.includes('设备') || message.includes('踢')) {
@@ -99,11 +100,7 @@ async function submit(): Promise<void> {
   <main v-else class="auth-page">
     <section class="auth-story" aria-label="LanChat 简介">
       <div class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 48 48" fill="none">
-          <rect x="6" y="10" width="36" height="24" rx="7" fill="currentColor" opacity="0.12"/>
-          <path d="M12 12h24a6 6 0 0 1 6 6v8a6 6 0 0 1-6 6h-8l-7 6v-6h-9a6 6 0 0 1-6-6v-8a6 6 0 0 1 6-6Z" fill="currentColor"/>
-          <path d="M17 22h14M17 27h8" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
-        </svg>
+        <UiIcon name="brand" />
       </div>
 
       <div class="story-copy">
@@ -151,9 +148,7 @@ async function submit(): Promise<void> {
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button class="primary-button submit-button" type="submit" :disabled="auth.loading.value">
           {{ submitLabel }}
-          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <path d="m7 4 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
+          <UiIcon name="arrow-right" :size="18" />
         </button>
       </form>
 
@@ -190,7 +185,7 @@ async function submit(): Promise<void> {
   transform: rotate(-3deg);
 }
 
-.brand-mark svg { width: 48px; }
+.brand-mark .ui-icon { width: 48px; height: 48px; }
 .brand-glint {
   position: absolute;
   top: 9px;
@@ -303,7 +298,7 @@ async function submit(): Promise<void> {
 .field-group > span { color: #35506e; font-size: 13px; font-weight: 700; }
 .form-error { margin: -4px 0 0; color: var(--coral); font-size: 13px; line-height: 1.5; }
 .submit-button { display: flex; width: 100%; margin-top: 4px; align-items: center; justify-content: center; gap: 8px; }
-.submit-button svg { width: 18px; }
+.submit-button .ui-icon { width: 18px; }
 .privacy-note { margin: 22px 0 0; color: #6f8297; font-size: 11px; line-height: 1.6; text-align: center; }
 
 @media (max-width: 860px) {
@@ -319,7 +314,7 @@ async function submit(): Promise<void> {
   .auth-page { width: min(100% - 24px, 460px); }
   .auth-card { padding: 25px 20px; border-radius: 28px 28px 28px 15px; }
   .brand-mark { width: 58px; height: 58px; border-radius: 20px 20px 20px 10px; }
-  .brand-mark svg { width: 39px; }
+  .brand-mark .ui-icon { width: 39px; height: 39px; }
 }
 
 .auth-page {
@@ -340,7 +335,7 @@ async function submit(): Promise<void> {
   transform: none;
   backdrop-filter: blur(16px) saturate(150%);
 }
-.brand-mark svg { width: 38px; }
+.brand-mark .ui-icon { width: 38px; height: 38px; }
 .eyebrow,
 .auth-kicker {
   margin-bottom: 10px;
@@ -401,6 +396,6 @@ async function submit(): Promise<void> {
 @media (max-width: 520px) {
   .auth-card { padding: 24px 20px; border-radius: 22px; }
   .brand-mark { width: 50px; height: 50px; border-radius: 15px; }
-  .brand-mark svg { width: 34px; }
+  .brand-mark .ui-icon { width: 34px; height: 34px; }
 }
 </style>

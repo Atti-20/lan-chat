@@ -1,6 +1,5 @@
 package com.lanchat.config;
 
-import com.lanchat.security.WebSocketAuthInterceptor;
 import com.lanchat.websocket.ChatWebSocketHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistration;
@@ -15,7 +14,6 @@ class WebSocketConfigTest {
     @Test
     void registersPublicAndLocalOrigins() {
         ChatWebSocketHandler handler = mock(ChatWebSocketHandler.class);
-        WebSocketAuthInterceptor interceptor = mock(WebSocketAuthInterceptor.class);
         WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
         WebSocketHandlerRegistration registration = mock(WebSocketHandlerRegistration.class);
         String[] allowedOrigins = {
@@ -25,9 +23,7 @@ class WebSocketConfigTest {
         };
 
         when(registry.addHandler(handler, "/ws/chat")).thenReturn(registration);
-        when(registration.addInterceptors(interceptor)).thenReturn(registration);
-
-        new WebSocketConfig(handler, interceptor, allowedOrigins)
+        new WebSocketConfig(handler, allowedOrigins)
                 .registerWebSocketHandlers(registry);
 
         verify(registration).setAllowedOrigins(allowedOrigins);

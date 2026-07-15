@@ -3,10 +3,11 @@ import type { AuthSession } from '../types'
 const SESSION_KEY = 'lanchat_session_v2'
 const LAST_USERNAME_KEY = 'lanchat_last_username'
 const THEME_KEY = 'lanchat_theme'
+const CACHE_OWNER_KEY = 'lanchat_cache_owner'
 
 export function readSession(): AuthSession | null {
   try {
-    const value = localStorage.getItem(SESSION_KEY)
+    const value = sessionStorage.getItem(SESSION_KEY)
     return value ? JSON.parse(value) as AuthSession : null
   } catch {
     return null
@@ -14,14 +15,18 @@ export function readSession(): AuthSession | null {
 }
 
 export function writeSession(session: AuthSession): void {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
 }
 
 export function clearSession(): void {
+  sessionStorage.removeItem(SESSION_KEY)
   localStorage.removeItem(SESSION_KEY)
   // 清理旧版前端遗留的认证信息，避免两个客户端状态打架。
   ;['token', 'refreshToken', 'userId', 'userInfo', 'expiresIn']
-    .forEach((key) => localStorage.removeItem(`lanchat_${key}`))
+    .forEach((key) => {
+      localStorage.removeItem(`lanchat_${key}`)
+      sessionStorage.removeItem(`lanchat_${key}`)
+    })
 }
 
 export function readLastUsername(): string {
@@ -42,4 +47,17 @@ export function readTheme(): ThemeMode | null {
 
 export function writeTheme(mode: ThemeMode): void {
   localStorage.setItem(THEME_KEY, mode)
+}
+
+export function readCacheOwner(): number | null {
+  const value = Number(localStorage.getItem(CACHE_OWNER_KEY))
+  return Number.isInteger(value) && value > 0 ? value : null
+}
+
+export function writeCacheOwner(userId: number): void {
+  localStorage.setItem(CACHE_OWNER_KEY, String(userId))
+}
+
+export function clearCacheOwner(): void {
+  localStorage.removeItem(CACHE_OWNER_KEY)
 }

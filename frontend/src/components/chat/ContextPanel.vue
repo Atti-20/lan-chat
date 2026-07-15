@@ -2,6 +2,7 @@
 import { shallowRef, watch } from 'vue'
 import type { Conversation, GroupMember } from '../../types'
 import UserAvatar from '../base/UserAvatar.vue'
+import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
   open: boolean
@@ -24,13 +25,13 @@ const remarkSaving = shallowRef(false)
 
 // 获取好友的原始昵称（从 source 中取）
 function friendNickname(): string {
-  const src = props.conversation.source as Record<string, unknown> | undefined
-  return (src?.nickname as string) || props.conversation.name
+  const src = props.conversation.source
+  return ('nickname' in src && src.nickname) || props.conversation.name
 }
 
 function friendRemark(): string {
-  const src = props.conversation.source as Record<string, unknown> | undefined
-  return (src?.remark as string) || ''
+  const src = props.conversation.source
+  return ('remark' in src && src.remark) || ''
 }
 
 watch(() => props.open, (open) => {
@@ -64,7 +65,7 @@ function saveRemark(): void {
     <div v-if="open" class="context-backdrop" role="presentation" @click.self="emit('close')">
       <aside class="context-panel" role="dialog" aria-modal="true" aria-label="详情">
         <button class="context-close" type="button" aria-label="关闭" @click="emit('close')">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <UiIcon name="close" :size="15" />
         </button>
 
         <div class="context-profile">
@@ -80,7 +81,7 @@ function saveRemark(): void {
             <div class="remark-header">
               <span class="remark-label">好友备注</span>
               <button v-if="!editingRemark" class="remark-edit-btn" type="button" @click="startEditRemark">
-                <svg viewBox="0 0 24 24" fill="none"><path d="M15.2 3.8a2.4 2.4 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4L9 20H4v-5L15.2 3.8Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <UiIcon name="edit" :size="12" />
                 编辑
               </button>
             </div>
@@ -108,21 +109,20 @@ function saveRemark(): void {
           <div class="action-list">
             <button type="button" @click="emit('togglePin')">
               <span class="action-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 17-5 5V3a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v19l-5-5Z"/></svg>
+                <UiIcon name="pin" :size="17" />
               </span>
               <span>{{ conversation.pinned ? '取消置顶' : '置顶对话' }}</span>
             </button>
             <button type="button" @click="emit('toggleMute')">
               <span class="action-icon">
-                <svg v-if="!conversation.muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.7 3A6 6 0 0 1 18 8c0 2.4.5 4.3 1.2 5.7"/><path d="M3 17h10.4"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/><path d="M6 8a6 6 0 0 0-.5 2c0 3.3-1 5.8-2.5 7"/><path d="m2 2 20 20"/></svg>
+                <UiIcon :name="conversation.muted ? 'bell-off' : 'bell'" :size="17" />
               </span>
               <span>{{ conversation.muted ? '恢复提醒' : '消息免打扰' }}</span>
             </button>
           </div>
 
           <button class="danger-action" type="button" @click="emit('deleteFriend')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            <UiIcon name="trash" :size="16" />
             <span>删除好友</span>
           </button>
         </template>
@@ -189,7 +189,7 @@ function saveRemark(): void {
   transition: background-color 150ms ease;
 }
 .context-close:hover { background: var(--button-hover); }
-.context-close svg { width: 15px; }
+.context-close .ui-icon { width: 15px; }
 
 .context-profile {
   display: grid;
@@ -231,7 +231,7 @@ function saveRemark(): void {
   cursor: pointer;
 }
 .remark-edit-btn:hover { text-decoration: underline; }
-.remark-edit-btn svg { width: 12px; }
+.remark-edit-btn .ui-icon { width: 12px; }
 
 .remark-display {
   margin: 0;
@@ -300,7 +300,7 @@ function saveRemark(): void {
   color: var(--blue);
   background: rgba(0, 122, 255, 0.08);
 }
-.action-icon svg { width: 17px; }
+.action-icon .ui-icon { width: 17px; }
 
 .danger-action {
   display: flex;
@@ -319,7 +319,7 @@ function saveRemark(): void {
   transition: background-color 150ms ease;
 }
 .danger-action:hover { background: color-mix(in srgb, var(--coral) 14%, transparent); }
-.danger-action svg { width: 16px; }
+.danger-action .ui-icon { width: 16px; }
 
 .member-section { min-height: 0; }
 .member-heading {

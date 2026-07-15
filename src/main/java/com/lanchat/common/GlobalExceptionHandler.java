@@ -6,7 +6,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.util.DisconnectedClientHelper;
+import org.springframework.http.ResponseEntity;
 
 /**
  * 全局异常处理器
@@ -24,6 +26,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     public void handleClientDisconnect(AsyncRequestNotUsableException e) {
         DISCONNECTED_CLIENT_HELPER.checkAndLogClientDisconnectedException(e);
+    }
+
+    /**
+     * 浏览器请求不存在的静态资源时返回标准 404，不当作系统异常记录 ERROR。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Void> handleNoResourceFound(NoResourceFoundException e) {
+        log.debug("静态资源不存在: {}", e.getResourcePath());
+        return ResponseEntity.notFound().build();
     }
 
     @ExceptionHandler(Exception.class)

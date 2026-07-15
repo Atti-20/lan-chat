@@ -5,6 +5,8 @@
 CREATE DATABASE IF NOT EXISTS lan_chat DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 
 USE lan_chat;
+-- 明确指定初始化脚本的客户端字符集，避免中文种子数据被按 latin1 写入。
+SET NAMES utf8mb4;
 
 -- ----------------------------
 -- 用户表
@@ -98,13 +100,52 @@ CREATE TABLE `group_member` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='群成员表';
 
 -- ----------------------------
+-- 统一会话表（LAN-first V2.0）
+-- ----------------------------
+DROP TABLE IF EXISTS `conversation_member`;
+DROP TABLE IF EXISTS `conversation`;
+CREATE TABLE `conversation` (
+    `id`              VARCHAR(64)  NOT NULL COMMENT '确定性会话ID：private:min:max / group:id',
+    `type`            VARCHAR(20)  NOT NULL COMMENT 'PRIVATE/GROUP/TEMPORARY/SYSTEM/BROADCAST',
+    `source_id`       BIGINT       DEFAULT NULL COMMENT '群组或扩展资源ID',
+    `last_message_id` VARCHAR(64)  DEFAULT NULL COMMENT '最后一条消息ID',
+    `last_sequence`   BIGINT       NOT NULL DEFAULT 0 COMMENT '会话最后序列号',
+    `status`          VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/READ_ONLY/ARCHIVED/DESTROYED',
+    `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_type_source` (`type`, `source_id`),
+    KEY `idx_conversation_update` (`update_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='统一会话表';
+
+CREATE TABLE `conversation_member` (
+    `id`                 BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `conversation_id`    VARCHAR(64) NOT NULL COMMENT '会话ID',
+    `user_id`            BIGINT      NOT NULL COMMENT '成员用户ID',
+    `role`               VARCHAR(20) NOT NULL DEFAULT 'MEMBER' COMMENT 'OWNER/ADMIN/MEMBER/READ_ONLY',
+    `last_read_sequence` BIGINT      NOT NULL DEFAULT 0 COMMENT '最后已读序列号',
+    `unread_count`       INT         NOT NULL DEFAULT 0 COMMENT '未读数量缓存',
+    `is_muted`           TINYINT     NOT NULL DEFAULT 0 COMMENT '是否免打扰',
+    `is_pinned`          TINYINT     NOT NULL DEFAULT 0 COMMENT '是否置顶',
+    `join_time`          DATETIME    DEFAULT CURRENT_TIMESTAMP COMMENT '加入时间',
+    `left_time`          DATETIME    DEFAULT NULL COMMENT '退出时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_conversation_user` (`conversation_id`, `user_id`),
+    KEY `idx_member_user` (`user_id`, `left_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会话成员与已读位置';
+
+-- ----------------------------
 -- 聊天消息表
 -- ----------------------------
 DROP TABLE IF EXISTS `chat_message`;
 CREATE TABLE `chat_message` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    `message_id`      VARCHAR(64)  NOT NULL COMMENT '消息唯一标识（UUID）',
+    `message_id`      VARCHAR(64)  NOT NULL COMMENT '服务端消息唯一标识（UUID）',
+    `client_msg_id`   VARCHAR(64)  NOT NULL COMMENT '客户端幂等消息ID',
+    `conversation_id` VARCHAR(64)  NOT NULL COMMENT '统一会话ID',
+    `sequence`        BIGINT       NOT NULL COMMENT '会话内递增序列号',
     `from_user_id`    BIGINT       NOT NULL COMMENT '发送者用户ID',
+    `sender_device_id` BIGINT      DEFAULT NULL COMMENT '发送设备会话ID',
     `to_user_id`      BIGINT       DEFAULT NULL COMMENT '接收者用户ID（私聊）',
     `group_id`        BIGINT       DEFAULT NULL COMMENT '群组ID（群聊）',
     `type`            VARCHAR(20)  DEFAULT 'text' COMMENT '消息类型：text/image/file/voice/video',
@@ -116,9 +157,13 @@ CREATE TABLE `chat_message` (
     `burn_duration`   INT          DEFAULT 5 COMMENT '焚毁倒计时（秒）',
     `is_recalled`     TINYINT      DEFAULT 0 COMMENT '是否已撤回：0-否 1-是',
     `status`          TINYINT      DEFAULT 0 COMMENT '消息状态：0-未读 1-已读 2-已焚毁',
+    `client_created_at` DATETIME   DEFAULT NULL COMMENT '客户端创建时间（诊断用途）',
     `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_message_id` (`message_id`),
+    UNIQUE KEY `uk_sender_client_msg` (`from_user_id`, `client_msg_id`),
+    UNIQUE KEY `uk_conversation_sequence` (`conversation_id`, `sequence`),
+    KEY `idx_conversation_sequence` (`conversation_id`, `sequence`),
     KEY `idx_from_user` (`from_user_id`),
     KEY `idx_to_user` (`to_user_id`),
     KEY `idx_group` (`group_id`),
@@ -158,6 +203,21 @@ CREATE TABLE `file_metadata` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件元数据表';
 
 -- ----------------------------
+-- 文件对象访问授权（哈希存在不等于有权引用）
+-- ----------------------------
+DROP TABLE IF EXISTS `file_access_grant`;
+CREATE TABLE `file_access_grant` (
+    `id`          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `file_id`     BIGINT      NOT NULL COMMENT '文件元数据ID',
+    `user_id`     BIGINT      NOT NULL COMMENT '获授权用户ID',
+    `grant_type`  VARCHAR(20) NOT NULL COMMENT 'UPLOADER/UPLOAD_PROOF',
+    `create_time` DATETIME    DEFAULT CURRENT_TIMESTAMP COMMENT '授权时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_file_user` (`file_id`, `user_id`),
+    KEY `idx_grant_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件对象访问授权';
+
+-- ----------------------------
 -- 设备登录表
 -- ----------------------------
 DROP TABLE IF EXISTS `device_login`;
@@ -177,9 +237,9 @@ CREATE TABLE `device_login` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备登录表';
 
 -- ----------------------------
--- 插入测试用户（密码: 123456，BCrypt加密）
+-- 仅供本地演示的测试用户（统一密码: LanChat123!，禁止用于生产）
 -- ----------------------------
 INSERT INTO `user` (`username`, `password`, `nickname`, `avatar`, `status`) VALUES
-('admin', '$2a$10$N.ZOn9G6/YLFixAOPMg/h.z7pCu6v2XyFDtC4q.jeeGm/TEZyj3C6', '管理员', '', 1),
-('alice', '$2a$10$N.ZOn9G6/YLFixAOPMg/h.z7pCu6v2XyFDtC4q.jeeGm/TEZyj3C6', '爱丽丝', '', 1),
-('bob',   '$2a$10$N.ZOn9G6/YLFixAOPMg/h.z7pCu6v2XyFDtC4q.jeeGm/TEZyj3C6', '鲍勃', '', 1);
+('admin', '$2a$10$VWOWjY7EBONKq/JPLNs/oO69k7SM4xG2qMskNP5MIH55T6ZwciU.C', '管理员', '', 1),
+('alice', '$2a$10$VWOWjY7EBONKq/JPLNs/oO69k7SM4xG2qMskNP5MIH55T6ZwciU.C', '爱丽丝', '', 1),
+('bob',   '$2a$10$VWOWjY7EBONKq/JPLNs/oO69k7SM4xG2qMskNP5MIH55T6ZwciU.C', '鲍勃', '', 1);

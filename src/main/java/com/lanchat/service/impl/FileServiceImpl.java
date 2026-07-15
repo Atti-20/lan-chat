@@ -7,6 +7,7 @@ import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.GroupMember;
 import com.lanchat.mapper.ChatMessageMapper;
+import com.lanchat.mapper.FileAccessGrantMapper;
 import com.lanchat.mapper.FileMetadataMapper;
 import com.lanchat.mapper.GroupMemberMapper;
 import com.lanchat.service.FileService;
@@ -52,6 +53,9 @@ public class FileServiceImpl implements FileService {
     private FileMetadataMapper fileMetadataMapper;
 
     @Autowired
+    private FileAccessGrantMapper fileAccessGrantMapper;
+
+    @Autowired
     private ChatMessageMapper chatMessageMapper;
 
     @Autowired
@@ -73,10 +77,12 @@ public class FileServiceImpl implements FileService {
     private long maxFileSize;
 
     @Override
-    public FileUploadVO checkFile(FileCheckDTO dto) {
+    public FileUploadVO checkFile(FileCheckDTO dto, Long userId) {
         if (dto == null) throw new IllegalArgumentException("文件参数不能为空");
         FileMetadata existing = getByHash(dto.getFileHash());
-        if (existing != null) {
+        // 知道文件哈希不等于拥有文件。只有上传者或已有会话参与者可以秒传引用，
+        // 防止通过哈希探测并取得其他组织成员的私有文件。
+        if (existing != null && canAccessFile(existing.getFilePath(), userId)) {
             FileUploadVO vo = buildVOFromMetadata(existing);
             vo.setInstantUpload(true);
             return vo;
@@ -104,6 +110,9 @@ public class FileServiceImpl implements FileService {
         // 秒传检测
         FileMetadata existing = getByHash(fileHash);
         if (existing != null) {
+            // 完整字节已经上传并由服务端完成 SHA-256 校验，因此可以建立显式授权。
+            // 仅调用 /check 并知道哈希不会获得这项授权。
+            fileAccessGrantMapper.grant(existing.getId(), userId, "UPLOAD_PROOF");
             FileUploadVO vo = buildVOFromMetadata(existing);
             vo.setOriginalName(originalFilename);
             vo.setInstantUpload(true);
@@ -143,6 +152,7 @@ public class FileServiceImpl implements FileService {
         metadata.setUploadUserId(userId);
         metadata.setCreateTime(LocalDateTime.now());
         fileMetadataMapper.insert(metadata);
+        fileAccessGrantMapper.grant(metadata.getId(), userId, "UPLOADER");
 
         // 构建返回结果
         FileUploadVO vo = new FileUploadVO();
@@ -188,6 +198,9 @@ public class FileServiceImpl implements FileService {
         FileMetadata metadata = getByStoredName(fileName);
         if (metadata == null) return false;
         if (userId.equals(metadata.getUploadUserId())) return true;
+        if (fileAccessGrantMapper.selectCount(new LambdaQueryWrapper<com.lanchat.entity.FileAccessGrant>()
+                .eq(com.lanchat.entity.FileAccessGrant::getFileId, metadata.getId())
+                .eq(com.lanchat.entity.FileAccessGrant::getUserId, userId)) > 0) return true;
 
         // 如果文件被任何用户用作头像，允许所有已登录用户访问
         String fileUrl = getFileUrl(metadata.getFilePath());

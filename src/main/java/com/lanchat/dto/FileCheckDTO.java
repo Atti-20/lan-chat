@@ -4,6 +4,7 @@ import lombok.Data;
 
 @Data
 public class FileCheckDTO {
+    private String conversationId;
     /** 文件哈希值 */
     private String fileHash;
     /** 文件名 */

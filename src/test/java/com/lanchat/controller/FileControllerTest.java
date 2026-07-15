@@ -57,4 +57,27 @@ class FileControllerTest {
 
         assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
     }
+
+    @Test
+    void activeContentIsForcedToDownload() throws Exception {
+        String token = "fedcba9876543210fedcba9876543210";
+        String storedName = "unsafe.html";
+        Files.writeString(storage.resolve(storedName), "<script>alert(1)</script>");
+        FileMetadata metadata = new FileMetadata();
+        metadata.setFileName("unsafe.html");
+        metadata.setFilePath(storedName);
+        FileService fileService = mock(FileService.class);
+        when(fileService.getFileNameFromToken(token)).thenReturn(storedName);
+        when(fileService.getByStoredName(storedName)).thenReturn(metadata);
+        FileController controller = new FileController();
+        ReflectionTestUtils.setField(controller, "fileService", fileService);
+        ReflectionTestUtils.setField(controller, "filePath", storage.toString());
+
+        var response = controller.previewFile(token, false);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getHeaders().getContentDisposition().isAttachment());
+        assertEquals("application/octet-stream", response.getHeaders().getContentType().toString());
+        assertEquals("nosniff", response.getHeaders().getFirst("X-Content-Type-Options"));
+    }
 }

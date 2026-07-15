@@ -6,6 +6,7 @@ import com.lanchat.dto.FileUploadVO;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.FileService;
+import com.lanchat.service.ConversationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -19,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/file")
@@ -28,20 +30,43 @@ public class FileController {
     @Autowired
     private FileService fileService;
 
+    @Autowired
+    private ConversationService conversationService;
+
     @Value("${file.path}")
     private String filePath;
 
     @PostMapping("/check")
     public Result<FileUploadVO> checkFile(@RequestBody FileCheckDTO dto) {
-        FileUploadVO vo = fileService.checkFile(dto);
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) return Result.unauthorized("请先登录");
+        if (dto == null || !conversationService.canSend(dto.getConversationId(), userId)) {
+            return Result.forbidden("无权在该会话发送文件");
+        }
+        FileUploadVO vo = fileService.checkFile(dto, userId);
         return Result.success(vo);
     }
 
     @PostMapping("/upload")
-    public Result<FileUploadVO> upload(@RequestParam("file") MultipartFile file) {
+    public Result<FileUploadVO> upload(@RequestParam("file") MultipartFile file,
+                                       @RequestParam String conversationId) {
         Long userId = UserContextHolder.getCurrentUserId();
         if (userId == null) {
             return Result.unauthorized("请先登录");
+        }
+        if (!conversationService.canSend(conversationId, userId)) {
+            return Result.forbidden("无权在该会话发送文件");
+        }
+        return Result.success(fileService.uploadFile(file, userId));
+    }
+
+    /** 头像使用独立入口，避免聊天附件绕过会话发送权限。 */
+    @PostMapping("/avatar")
+    public Result<FileUploadVO> uploadAvatar(@RequestParam("file") MultipartFile file) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) return Result.unauthorized("请先登录");
+        if (file.getContentType() == null || !file.getContentType().startsWith("image/")) {
+            return Result.error(400, "头像必须是图片文件");
         }
         return Result.success(fileService.uploadFile(file, userId));
     }
@@ -131,7 +156,9 @@ public class FileController {
         }
 
         FileSystemResource resource = new FileSystemResource(resolved);
-        ContentDisposition disposition = (download ? ContentDisposition.attachment() : ContentDisposition.inline())
+        boolean inlineAllowed = !download && isSafeInlineType(mediaType);
+        if (!inlineAllowed) mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        ContentDisposition disposition = (inlineAllowed ? ContentDisposition.inline() : ContentDisposition.attachment())
                 .filename(metadata.getFileName(), StandardCharsets.UTF_8)
                 .build();
         ResponseEntity.BodyBuilder response = ResponseEntity.ok()
@@ -139,7 +166,8 @@ public class FileController {
                 .contentLength(contentLength)
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
-                .header("X-Content-Type-Options", "nosniff");
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Cross-Origin-Resource-Policy", "same-origin");
         if (signedPreview) {
             // Authorization has already happened while creating the short-lived
             // bearer URL. Keep the public cache lifetime within token lifetime.
@@ -150,5 +178,17 @@ public class FileController {
             response.cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePrivate());
         }
         return response.body(resource);
+    }
+
+    private boolean isSafeInlineType(MediaType mediaType) {
+        if (mediaType == null) return false;
+        if (MediaType.APPLICATION_PDF.includes(mediaType)) return true;
+        if (MediaType.TEXT_PLAIN.includes(mediaType)) return true;
+        String type = mediaType.getType();
+        String subtype = mediaType.getSubtype().toLowerCase();
+        if ("image".equals(type)) {
+            return Set.of("jpeg", "png", "gif", "bmp", "webp").contains(subtype);
+        }
+        return "audio".equals(type) || "video".equals(type);
     }
 }

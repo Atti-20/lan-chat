@@ -7,8 +7,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface FileService {
 
-    /** 检查文件是否已存在（秒传检测） */
-    FileUploadVO checkFile(FileCheckDTO dto);
+    /** 检查当前用户可访问的文件是否已存在（秒传检测） */
+    FileUploadVO checkFile(FileCheckDTO dto, Long userId);
 
     /** 上传文件 */
     FileUploadVO uploadFile(MultipartFile file, Long userId);

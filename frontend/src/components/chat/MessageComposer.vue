@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { shallowRef, useTemplateRef } from 'vue'
 import type { ChatMessage, Conversation } from '../../types'
+import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
   conversation: Conversation
@@ -76,14 +77,14 @@ function onFileChange(event: Event): void {
 
     <div class="composer glass-surface" :class="{ 'composer--burn': burn }">
       <div class="composer-tools">
-        <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading" @click="chooseFile(imageRef)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+        <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading || !connected" :title="connected ? '' : '连接节点后可上传图片'" @click="chooseFile(imageRef)">
+          <UiIcon name="image" :size="20" />
         </button>
-        <button class="tool-button" type="button" aria-label="发送文件" :disabled="uploading" @click="chooseFile(fileRef)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21.4 11.6-9.2 9.2a4.5 4.5 0 0 1-6.4-6.4l9.2-9.2a3 3 0 0 1 4.2 4.2l-9.2 9.2a1.5 1.5 0 0 1-2.1-2.1L16.7 8"/></svg>
+        <button class="tool-button" type="button" aria-label="发送文件" :disabled="uploading || !connected" :title="connected ? '' : '连接节点后可上传文件'" @click="chooseFile(fileRef)">
+          <UiIcon name="paperclip" :size="20" />
         </button>
         <button class="tool-button burn-button" :class="{ 'burn-button--active': burn }" type="button" :aria-pressed="burn" aria-label="切换阅后即焚" @click="burn = !burn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c0 4-4 6-4 10a4 4 0 0 0 8 0c0-4-4-6-4-10Z"/><path d="M10 16.5a2 2 0 0 0 4 0c0-1.5-2-2.5-2-4-0 1.5-2 2.5-2 4Z" fill="currentColor" opacity="0.25" stroke="none"/></svg>
+          <UiIcon name="flame" :size="20" />
         </button>
       </div>
 
@@ -92,20 +93,19 @@ function onFileChange(event: Event): void {
         v-model="content"
         rows="1"
         maxlength="4000"
-        :placeholder="connected ? `发消息给 ${conversation.name}` : '正在恢复实时连接…'"
-        :disabled="!connected"
+        :placeholder="connected ? `发消息给 ${conversation.name}` : '离线消息将保存在本机，连接恢复后自动发送'"
         @input="onInput"
         @keydown="onKeydown"
       />
 
-      <button class="send-button" type="button" :disabled="!content.trim() || !connected" aria-label="发送消息" @click="submit">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M3.7 3.2l17.1 8.5a.5.5 0 0 1 0 .9L3.7 21.1a.5.5 0 0 1-.7-.5V13l10-1-10-1V3.7a.5.5 0 0 1 .7-.5Z" fill="currentColor"/></svg>
+      <button class="send-button" type="button" :disabled="!content.trim()" aria-label="发送消息" @click="submit">
+        <UiIcon name="send" :size="22" />
       </button>
 
       <input ref="imageInput" class="sr-only" type="file" accept="image/*" @change="onFileChange" />
       <input ref="fileInput" class="sr-only" type="file" @change="onFileChange" />
     </div>
-    <p class="composer-hint">Enter 发送 · Shift + Enter 换行</p>
+    <p class="composer-hint">{{ connected ? 'Enter 发送 · Shift + Enter 换行' : '离线可发送文本 · 文件任务等待连接' }}</p>
   </footer>
 </template>
 
@@ -116,14 +116,14 @@ function onFileChange(event: Event): void {
 .composer-tools { display: flex; padding-bottom: 2px; gap: 2px; }
 .tool-button { display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border: 0; border-radius: 12px; color: #5e7892; background: transparent; cursor: pointer; }
 .tool-button:hover { color: var(--blue); background: rgba(213,233,251,.58); }
-.tool-button svg { width: 20px; }
+.tool-button .ui-icon { width: 20px; }
 .burn-button--active { color: white; background: linear-gradient(145deg, #ff7a75, #f2445c); box-shadow: 0 7px 14px rgba(242,68,92,.2); }
 .composer textarea { min-width: 0; min-height: 40px; max-height: 132px; padding: 10px 4px 8px; flex: 1; resize: none; border: 0; outline: none; color: var(--ink); line-height: 1.5; background: transparent; }
 .composer textarea::placeholder { color: var(--ink-faint); }
 .send-button { display: grid; width: 42px; height: 42px; padding: 0; flex: 0 0 auto; place-items: center; border: 0; border-radius: 15px 15px 15px 7px; color: white; background: linear-gradient(145deg, #2094ff, #0878ef 70%, #6464e9); box-shadow: 0 9px 18px rgba(10,132,255,.25), inset 0 1px 0 rgba(255,255,255,.4); cursor: pointer; transition: 180ms var(--ease-liquid); }
 .send-button:hover { transform: translateY(-2px) rotate(-2deg); }
 .send-button:disabled { opacity: .36; filter: grayscale(.5); cursor: not-allowed; transform: none; }
-.send-button svg { width: 23px; }
+.send-button .ui-icon { width: 23px; }
 .composer-hint { margin: 6px 8px 0; color: #8a9bad; font-size: 9px; text-align: right; }
 .reply-bar { display: flex; min-height: 42px; padding: 7px 12px; margin: 0 8px 7px; align-items: center; gap: 10px; border: 1px solid rgba(255,255,255,.62); border-radius: 15px 15px 8px 8px; color: var(--ink-soft); background: rgba(255,255,255,.42); }
 .reply-mark { color: var(--blue); font-size: 18px; }

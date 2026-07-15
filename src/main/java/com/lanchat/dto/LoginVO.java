@@ -1,5 +1,6 @@
 package com.lanchat.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 /**
@@ -12,6 +13,7 @@ public class LoginVO {
     private String nickname;
     private String avatar;
     private String token;
+    @JsonIgnore
     private String refreshToken;
     private Long expiresIn;
 }

@@ -3,6 +3,7 @@ import { computed, shallowRef, watch } from 'vue'
 import { useToast } from '../../composables/useToast'
 import { api } from '../../services/api'
 import { formatFileSize } from '../../utils/format'
+import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
   type: 'image' | 'file'
@@ -133,14 +134,14 @@ function handlePreviewError(): void {
     @click="download"
   >
     <span class="file-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v6h6M10 13h4M10 17h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <UiIcon name="file" :size="20" />
     </span>
     <span class="file-copy">
       <strong>{{ data.name || '文件' }}</strong>
       <small>{{ loading ? '正在准备下载…' : formatFileSize(data.size) }}</small>
     </span>
     <span class="download-action" aria-hidden="true">
-      <svg class="download-icon" viewBox="0 0 24 24" fill="none"><path d="M12 5v11m0 0-4-4m4 4 4-4M6 20h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <UiIcon class="download-icon" name="download" :size="18" />
     </span>
   </button>
 
@@ -179,7 +180,7 @@ function handlePreviewError(): void {
 .file-attachment:active { transform: scale(.985); }
 .file-attachment:disabled { cursor: wait; opacity: .72; }
 .file-icon { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: var(--blue); background: rgba(0,122,255,.09); }
-.file-icon svg { width: 20px; }
+.file-icon .ui-icon { width: 20px; }
 .file-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .file-copy strong { overflow: hidden; color: currentColor; font-size: 13px; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .file-copy small { color: var(--ink-faint); font-size: 10px; line-height: 1.2; }

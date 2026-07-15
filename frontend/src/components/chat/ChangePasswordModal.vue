@@ -2,6 +2,7 @@
 import { shallowRef, watch } from 'vue'
 import { api, ApiError } from '../../services/api'
 import { useToast } from '../../composables/useToast'
+import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
   open: boolean
@@ -64,7 +65,7 @@ async function submit(): Promise<void> {
   <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
     <section class="password-sheet" role="dialog" aria-modal="true" aria-labelledby="password-title">
       <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <UiIcon name="close" :size="16" />
       </button>
 
       <h2 id="password-title">修改密码</h2>
@@ -136,7 +137,7 @@ async function submit(): Promise<void> {
   cursor: pointer;
 }
 .close-button:hover { background: var(--button-hover); }
-.close-button svg { width: 16px; }
+.close-button .ui-icon { width: 16px; }
 
 .password-sheet h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
 .password-desc { margin: 4px 0 16px; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }

@@ -3,7 +3,7 @@ server:
 
 spring:
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    url: ${DB_URL:jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8&connectionCollation=utf8mb4_general_ci}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -31,13 +31,19 @@ mybatis-plus:
 # JWT 配置
 jwt:
   secret: ${JWT_SECRET:lan-chat-local-development-secret-change-in-production-2026}
+  issuer: ${JWT_ISSUER:lanchat-node}
+  audience: ${JWT_AUDIENCE:lanchat-client}
   expiration: 7200000          # Token 有效期 2 小时（毫秒）
   refresh-expiration: 604800000 # 刷新令牌有效期 7 天（毫秒）
+
+auth:
+  refresh-cookie:
+    secure: ${AUTH_COOKIE_SECURE:false}
 
 # 文件存储
 file:
   path: ${FILE_STORAGE_PATH:./uploads/}
-  allowed-types: jpg,jpeg,png,gif,bmp,webp,doc,docx,xls,xlsx,ppt,pptx,pdf,txt,csv,json,md,xml,html,zip,rar,7z,tar,gz,mp4,mp3,wav,avi,mov,apk,exe,dmg,iso
+  allowed-types: jpg,jpeg,png,gif,bmp,webp,doc,docx,xls,xlsx,ppt,pptx,pdf,txt,csv,json,md,zip,rar,7z,tar,gz,mp4,mp3,wav,avi,mov
   max-size: 104857600          # 100MB
 
 
@@ -59,9 +65,9 @@ logging:
 # WebSocket 浏览器来源。公网经过 HTTPS Tunnel 转发到本机 HTTP 时，
 # 必须显式允许公网 Origin，否则 Spring 默认同源校验会拒绝握手。
 websocket:
-  allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080,https://chat.atti.cc.cd}
+  allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080}
 
 # ==================== Cloudflare Tunnel ====================
 tunnel:
-  enabled: true
-  hostname: chat.atti.cc.cd
+  enabled: ${TUNNEL_ENABLED:false}
+  hostname: ${TUNNEL_HOSTNAME:}

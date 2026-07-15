@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue'
 import UserAvatar from '../components/base/UserAvatar.vue'
+import UiIcon from '../components/base/UiIcon.vue'
 import { ApiError } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
@@ -88,9 +89,7 @@ async function finish(): Promise<void> {
         <p v-if="error" class="welcome-error" role="alert">{{ error }}</p>
         <button class="primary-button finish-button" type="submit" :disabled="saving">
           {{ saving ? '正在保存…' : '进入聊天' }}
-          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <path d="M4 10h12m-5-5 5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
+          <UiIcon name="arrow-right" :size="18" />
         </button>
       </form>
     </section>
@@ -158,7 +157,7 @@ async function finish(): Promise<void> {
 .name-field { display: grid; }
 .welcome-error { margin: -8px 0 0; color: var(--coral); font-size: 13px; }
 .finish-button { display: flex; width: 100%; align-items: center; justify-content: center; gap: 8px; }
-.finish-button svg { width: 18px; }
+.finish-button .ui-icon { width: 18px; }
 
 @media (max-width: 720px) {
   .welcome-page { padding: 18px 12px; }

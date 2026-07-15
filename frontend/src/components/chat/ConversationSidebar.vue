@@ -4,6 +4,7 @@ import type { ChatSection } from '../../composables/useChat'
 import type { Conversation, FriendRequest } from '../../types'
 import { formatTime } from '../../utils/format'
 import UserAvatar from '../base/UserAvatar.vue'
+import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
   section: ChatSection
@@ -54,17 +55,17 @@ const emptyCopy = computed(() => {
       </div>
       <div class="header-actions">
         <button class="mini-button" type="button" aria-label="搜索用户" @click="emit('searchPeople')">
-          <svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="m15.5 15.5 4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <UiIcon name="search" :size="18" />
         </button>
         <button class="mini-button" type="button" aria-label="创建群聊" @click="emit('createGroup')">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <UiIcon name="plus" :size="18" />
         </button>
       </div>
     </header>
 
     <label class="sidebar-search">
       <span class="sr-only">搜索当前列表</span>
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="m15.5 15.5 4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <UiIcon name="search" :size="17" />
       <input v-model="query" type="search" placeholder="搜索对话" />
     </label>
 
@@ -105,6 +106,9 @@ const emptyCopy = computed(() => {
           </span>
           <span class="conversation-line conversation-preview">
             <span>{{ conversation.lastMessage }}</span>
+            <i v-if="conversation.pendingCount" class="pending" :aria-label="`${conversation.pendingCount} 条待发送`">
+              {{ conversation.pendingCount }}
+            </i>
             <i v-if="conversation.muted" aria-label="已免打扰">⌁</i>
             <i v-if="conversation.pinned" class="pin" aria-label="已置顶">●</i>
           </span>
@@ -113,7 +117,7 @@ const emptyCopy = computed(() => {
 
       <div v-if="conversations.length === 0" class="empty-list">
         <span class="empty-icon">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <UiIcon name="messages" :size="24" />
         </span>
         <strong>{{ emptyCopy }}</strong>
         <p>使用右上角按钮开始新的连接。</p>
@@ -130,9 +134,9 @@ const emptyCopy = computed(() => {
 .header-actions { display: flex; gap: 7px; }
 .mini-button { display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border: 1px solid rgba(255,255,255,.75); border-radius: 13px; color: #3b5c7c; background: rgba(255,255,255,.46); box-shadow: inset 0 1px 0 #fff; cursor: pointer; }
 .mini-button:hover { color: var(--blue); background: rgba(255,255,255,.72); }
-.mini-button svg { width: 18px; }
+.mini-button .ui-icon { width: 18px; }
 .sidebar-search { display: flex; min-height: 42px; margin: 0 16px 12px; padding: 0 12px; align-items: center; gap: 8px; border: 1px solid rgba(144,169,194,.17); border-radius: 14px; background: rgba(221,235,248,.42); }
-.sidebar-search svg { width: 17px; color: var(--ink-faint); }
+.sidebar-search .ui-icon { width: 17px; color: var(--ink-faint); }
 .sidebar-search input { width: 100%; min-width: 0; border: 0; outline: none; color: var(--ink); background: none; }
 .sidebar-search input::-webkit-search-cancel-button { display: none; }
 .sidebar-search kbd { padding: 3px 5px; border: 1px solid rgba(138,163,188,.2); border-radius: 5px; color: #8293a5; font-family: inherit; font-size: 9px; background: rgba(255,255,255,.4); }
@@ -148,6 +152,7 @@ const emptyCopy = computed(() => {
 .conversation-preview > span { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-preview i { font-style: normal; }
 .conversation-preview .pin { color: var(--blue); font-size: 8px; }
+.conversation-preview .pending { min-width: 17px; padding: 1px 5px; border-radius: 999px; color: var(--blue); font-size: 9px; font-style: normal; text-align: center; background: rgba(0,122,255,.1); }
 .request-section { margin-bottom: 4px; }
 .request-section-title { padding: 10px 10px 6px; color: var(--ink-faint); font-size: 11px; font-weight: 700; }
 .request-card { display: grid; padding: 14px; grid-template-columns: auto 1fr; gap: 11px; border: 1px solid rgba(255,255,255,.68); border-radius: 20px 16px 20px 16px; background: rgba(255,255,255,.4); box-shadow: inset 0 1px 0 rgba(255,255,255,.85); }
@@ -239,7 +244,7 @@ const emptyCopy = computed(() => {
   box-shadow: none;
 }
 .empty-icon { display: grid; place-items: center; width: 52px; height: 52px; }
-.empty-icon svg { width: 24px; color: var(--blue); }
+.empty-icon .ui-icon { width: 24px; color: var(--blue); }
 .sidebar-loading span { height: 54px; border-radius: 11px; background-color: var(--fill); }
 
 @media (max-width: 1020px) { .conversation-sidebar { width: 294px; } }

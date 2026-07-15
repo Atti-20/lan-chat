@@ -21,7 +21,6 @@ export interface AuthSession {
   nickname: string
   avatar?: string
   token: string
-  refreshToken: string
   expiresIn: number
 }
 
@@ -69,6 +68,7 @@ export interface GroupMember {
 
 export interface Conversation {
   id: number
+  conversationId: string
   kind: 'private' | 'group'
   name: string
   avatar?: string
@@ -79,12 +79,26 @@ export interface Conversation {
   online?: boolean
   pinned?: boolean
   muted?: boolean
+  unreadCount?: number
+  pendingCount?: number
   source: Friend | ChatGroup
 }
 
+export type MessageDeliveryState =
+  | 'WAITING_NETWORK'
+  | 'SENDING'
+  | 'SENT'
+  | 'DELIVERED'
+  | 'READ'
+  | 'FAILED'
+
 export interface ChatMessage {
   messageId: string
+  clientMsgId?: string
+  conversationId?: string
+  sequence?: number
   fromUserId: number
+  senderDeviceId?: number
   fromNickname?: string
   fromAvatar?: string
   toUserId?: number
@@ -98,6 +112,9 @@ export interface ChatMessage {
   burnDuration?: number
   isRecalled?: number
   status?: number
+  deliveryState?: MessageDeliveryState
+  errorMessage?: string
+  clientCreatedAt?: string
   createTime?: string
   timestamp?: string
 }
@@ -123,6 +140,42 @@ export interface DeviceLogin {
   status: number
 }
 
-export interface WsEnvelope extends Partial<ChatMessage> {
-  type: string
+export type ConnectionState =
+  | 'CONNECTING'
+  | 'AUTHENTICATING'
+  | 'SYNCING'
+  | 'ONLINE'
+  | 'DEGRADED'
+  | 'RECONNECTING'
+  | 'OFFLINE'
+
+export interface WsEnvelope<TPayload extends Record<string, unknown> = Record<string, unknown>> {
+  version: 1
+  event: string
+  requestId?: string
+  clientMsgId?: string
+  conversationId?: string
+  timestamp: number
+  payload: TPayload
+}
+
+export interface ChatSendPayload extends Record<string, unknown> {
+  toUserId?: number
+  groupId?: number
+  contentType: string
+  content: string
+  replyToId?: string | null
+  mentionUserIds?: string | null
+  isBurn: boolean
+}
+
+export interface OutboxEntry {
+  clientMsgId: string
+  requestId: string
+  conversationId: string
+  payload: ChatSendPayload
+  createdAt: string
+  retryCount: number
+  state: 'WAITING_NETWORK' | 'SENDING' | 'FAILED'
+  lastError?: string
 }

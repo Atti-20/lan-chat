@@ -46,8 +46,14 @@ public interface UserService extends IService<User> {
     /** 校验访问令牌仍对应有效设备且账号可用 */
     boolean isAccessTokenActive(String token, Long userId, String deviceType);
 
+    /** 获取访问令牌对应的有效设备会话。 */
+    DeviceLogin getActiveDevice(String token, Long userId, String deviceType);
+
     /** 按当前访问令牌退出，避免误退出同类型的其他会话 */
     void logoutByToken(Long userId, String token);
+
+    /** 按刷新令牌退出；即使访问令牌已失效，也能吊销对应设备会话 */
+    void logoutByRefreshToken(String refreshToken);
 
     /** 设置全局免打扰时段 */
     boolean setMutePeriod(Long userId, String muteStart, String muteEnd);

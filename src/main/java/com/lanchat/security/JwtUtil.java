@@ -29,6 +29,12 @@ public class JwtUtil {
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
 
+    @Value("${jwt.issuer:lanchat-node}")
+    private String issuer;
+
+    @Value("${jwt.audience:lanchat-client}")
+    private String audience;
+
     private SecretKey key;
 
     @PostConstruct
@@ -65,10 +71,12 @@ public class JwtUtil {
         return Jwts.builder()
                 .claims(claims)
                 .id(UUID.randomUUID().toString())
+                .issuer(issuer)
+                .audience().add(audience).and()
                 .subject(subject)
                 .issuedAt(now)
                 .expiration(expiryDate)
-                .signWith(key)
+                .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }
 
@@ -78,6 +86,8 @@ public class JwtUtil {
     public Claims parseToken(String token) {
         return Jwts.parser()
                 .verifyWith(key)
+                .requireIssuer(issuer)
+                .requireAudience(audience)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();

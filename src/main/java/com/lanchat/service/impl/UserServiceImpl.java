@@ -353,13 +353,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return false;
         }
 
+        return getActiveDevice(token, userId, deviceType) != null;
+    }
+
+    @Override
+    public DeviceLogin getActiveDevice(String token, Long userId, String deviceType) {
+        if (!StringUtils.hasText(token) || userId == null || !StringUtils.hasText(deviceType)) {
+            return null;
+        }
         LambdaQueryWrapper<DeviceLogin> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(DeviceLogin::getUserId, userId)
                 .eq(DeviceLogin::getDeviceType, deviceType)
                 .eq(DeviceLogin::getToken, token)
                 .eq(DeviceLogin::getStatus, 1)
-                .gt(DeviceLogin::getExpireTime, LocalDateTime.now());
-        return deviceLoginMapper.selectCount(wrapper) > 0;
+                .gt(DeviceLogin::getExpireTime, LocalDateTime.now())
+                .last("LIMIT 1");
+        return deviceLoginMapper.selectOne(wrapper);
     }
 
     @Override
@@ -368,6 +377,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         LambdaUpdateWrapper<DeviceLogin> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(DeviceLogin::getUserId, userId)
                 .eq(DeviceLogin::getToken, token)
+                .eq(DeviceLogin::getStatus, 1)
+                .set(DeviceLogin::getStatus, 0);
+        deviceLoginMapper.update(null, wrapper);
+    }
+
+    @Override
+    public void logoutByRefreshToken(String refreshToken) {
+        if (!StringUtils.hasText(refreshToken)) return;
+        LambdaUpdateWrapper<DeviceLogin> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(DeviceLogin::getRefreshToken, refreshToken)
                 .eq(DeviceLogin::getStatus, 1)
                 .set(DeviceLogin::getStatus, 0);
         deviceLoginMapper.update(null, wrapper);

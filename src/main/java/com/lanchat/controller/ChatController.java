@@ -4,6 +4,7 @@ import com.lanchat.common.Result;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.ChatMessageService;
+import com.lanchat.service.ConversationService;
 import com.lanchat.service.GroupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -20,6 +21,19 @@ public class ChatController {
 
     @Autowired
     private GroupService groupService;
+
+    @Autowired
+    private ConversationService conversationService;
+
+    @GetMapping("/history")
+    public Result<List<ChatMessage>> getConversationHistory(
+            @RequestParam String conversationId,
+            @RequestParam(required = false) Long beforeSequence,
+            @RequestParam(defaultValue = "50") int limit) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        return Result.success(chatMessageService.getConversationHistory(
+                conversationId, userId, beforeSequence, limit));
+    }
 
     @GetMapping("/history/group")
     public Result<List<ChatMessage>> getGroupHistory(
@@ -46,6 +60,14 @@ public class ChatController {
                                    @RequestParam(required = false) Long toUserId) {
         Long currentUserId = UserContextHolder.getCurrentUserId();
         chatMessageService.markAsRead(fromUserId, currentUserId);
+        return Result.success();
+    }
+
+    @PutMapping("/conversation/read")
+    public Result<Void> markConversationAsRead(@RequestParam String conversationId,
+                                               @RequestParam long lastReadSequence) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        conversationService.markRead(conversationId, userId, lastReadSequence);
         return Result.success();
     }
 

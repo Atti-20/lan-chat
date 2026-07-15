@@ -1,0 +1,11 @@
+.git
+.idea
+.vscode
+.DS_Store
+.cloudflared
+.playwright-cli
+target
+uploads
+frontend/node_modules
+src/main/resources/static/app/assets
+*.iml

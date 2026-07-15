@@ -18,6 +18,8 @@ class JwtUtilTest {
         ReflectionTestUtils.setField(jwtUtil, "secret", "test-secret-key-with-at-least-thirty-two-bytes");
         ReflectionTestUtils.setField(jwtUtil, "expiration", 60_000L);
         ReflectionTestUtils.setField(jwtUtil, "refreshExpiration", 120_000L);
+        ReflectionTestUtils.setField(jwtUtil, "issuer", "lanchat-test-node");
+        ReflectionTestUtils.setField(jwtUtil, "audience", "lanchat-test-client");
         jwtUtil.init();
     }
 

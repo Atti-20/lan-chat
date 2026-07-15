@@ -3,6 +3,7 @@ import { ref, shallowRef, watch } from 'vue'
 import { api } from '../../services/api'
 import type { User } from '../../types'
 import UserAvatar from '../base/UserAvatar.vue'
+import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
   open: boolean
@@ -52,13 +53,13 @@ watch(() => props.open, (open) => {
   <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
     <section class="search-sheet" role="dialog" aria-modal="true" aria-labelledby="people-title">
       <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <UiIcon name="close" :size="16" />
       </button>
 
       <h2 id="people-title">查找好友</h2>
 
       <label class="search-field">
-        <svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="m15.5 15.5 4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <UiIcon name="search" :size="18" />
         <input v-model="query" autofocus placeholder="输入用户名或昵称" />
       </label>
 
@@ -133,7 +134,7 @@ watch(() => props.open, (open) => {
   transition: background-color 150ms ease;
 }
 .close-button:hover { background: var(--button-hover); }
-.close-button svg { width: 16px; }
+.close-button .ui-icon { width: 16px; }
 
 .search-sheet h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
 
@@ -147,7 +148,7 @@ watch(() => props.open, (open) => {
   border-radius: 12px;
   background: var(--fill);
 }
-.search-field svg { width: 18px; flex-shrink: 0; color: var(--ink-faint); }
+.search-field .ui-icon { width: 18px; flex-shrink: 0; color: var(--ink-faint); }
 .search-field input { width: 100%; border: 0; font-size: 14px; outline: none; background: none; }
 
 .message-field { display: grid; gap: 6px; }

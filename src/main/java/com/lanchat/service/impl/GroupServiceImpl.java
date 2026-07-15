@@ -14,6 +14,7 @@ import com.lanchat.mapper.GroupMemberMapper;
 import com.lanchat.mapper.MessageRecallMapper;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.service.GroupService;
+import com.lanchat.service.ConversationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +39,9 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
 
     @Autowired
     private MessageRecallMapper messageRecallMapper;
+
+    @Autowired
+    private ConversationService conversationService;
 
     /** 最大管理员数量 */
     private static final int MAX_ADMINS = 3;
@@ -101,6 +105,7 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
             }
         }
 
+        conversationService.ensureGroupConversation(group.getId());
         return group;
     }
 
@@ -257,6 +262,7 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
                 memberMapper.insert(member);
             }
         }
+        conversationService.ensureGroupConversation(groupId);
         return true;
     }
 
@@ -277,7 +283,9 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
 
         LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(GroupMember::getGroupId, groupId).eq(GroupMember::getUserId, userId);
-        return memberMapper.delete(wrapper) > 0;
+        boolean removed = memberMapper.delete(wrapper) > 0;
+        if (removed) conversationService.markGroupMemberLeft(groupId, userId);
+        return removed;
     }
 
     @Override
@@ -290,7 +298,9 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
 
         LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(GroupMember::getGroupId, groupId).eq(GroupMember::getUserId, userId);
-        return memberMapper.delete(wrapper) > 0;
+        boolean removed = memberMapper.delete(wrapper) > 0;
+        if (removed) conversationService.markGroupMemberLeft(groupId, userId);
+        return removed;
     }
 
     @Override
@@ -330,6 +340,8 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
         group.setUpdateTime(LocalDateTime.now());
         groupMapper.updateById(group);
 
+        conversationService.ensureGroupConversation(groupId);
+
         return true;
     }
 
@@ -359,7 +371,9 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
         }
 
         member.setRole(isAdmin ? 1 : 0);
-        return memberMapper.updateById(member) > 0;
+        boolean updated = memberMapper.updateById(member) > 0;
+        if (updated) conversationService.ensureGroupConversation(groupId);
+        return updated;
     }
 
     @Override
@@ -437,6 +451,7 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
 
         // 删除群组
         groupMapper.deleteById(groupId);
+        conversationService.archiveGroupConversation(groupId);
         return true;
     }
 

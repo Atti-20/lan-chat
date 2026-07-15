@@ -1,5 +1,13 @@
-import { readonly, ref } from 'vue'
+import { readonly, shallowRef } from 'vue'
 import { readTheme, writeTheme, type ThemeMode } from '../utils/storage'
+
+interface ViewTransitionLike {
+  finished: Promise<void>
+}
+
+interface ViewTransitionDocument {
+  startViewTransition?: (update: () => void) => ViewTransitionLike
+}
 
 function resolveInitial(): ThemeMode {
   const stored = readTheme()
@@ -7,7 +15,7 @@ function resolveInitial(): ThemeMode {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-const mode = ref<ThemeMode>(resolveInitial())
+const mode = shallowRef<ThemeMode>(resolveInitial())
 
 function applyMode(next: ThemeMode): void {
   document.documentElement.setAttribute('data-theme', next)
@@ -28,28 +36,32 @@ function maxCoverRadius(x: number, y: number): number {
 
 function revealWithViewTransition(x: number, y: number, next: ThemeMode): void {
   const endRadius = maxCoverRadius(x, y)
+  const root = document.documentElement
+  const transitionDocument = document as ViewTransitionDocument
 
-  const transition = (document as any).startViewTransition(() => {
-    mode.value = next
-    applyMode(next)
-    writeTheme(next)
-  })
+  root.style.setProperty('--theme-reveal-x', `${x}px`)
+  root.style.setProperty('--theme-reveal-y', `${y}px`)
+  root.style.setProperty('--theme-reveal-radius', `${endRadius}px`)
 
-  transition.ready.then(() => {
-    document.documentElement.animate(
-      {
-        clipPath: [
-          `circle(0px at ${x}px ${y}px)`,
-          `circle(${endRadius}px at ${x}px ${y}px)`,
-        ],
-      },
-      {
-        duration: 500,
-        easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
-        pseudoElement: '::view-transition-new(root)',
-      },
-    )
-  })
+  try {
+    const transition = transitionDocument.startViewTransition!(() => {
+      mode.value = next
+      applyMode(next)
+      writeTheme(next)
+    })
+
+    const clearRevealProperties = () => {
+      root.style.removeProperty('--theme-reveal-x')
+      root.style.removeProperty('--theme-reveal-y')
+      root.style.removeProperty('--theme-reveal-radius')
+    }
+    transition.finished.then(clearRevealProperties, clearRevealProperties)
+  } catch (error) {
+    root.style.removeProperty('--theme-reveal-x')
+    root.style.removeProperty('--theme-reveal-y')
+    root.style.removeProperty('--theme-reveal-radius')
+    throw error
+  }
 }
 
 /* ── Overlay fallback path ── */
@@ -123,11 +135,16 @@ export function useTheme() {
     const x = event.clientX
     const y = event.clientY
 
-    if ((document as any).startViewTransition) {
-      revealWithViewTransition(x, y, next)
-    } else {
-      revealWithOverlay(x, y, next)
+    const transitionDocument = document as ViewTransitionDocument
+    if (typeof transitionDocument.startViewTransition === 'function') {
+      try {
+        revealWithViewTransition(x, y, next)
+        return
+      } catch {
+        // Edge versions with an incomplete View Transition implementation use the CSS overlay fallback.
+      }
     }
+    revealWithOverlay(x, y, next)
   }
 
   return {

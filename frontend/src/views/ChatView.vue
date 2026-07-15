@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import AdminConsoleModal from '../components/admin/AdminConsoleModal.vue'
 import AppRail from '../components/chat/AppRail.vue'
 import ChangePasswordModal from '../components/chat/ChangePasswordModal.vue'
+import ConnectionStatusBar from '../components/chat/ConnectionStatusBar.vue'
 import ContextPanel from '../components/chat/ContextPanel.vue'
 import ConversationSidebar from '../components/chat/ConversationSidebar.vue'
 import CreateGroupModal from '../components/chat/CreateGroupModal.vue'
@@ -12,6 +13,7 @@ import MessageThread from '../components/chat/MessageThread.vue'
 import ProfileModal from '../components/chat/ProfileModal.vue'
 import SearchPeopleModal from '../components/chat/SearchPeopleModal.vue'
 import UserAvatar from '../components/base/UserAvatar.vue'
+import UiIcon from '../components/base/UiIcon.vue'
 import { useAdmin } from '../composables/useAdmin'
 import { useAuth } from '../composables/useAuth'
 import { useChat, type ChatSection } from '../composables/useChat'
@@ -37,6 +39,11 @@ const {
   visibleConversations,
   connected,
   reconnecting,
+  connectionState,
+  reconnectAttempts,
+  latencyMs,
+  pendingCount,
+  failedCount,
 } = chat
 const {
   users: adminUsers,
@@ -66,7 +73,13 @@ const user = computed<User>(() => auth.currentUser.value || {
 const showSidebar = computed(() => !mobile.value || !selected.value)
 const showWorkspace = computed(() => !mobile.value || Boolean(selected.value))
 const friendIds = computed(() => friends.value.map((friend) => friend.friendId))
-const connectionCopy = computed(() => reconnecting.value ? '正在重连' : connected.value ? '实时在线' : '连接已断开')
+const connectionCopy = computed(() => reconnecting.value
+  ? '正在重连'
+  : connectionState.value === 'SYNCING'
+    ? '正在同步'
+    : connected.value
+      ? '实时在线'
+      : '离线可用')
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
@@ -109,8 +122,8 @@ async function selectConversation(conversation: Conversation): Promise<void> {
   }
 }
 
-function sendMessage(content: string, burn: boolean): void {
-  if (chat.sendText(content, { burn, replyToId: replyTo.value?.messageId })) {
+async function sendMessage(content: string, burn: boolean): Promise<void> {
+  if (await chat.sendText(content, { burn, replyToId: replyTo.value?.messageId })) {
     replyTo.value = null
   }
 }
@@ -260,7 +273,7 @@ function handleError(cause: unknown, fallback: string): void {
       <section v-if="selected && showWorkspace" class="workspace">
         <header class="workspace-header">
           <button v-if="mobile" class="back-button" type="button" aria-label="返回会话列表" @click="selected = null">
-            <svg viewBox="0 0 24 24" fill="none"><path d="m15 5-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <UiIcon name="back" :size="21" />
           </button>
           <button class="header-profile" type="button" aria-label="查看详情" @click="contextOpen = true">
             <UserAvatar :name="selected.name" :avatar="selected.avatar" :size="42" />
@@ -270,6 +283,17 @@ function handleError(cause: unknown, fallback: string): void {
             </div>
           </button>
         </header>
+
+        <ConnectionStatusBar
+          v-if="connectionState !== 'ONLINE' || pendingCount > 0 || failedCount > 0"
+          :state="connectionState"
+          :pending-count="pendingCount"
+          :failed-count="failedCount"
+          :reconnect-attempts="reconnectAttempts"
+          :latency-ms="latencyMs"
+          @reconnect="chat.reconnect"
+          @retry="chat.retryOutbox"
+        />
 
         <MessageThread
           :conversation="selected"
@@ -281,6 +305,8 @@ function handleError(cause: unknown, fallback: string): void {
           @recall="chat.recall"
           @burn="chat.burn"
           @reply="replyTo = $event"
+          @retry="chat.retryMessage"
+          @cancel-pending="chat.cancelPendingMessage"
         />
         <MessageComposer
           :conversation="selected"
@@ -296,7 +322,7 @@ function handleError(cause: unknown, fallback: string): void {
 
       <section v-else-if="showWorkspace" class="workspace workspace--empty">
         <div class="empty-prism" aria-hidden="true">
-          <svg viewBox="0 0 72 72" fill="none"><path d="M18 18h36a8 8 0 0 1 8 8v14a8 8 0 0 1-8 8H38l-12 10V48h-8a8 8 0 0 1-8-8V26a8 8 0 0 1 8-8Z" fill="currentColor"/><path d="M26 31h20M26 38h12" stroke="white" stroke-width="3.5" stroke-linecap="round"/></svg>
+          <UiIcon name="brand" :size="42" />
         </div>
         <h2>选择一段对话</h2>
         <p>左侧是最近的消息、好友与群组。<br />选中后，就能从上次停下的地方继续。</p>
@@ -363,9 +389,9 @@ function handleError(cause: unknown, fallback: string): void {
 </template>
 
 <style scoped>
-.chat-page { min-height: 100dvh; padding: 18px; }
-.chat-shell { display: grid; width: min(100%, 1680px); height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: 78px 330px minmax(0, 1fr); gap: 10px; }
-.workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: 76px minmax(0, 1fr) auto; border-radius: 18px; overflow: hidden; }
+.chat-page { width: 100%; min-height: 100dvh; padding: 18px; }
+.chat-shell { display: grid; width: 100%; height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: 78px 330px minmax(0, 1fr); gap: 10px; }
+.workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: 76px auto minmax(0, 1fr) auto; border-radius: 18px; overflow: hidden; }
 .workspace-header { display: flex; padding: 14px 19px; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.54); background: rgba(255,255,255,.16); }
 .workspace-title { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .workspace-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
@@ -374,11 +400,11 @@ function handleError(cause: unknown, fallback: string): void {
 .workspace-title i.offline { background: var(--ink-faint); box-shadow: none; }
 .workspace-more,
 .back-button { display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid var(--glass-border); border-radius: 13px; color: var(--ink-faint); background: var(--surface-glass); cursor: pointer; }
-.workspace-more svg { width: 21px; }.back-button { display: none; }.back-button svg { width: 21px; }
+.workspace-more .ui-icon { width: 21px; }.back-button { display: none; }.back-button .ui-icon { width: 21px; }
 .workspace--empty { place-items: center; align-content: center; text-align: center; grid-template-rows: auto; }
 .empty-prism { position: relative; display: grid; width: 150px; height: 150px; margin-bottom: 22px; place-items: center; border: 1px solid rgba(255,255,255,.74); border-radius: 46% 54% 52% 48%; color: var(--blue); background: linear-gradient(145deg, rgba(255,255,255,.66), rgba(205,233,255,.35)); box-shadow: inset 0 1px 0 #fff, 0 24px 46px rgba(52,91,132,.14); transform: rotate(-4deg); }
 .empty-prism::before { position: absolute; inset: 18px; border: 1px solid rgba(118,103,245,.14); border-radius: 55% 45% 49% 51%; content: ""; transform: rotate(12deg); }
-.empty-prism svg { z-index: 1; width: 72px; }
+.empty-prism .ui-icon { z-index: 1; width: 72px; }
 .empty-prism span { position: absolute; z-index: 2; width: 11px; height: 11px; border: 3px solid white; border-radius: 50%; background: var(--cyan); box-shadow: 0 5px 12px rgba(10,132,255,.22); }
 .empty-prism span:nth-child(1) { top: 12px; right: 22px; }.empty-prism span:nth-child(2) { bottom: 19px; left: 7px; background: var(--green); }.empty-prism span:nth-child(3) { right: 5px; bottom: 39px; background: var(--violet); }
 .workspace--empty h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }.workspace--empty p { margin: 10px 0 20px; color: var(--ink-soft); font-size: 12px; line-height: 1.7; }
@@ -401,6 +427,7 @@ function handleError(cause: unknown, fallback: string): void {
 
 .chat-page { padding: 20px; }
 .chat-shell {
+  width: 100%;
   height: calc(100dvh - 40px);
   grid-template-columns: 72px 320px minmax(0, 1fr);
   gap: 0;
@@ -437,7 +464,7 @@ function handleError(cause: unknown, fallback: string): void {
   transform: none;
 }
 .empty-prism::before { display: none; }
-.empty-prism svg { width: 42px; }
+.empty-prism .ui-icon { width: 42px; }
 .workspace--empty h2 { font-size: 20px; }
 .workspace--empty p { color: var(--ink-soft); font-size: 12px; }
 .boot-screen { border-radius: 22px; }

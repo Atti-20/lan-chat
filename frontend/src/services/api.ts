@@ -16,6 +16,7 @@ interface ApiResult<T> {
   code: number
   msg: string
   data: T
+  requestId?: string
 }
 
 export class ApiError extends Error {
@@ -35,14 +36,13 @@ async function refreshAccessToken(): Promise<boolean> {
   if (refreshPromise) return refreshPromise
   refreshPromise = (async () => {
     const session = readSession()
-    if (!session?.refreshToken) return false
 
     try {
       const response = await fetch('/api/v1/auth/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({
-          refreshToken: session.refreshToken,
           deviceType: 'web',
           deviceName: navigator.userAgent.slice(0, 100),
         }),
@@ -66,6 +66,7 @@ async function refreshAccessToken(): Promise<boolean> {
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const isFormData = init.body instanceof FormData
   const headers = new Headers(init.headers)
+  headers.set('X-Request-ID', `req_${crypto.randomUUID?.().replace(/-/g, '') || Date.now()}`)
   Object.entries(authHeaders()).forEach(([key, value]) => headers.set(key, value))
   if (!isFormData && init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -118,6 +119,7 @@ export const api = {
       body: JSON.stringify({ username, password, nickname }),
     }),
     logout: () => request<void>('/auth/logout', { method: 'POST' }),
+    refreshSession: refreshAccessToken,
   },
   user: {
     me: () => request<User>('/user/info'),
@@ -163,6 +165,11 @@ export const api = {
     }),
   },
   chat: {
+    history: (conversationId: string, limit = 50, beforeSequence?: number) => request<ChatMessage[]>(
+      `/chat/history?conversationId=${encodeURIComponent(conversationId)}&limit=${limit}${
+        beforeSequence ? `&beforeSequence=${beforeSequence}` : ''
+      }`,
+    ),
     privateHistory: (targetId: number, limit = 50) => request<ChatMessage[]>(
       `/chat/history/private?targetId=${targetId}&limit=${limit}`,
     ),
@@ -170,6 +177,10 @@ export const api = {
       `/chat/history/group?groupId=${groupId}&limit=${limit}`,
     ),
     markRead: (fromUserId: number) => request<void>(`/chat/read?fromUserId=${fromUserId}`, { method: 'PUT' }),
+    markConversationRead: (conversationId: string, lastReadSequence: number) => request<void>(
+      `/chat/conversation/read?conversationId=${encodeURIComponent(conversationId)}&lastReadSequence=${lastReadSequence}`,
+      { method: 'PUT' },
+    ),
     recall: (messageId: string) => request<void>(`/chat/recall?messageId=${encodeURIComponent(messageId)}`, {
       method: 'POST',
     }),
@@ -178,10 +189,18 @@ export const api = {
     }),
   },
   files: {
-    upload: (file: File) => {
+    upload: (file: File, conversationId: string) => {
       const form = new FormData()
       form.append('file', file)
-      return request<FileUpload>('/file/upload', { method: 'POST', body: form })
+      return request<FileUpload>(
+        `/file/upload?conversationId=${encodeURIComponent(conversationId)}`,
+        { method: 'POST', body: form },
+      )
+    },
+    uploadAvatar: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return request<FileUpload>('/file/avatar', { method: 'POST', body: form })
     },
     temporaryUrl: (rawUrl: string) => request<string>(
       `/file/preview-url?fileName=${encodeURIComponent(storedFileName(rawUrl))}`,
