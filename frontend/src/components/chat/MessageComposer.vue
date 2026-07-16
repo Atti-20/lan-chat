@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { shallowRef, useTemplateRef } from 'vue'
 import type { ChatMessage, Conversation } from '../../types'
+import { clipboardContainsTable, clipboardTableToImage } from '../../utils/clipboard'
 import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
@@ -10,7 +11,7 @@ interface Props {
   uploading?: boolean
 }
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
   replyTo: null,
   uploading: false,
 })
@@ -25,6 +26,7 @@ const burn = shallowRef(false)
 const fileRef = useTemplateRef<HTMLInputElement>('fileInput')
 const imageRef = useTemplateRef<HTMLInputElement>('imageInput')
 const textareaRef = useTemplateRef<HTMLTextAreaElement>('textarea')
+const pasting = shallowRef(false)
 let typingTimer: number | null = null
 
 function submit(): void {
@@ -55,6 +57,49 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+async function onPaste(event: ClipboardEvent): Promise<void> {
+  if (!props.connected || pasting.value) return
+  const clipboard = event.clipboardData
+  if (!clipboard) return
+
+  const imageItem = Array.from(clipboard.items).find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+  const html = clipboard.getData('text/html')
+  const text = clipboard.getData('text/plain')
+  const tablePaste = clipboardContainsTable(html, text)
+  if (!imageItem && !tablePaste) return
+
+  event.preventDefault()
+  pasting.value = true
+  try {
+    const image = imageItem?.getAsFile()
+    if (image) {
+      emit('file', image)
+      return
+    }
+
+    const tableImage = await clipboardTableToImage(html, text)
+    if (tableImage) emit('file', tableImage)
+    else insertPastedText(text)
+  } finally {
+    pasting.value = false
+  }
+}
+
+function insertPastedText(value: string): void {
+  const textarea = textareaRef.value
+  if (!textarea || !value) return
+  const start = textarea.selectionStart ?? content.value.length
+  const end = textarea.selectionEnd ?? start
+  const next = `${content.value.slice(0, start)}${value}${content.value.slice(end)}`.slice(0, 4000)
+  content.value = next
+  requestAnimationFrame(() => {
+    if (!textareaRef.value) return
+    const caret = Math.min(start + value.length, next.length)
+    textareaRef.value.setSelectionRange(caret, caret)
+    onInput()
+  })
+}
+
 function chooseFile(target: HTMLInputElement | null): void {
   target?.click()
 }
@@ -77,10 +122,10 @@ function onFileChange(event: Event): void {
 
     <div class="composer glass-surface" :class="{ 'composer--burn': burn }">
       <div class="composer-tools">
-        <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading || !connected" :title="connected ? '' : '连接节点后可上传图片'" @click="chooseFile(imageRef)">
+        <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading || pasting || !connected" :title="connected ? '' : '连接节点后可上传图片'" @click="chooseFile(imageRef)">
           <UiIcon name="image" :size="20" />
         </button>
-        <button class="tool-button" type="button" aria-label="发送文件" :disabled="uploading || !connected" :title="connected ? '' : '连接节点后可上传文件'" @click="chooseFile(fileRef)">
+        <button class="tool-button" type="button" aria-label="发送文件" :disabled="uploading || pasting || !connected" :title="connected ? '' : '连接节点后可上传文件'" @click="chooseFile(fileRef)">
           <UiIcon name="paperclip" :size="20" />
         </button>
         <button class="tool-button burn-button" :class="{ 'burn-button--active': burn }" type="button" :aria-pressed="burn" aria-label="切换阅后即焚" @click="burn = !burn">
@@ -96,6 +141,7 @@ function onFileChange(event: Event): void {
         :placeholder="connected ? `发消息给 ${conversation.name}` : '离线消息将保存在本机，连接恢复后自动发送'"
         @input="onInput"
         @keydown="onKeydown"
+        @paste="onPaste"
       />
 
       <button class="send-button" type="button" :disabled="!content.trim()" aria-label="发送消息" @click="submit">
