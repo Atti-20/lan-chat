@@ -3,16 +3,29 @@ package com.lanchat.websocket;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lanchat.common.ConversationIds;
 import com.lanchat.common.FileReferenceUtil;
+import com.lanchat.common.TemporaryRoomChangedEvent;
 import com.lanchat.dto.ReliableMessageResult;
 import com.lanchat.dto.WebSocketEnvelope;
+import com.lanchat.dto.FileTransferCompletionDTO;
+import com.lanchat.dto.FileTransferOfferDTO;
+import com.lanchat.dto.FileTransferRelayCompletionDTO;
+import com.lanchat.dto.FileTransferRoute;
+import com.lanchat.dto.FileTransferVO;
+import com.lanchat.dto.BroadcastConfirmDTO;
+import com.lanchat.dto.BroadcastDetailDTO;
+import com.lanchat.dto.BroadcastStatsDTO;
+import com.lanchat.entity.Broadcast;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.DeviceLogin;
+import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.User;
 import com.lanchat.security.JwtUtil;
 import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.ConversationService;
 import com.lanchat.service.FileService;
 import com.lanchat.service.FriendService;
+import com.lanchat.service.FileTransferService;
+import com.lanchat.service.BroadcastService;
 import com.lanchat.service.GroupService;
 import com.lanchat.service.UserService;
 import jakarta.annotation.PreDestroy;
@@ -78,6 +91,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private static final int MAX_FRAME_LENGTH = 64_000;
     private static final int MAX_SYNC_CONVERSATIONS = 100;
     private static final int MAX_SYNC_MESSAGES = 200;
+    private static final int MAX_RTC_SDP_LENGTH = 48_000;
 
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
@@ -87,6 +101,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final UserService userService;
     private final GroupService groupService;
     private final FriendService friendService;
+    private final FileTransferService fileTransferService;
+    private final BroadcastService broadcastService;
     private final ScheduledExecutorService authTimeoutExecutor;
 
     public ChatWebSocketHandler(ObjectMapper objectMapper,
@@ -96,7 +112,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 FileService fileService,
                                 UserService userService,
                                 GroupService groupService,
-                                FriendService friendService) {
+                                FriendService friendService,
+                                FileTransferService fileTransferService,
+                                BroadcastService broadcastService) {
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.chatMessageService = chatMessageService;
@@ -105,6 +123,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.userService = userService;
         this.groupService = groupService;
         this.friendService = friendService;
+        this.fileTransferService = fileTransferService;
+        this.broadcastService = broadcastService;
         this.authTimeoutExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "lanchat-ws-auth-timeout");
             thread.setDaemon(true);
@@ -177,6 +197,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 case "CHAT_RECALL" -> handleRecall(session, incoming);
                 case "CHAT_BURN" -> handleBurn(session, incoming);
                 case "TYPING_START", "TYPING_STOP" -> handleTyping(session, incoming, event);
+                case "FILE_TRANSFER_OFFER" -> handleFileTransferOffer(session, incoming);
+                case "FILE_TRANSFER_ANSWER" -> handleFileTransferAnswer(session, incoming);
+                case "FILE_TRANSFER_STARTED" -> handleFileTransferStarted(session, incoming);
+                case "FILE_TRANSFER_COMPLETE" -> handleFileTransferComplete(session, incoming);
+                case "FILE_TRANSFER_FAILED", "FILE_TRANSFER_FALLBACK" ->
+                        handleFileTransferFallback(session, incoming);
+                case "FILE_TRANSFER_RELAY_COMPLETE" -> handleFileTransferRelayComplete(session, incoming);
+                case "BROADCAST_ACK" -> handleBroadcastAck(session, incoming);
                 case "CHAT_DELIVER" -> {
                     // MVP 以会话 lastReadSequence 聚合回执；精细送达记录在后续版本落表。
                 }
@@ -261,6 +289,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             payload.put("deviceId", device.getId());
             payload.put("serverTime", System.currentTimeMillis());
             sendEvent(session, envelope("AUTH_OK", incoming.getRequestId(), null, null, payload));
+            deliverPendingBroadcasts(session, userId);
 
             if (wasOffline) {
                 broadcastPresence("online", userId, user.getNickname());
@@ -309,7 +338,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         Long toUserId = payloadLong(incoming, "toUserId");
         Long groupId = payloadLong(incoming, "groupId");
-        validateTargetAndPermission(senderId, toUserId, groupId);
+        validateTargetAndPermission(senderId, toUserId, groupId, incoming.getConversationId());
 
         String contentType = payloadString(incoming, "contentType");
         contentType = StringUtils.hasText(contentType)
@@ -362,11 +391,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         message.setStatus(0);
         message.setClientCreatedAt(clientCreatedAt(incoming));
         if (!"text".equals(contentType)) {
-            String storedName = FileReferenceUtil.extractFirstStoredName(content);
-            if (!StringUtils.hasText(storedName) || !fileService.canAccessFile(storedName, senderId)) {
-                throw new IllegalArgumentException("附件不存在或无权访问");
+            if (!validateCompletedDirectAttachment(
+                    content, contentType, incoming.getConversationId(), senderId,
+                    attributeLong(session, DEVICE_ID_ATTRIBUTE))) {
+                String storedName = FileReferenceUtil.extractFirstStoredName(content);
+                if (!StringUtils.hasText(storedName) || !fileService.canAccessFile(storedName, senderId)) {
+                    throw new IllegalArgumentException("附件不存在或无权访问");
+                }
+                message.setFilePath(storedName);
             }
-            message.setFilePath(storedName);
         }
 
         ReliableMessageResult result;
@@ -526,7 +559,319 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 userId);
     }
 
-    private void validateTargetAndPermission(Long senderId, Long toUserId, Long groupId) {
+    private void handleFileTransferOffer(WebSocketSession session, WebSocketEnvelope incoming) {
+        requireRequestId(incoming);
+        Long senderId = getUserId(session);
+        Long senderDeviceId = attributeLong(session, DEVICE_ID_ATTRIBUTE);
+        String conversationId = requiredConversationId(incoming);
+        if (ConversationIds.parsePrivate(conversationId).isEmpty()
+                || !conversationService.canSend(conversationId, senderId)) {
+            throw new IllegalArgumentException("WebRTC 文件直传仅支持可发送的私聊会话");
+        }
+
+        String clientTransferId = requiredTransferId(incoming);
+        String sdp = requiredSdp(incoming);
+        FileTransferVO transfer = fileTransferService.createOffer(
+                senderId,
+                senderDeviceId,
+                new FileTransferOfferDTO(
+                        clientTransferId,
+                        conversationId,
+                        payloadString(incoming, "name"),
+                        payloadLong(incoming, "size"),
+                        payloadString(incoming, "mime"),
+                        payloadString(incoming, "fileHash")
+                )
+        );
+
+        Map<String, Object> readyPayload = new LinkedHashMap<>();
+        readyPayload.put("clientTransferId", transfer.clientTransferId());
+        readyPayload.put("transferId", transfer.transferId());
+        readyPayload.put("status", transfer.status());
+        readyPayload.put("transportPath", transfer.transportPath());
+        sendEvent(session, envelope("FILE_TRANSFER_READY", incoming.getRequestId(), null,
+                conversationId, readyPayload));
+
+        Set<WebSocketSession> receiverSessions = ONLINE_SESSIONS.get(transfer.receiverUserId());
+        if (!"OFFERED".equals(transfer.status())
+                || receiverSessions == null
+                || receiverSessions.stream().noneMatch(WebSocketSession::isOpen)) {
+            if ("OFFERED".equals(transfer.status())) {
+                transfer = fileTransferService.fallbackToNodeRelay(
+                        transfer.transferId(), senderId, senderDeviceId, "RECEIVER_OFFLINE");
+            }
+            sendEvent(session, envelope("FILE_TRANSFER_REJECTED", incoming.getRequestId(), null,
+                    conversationId, Map.of(
+                            "transferId", transfer.transferId(),
+                            "clientTransferId", transfer.clientTransferId(),
+                            "reason", transfer.fallbackReason() == null
+                                    ? "NODE_RELAY_REQUIRED" : transfer.fallbackReason(),
+                            "message", "接收设备不在线或当前文件需通过节点中转"
+                    )));
+            return;
+        }
+
+        Map<String, Object> offerPayload = new LinkedHashMap<>();
+        offerPayload.put("transferId", transfer.transferId());
+        offerPayload.put("fromUserId", senderId);
+        offerPayload.put("name", transfer.fileName());
+        offerPayload.put("size", transfer.fileSize());
+        offerPayload.put("mime", transfer.fileType());
+        offerPayload.put("fileHash", transfer.fileHash());
+        offerPayload.put("sdp", sdp);
+        WebSocketEnvelope offer = envelope("FILE_TRANSFER_OFFER", incoming.getRequestId(), null,
+                conversationId, offerPayload);
+        receiverSessions.forEach(target -> sendEvent(target, offer));
+    }
+
+    private void handleFileTransferAnswer(WebSocketSession session, WebSocketEnvelope incoming) {
+        requireRequestId(incoming);
+        String transferId = requiredTransferId(incoming);
+        String sdp = requiredSdp(incoming);
+        Long receiverId = getUserId(session);
+        Long receiverDeviceId = attributeLong(session, DEVICE_ID_ATTRIBUTE);
+
+        FileTransferVO claimed;
+        try {
+            claimed = fileTransferService.claimReceiverDevice(
+                    transferId, receiverId, receiverDeviceId);
+        } catch (IllegalArgumentException rejected) {
+            sendEvent(session, envelope("FILE_TRANSFER_CANCELED", incoming.getRequestId(), null,
+                    incoming.getConversationId(), Map.of(
+                            "transferId", transferId,
+                            "message", rejected.getMessage()
+                    )));
+            return;
+        }
+        fileTransferService.markNegotiating(
+                transferId, claimed.senderUserId(), claimed.senderDeviceId());
+        FileTransferRoute route = fileTransferService.authorizePeerSignal(
+                transferId, receiverId, receiverDeviceId);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("transferId", transferId);
+        payload.put("sdp", sdp);
+        payload.put("receiverDeviceId", receiverDeviceId);
+        sendToDevice(route.targetUserId(), route.targetDeviceId(), envelope(
+                "FILE_TRANSFER_ANSWER", incoming.getRequestId(), null,
+                route.conversationId(), payload));
+    }
+
+    private void handleFileTransferStarted(WebSocketSession session, WebSocketEnvelope incoming) {
+        requireRequestId(incoming);
+        String transferId = requiredTransferId(incoming);
+        fileTransferService.markTransferring(
+                transferId, getUserId(session), attributeLong(session, DEVICE_ID_ATTRIBUTE));
+    }
+
+    private void handleFileTransferComplete(WebSocketSession session, WebSocketEnvelope incoming) {
+        requireRequestId(incoming);
+        String transferId = requiredTransferId(incoming);
+        Long receiverId = getUserId(session);
+        Long receiverDeviceId = attributeLong(session, DEVICE_ID_ATTRIBUTE);
+        FileTransferRoute senderRoute = fileTransferService.authorizePeerSignal(
+                transferId, receiverId, receiverDeviceId);
+        FileTransferVO completed = fileTransferService.completePeerToPeer(
+                transferId,
+                receiverId,
+                receiverDeviceId,
+                new FileTransferCompletionDTO(
+                        payloadString(incoming, "fileHash"),
+                        payloadLong(incoming, "fileSize")
+                )
+        );
+        sendToDevice(senderRoute.targetUserId(), senderRoute.targetDeviceId(), envelope(
+                "FILE_TRANSFER_COMPLETE", incoming.getRequestId(), null,
+                completed.conversationId(), Map.of(
+                        "transferId", transferId,
+                        "fileHash", completed.fileHash(),
+                        "fileSize", completed.fileSize(),
+                        "transportPath", completed.transportPath()
+                )));
+    }
+
+    private void handleFileTransferFallback(WebSocketSession session, WebSocketEnvelope incoming) {
+        requireRequestId(incoming);
+        String transferId = requiredTransferId(incoming);
+        Long actorId = getUserId(session);
+        Long actorDeviceId = attributeLong(session, DEVICE_ID_ATTRIBUTE);
+        FileTransferVO transfer = fileTransferService.fallbackToNodeRelay(
+                transferId, actorId, actorDeviceId, payloadString(incoming, "reason"));
+
+        Long peerUserId = actorId.equals(transfer.senderUserId())
+                ? transfer.receiverUserId() : transfer.senderUserId();
+        Long peerDeviceId = actorId.equals(transfer.senderUserId())
+                ? transfer.receiverDeviceId() : transfer.senderDeviceId();
+        if (peerDeviceId != null) {
+            sendToDevice(peerUserId, peerDeviceId, envelope(
+                    "FILE_TRANSFER_CANCELED", incoming.getRequestId(), null,
+                    transfer.conversationId(), Map.of(
+                            "transferId", transfer.transferId(),
+                            "reason", transfer.fallbackReason() == null
+                                    ? "P2P_FAILED" : transfer.fallbackReason(),
+                            "message", "设备直传已切换为节点中转"
+                    )));
+        }
+    }
+
+    private void handleFileTransferRelayComplete(WebSocketSession session, WebSocketEnvelope incoming) {
+        requireRequestId(incoming);
+        String transferId = requiredTransferId(incoming);
+        String storedFileName = payloadString(incoming, "storedFileName");
+        FileMetadata metadata = fileService.getByStoredName(storedFileName);
+        Long senderId = getUserId(session);
+        if (metadata == null || !fileService.canAccessFile(storedFileName, senderId)) {
+            throw new IllegalArgumentException("节点中转文件不存在或无权引用");
+        }
+        FileTransferVO completed = fileTransferService.completeNodeRelay(
+                transferId,
+                senderId,
+                attributeLong(session, DEVICE_ID_ATTRIBUTE),
+                new FileTransferRelayCompletionDTO(
+                        metadata.getId(),
+                        metadata.getFilePath(),
+                        metadata.getFileHash(),
+                        metadata.getFileSize()
+                )
+        );
+        sendEvent(session, envelope("FILE_TRANSFER_RELAY_COMPLETED", incoming.getRequestId(), null,
+                completed.conversationId(), Map.of(
+                        "transferId", completed.transferId(),
+                        "storedFileName", completed.storedFileName(),
+                        "transportPath", completed.transportPath()
+                )));
+    }
+
+    private boolean validateCompletedDirectAttachment(String content,
+                                                       String contentType,
+                                                       String conversationId,
+                                                       Long senderId,
+                                                       Long senderDeviceId) {
+        Map<?, ?> attachment;
+        try {
+            attachment = objectMapper.readValue(content, Map.class);
+        } catch (Exception ignored) {
+            return false;
+        }
+        if (!"PEER_TO_PEER".equals(String.valueOf(attachment.get("transferPath")))) return false;
+        Object rawTransferId = attachment.get("transferId");
+        String transferId = rawTransferId == null ? "" : String.valueOf(rawTransferId);
+        if (!transferId.matches("(?i)^[0-9a-f]{32}$")) {
+            throw new IllegalArgumentException("直传附件标识无效");
+        }
+        FileTransferVO transfer = fileTransferService.requireCompletedAttachment(
+                transferId, conversationId, senderId, senderDeviceId);
+        String name = attachment.get("name") == null ? "" : String.valueOf(attachment.get("name"));
+        String mime = attachment.get("mime") == null ? "" : String.valueOf(attachment.get("mime"));
+        String fileHash = attachment.get("fileHash") == null
+                ? "" : String.valueOf(attachment.get("fileHash"));
+        Long size = numberToLong(attachment.get("size"));
+        if (!name.equals(transfer.fileName())
+                || !mime.equalsIgnoreCase(transfer.fileType())
+                || !fileHash.equalsIgnoreCase(transfer.fileHash())
+                || size == null || !size.equals(transfer.fileSize())) {
+            throw new IllegalArgumentException("直传附件元数据与已完成任务不一致");
+        }
+        if ("image".equals(contentType) && !transfer.fileType().startsWith("image/")) {
+            throw new IllegalArgumentException("直传附件类型与消息类型不一致");
+        }
+        return true;
+    }
+
+    private void handleBroadcastAck(WebSocketSession session, WebSocketEnvelope incoming) {
+        requireRequestId(incoming);
+        Long broadcastId = payloadLong(incoming, "broadcastId");
+        if (broadcastId == null || broadcastId <= 0) {
+            throw new IllegalArgumentException("广播标识无效");
+        }
+        BroadcastConfirmDTO confirmation = new BroadcastConfirmDTO();
+        confirmation.setStatus(payloadString(incoming, "status"));
+        Long userId = getUserId(session);
+        broadcastService.confirm(
+                broadcastId,
+                userId,
+                attributeString(session, DEVICE_TYPE_ATTRIBUTE),
+                confirmation
+        );
+        sendEvent(session, envelope("BROADCAST_UPDATED", incoming.getRequestId(), null, null,
+                Map.of("broadcastId", broadcastId, "confirmed", true)));
+        notifyBroadcastUpdated(broadcastId, userId);
+    }
+
+    private void deliverPendingBroadcasts(WebSocketSession session, Long userId) {
+        try {
+            for (Broadcast broadcast : broadcastService.listPending(userId)) {
+                sendBroadcast(session, userId, broadcast.getId());
+            }
+        } catch (Exception exception) {
+            // Broadcast delivery is important but must never invalidate an otherwise
+            // healthy authenticated chat connection. The REST pending list remains available.
+            log.warn("待处理广播补推失败: userId={}, error={}", userId, exception.getMessage());
+        }
+    }
+
+    private void sendBroadcast(WebSocketSession session, Long userId, Long broadcastId) {
+        BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, userId);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("broadcastId", broadcastId);
+        payload.put("broadcast", detail.broadcast());
+        payload.put("receiver", detail.receiver());
+        payload.put("confirmationOptions", detail.confirmationOptions());
+        sendEvent(session, envelope("BROADCAST", null, null, null, payload));
+        broadcastService.markDelivered(broadcastId, userId);
+    }
+
+    /** REST 广播创建事务提交后调用，在线接收者立即收到，离线接收者登录后补推。 */
+    public void publishBroadcast(Long broadcastId) {
+        if (broadcastId == null) return;
+        for (Map.Entry<Long, Set<WebSocketSession>> entry : ONLINE_SESSIONS.entrySet()) {
+            Long userId = entry.getKey();
+            try {
+                boolean addressed = broadcastService.listPending(userId).stream()
+                        .anyMatch(item -> broadcastId.equals(item.getId()));
+                if (!addressed) continue;
+                BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, userId);
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("broadcastId", broadcastId);
+                payload.put("broadcast", detail.broadcast());
+                payload.put("receiver", detail.receiver());
+                payload.put("confirmationOptions", detail.confirmationOptions());
+                WebSocketEnvelope event = envelope("BROADCAST", null, null, null, payload);
+                entry.getValue().forEach(session -> sendEvent(session, event));
+                broadcastService.markDelivered(broadcastId, userId);
+            } catch (Exception exception) {
+                log.warn("广播实时投递失败: broadcastId={}, userId={}, error={}",
+                        broadcastId, userId, exception.getMessage());
+            }
+        }
+    }
+
+    /** REST/WS 确认完成后向广播创建者同步最新聚合统计。 */
+    public void notifyBroadcastUpdated(Long broadcastId, Long confirmingUserId) {
+        try {
+            BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, confirmingUserId);
+            Long senderId = detail.broadcast().getSenderId();
+            BroadcastStatsDTO stats = broadcastService.getStats(broadcastId, senderId);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("broadcastId", broadcastId);
+            payload.put("statistics", stats);
+            sendToUser(senderId, envelope("BROADCAST_UPDATED", null, null, null, payload));
+        } catch (Exception exception) {
+            log.warn("广播统计实时同步失败: broadcastId={}, error={}",
+                    broadcastId, exception.getMessage());
+        }
+    }
+
+    private void validateTargetAndPermission(Long senderId,
+                                             Long toUserId,
+                                             Long groupId,
+                                             String conversationId) {
+        if (toUserId == null && groupId == null
+                && ConversationIds.parseTemporary(conversationId).isPresent()) {
+            if (!conversationService.canSend(conversationId, senderId)) {
+                throw new IllegalArgumentException("当前临时房间已过期、只读或无权发送");
+            }
+            return;
+        }
         if ((toUserId == null) == (groupId == null)) {
             throw new IllegalArgumentException("消息接收方无效");
         }
@@ -552,12 +897,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void deliverMessage(ChatMessage message, WebSocketEnvelope event) {
-        if (message.getGroupId() != null) {
-            broadcastToGroup(message.getGroupId(), event, null);
-        } else {
-            sendToUser(message.getToUserId(), event);
-            sendToUser(message.getFromUserId(), event);
-        }
+        deliverToConversation(message.getConversationId(), event, null);
     }
 
     private void deliverToConversation(String conversationId,
@@ -572,7 +912,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         ConversationIds.parseGroup(conversationId)
-                .ifPresent(groupId -> broadcastToGroup(groupId, event, excludeUserId));
+                .ifPresentOrElse(
+                        groupId -> broadcastToGroup(groupId, event, excludeUserId),
+                        () -> ConversationIds.parseTemporary(conversationId).ifPresent(ignored ->
+                                conversationService.getActiveMemberIds(conversationId).forEach(memberId -> {
+                                    if (excludeUserId == null || !excludeUserId.equals(memberId)) {
+                                        sendToUser(memberId, event);
+                                    }
+                                }))
+                );
     }
 
     private Map<String, Object> messagePayload(ChatMessage message, User sender) {
@@ -625,6 +973,23 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             throw new IllegalArgumentException("会话标识无效");
         }
         return conversationId;
+    }
+
+    private String requiredTransferId(WebSocketEnvelope incoming) {
+        String transferId = payloadString(incoming, "transferId");
+        if (!StringUtils.hasText(transferId) || !transferId.matches("(?i)^[0-9a-f]{32}$")) {
+            throw new IllegalArgumentException("文件传输标识无效");
+        }
+        return transferId.toLowerCase(Locale.ROOT);
+    }
+
+    private String requiredSdp(WebSocketEnvelope incoming) {
+        String sdp = payloadString(incoming, "sdp");
+        if (!StringUtils.hasText(sdp) || sdp.length() > MAX_RTC_SDP_LENGTH
+                || sdp.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("WebRTC 协商信息无效");
+        }
+        return sdp;
     }
 
     private void requireRequestId(WebSocketEnvelope incoming) {
@@ -772,6 +1137,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         if (sessions != null) sessions.forEach(session -> sendEvent(session, event));
     }
 
+    private void sendToDevice(Long userId, Long deviceId, WebSocketEnvelope event) {
+        if (userId == null || deviceId == null) return;
+        Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
+        if (sessions == null) return;
+        sessions.stream()
+                .filter(session -> deviceId.equals(attributeLong(session, DEVICE_ID_ATTRIBUTE)))
+                .forEach(session -> sendEvent(session, event));
+    }
+
     private void sendEvent(WebSocketSession session, WebSocketEnvelope event) {
         try {
             String json = objectMapper.writeValueAsString(event);
@@ -798,6 +1172,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     public void sendFriendNotification(Long targetUserId, String content) {
         sendToUser(targetUserId, envelope("FRIEND_CHANGED", null, null, null,
                 Map.of("message", content == null ? "好友状态有更新" : content)));
+    }
+
+    /** Sends a committed room membership/lifecycle refresh to every affected user device. */
+    public void notifyTemporaryRoomChanged(TemporaryRoomChangedEvent change) {
+        if (change == null) return;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("roomId", change.roomId());
+        payload.put("conversationId", change.conversationId());
+        payload.put("status", change.status());
+        WebSocketEnvelope event = envelope(
+                "ROOM_STATUS_CHANGED", null, null, change.conversationId(), payload);
+        change.memberIds().stream().distinct().forEach(userId -> sendToUser(userId, event));
     }
 
     public static List<User> getOnlineUsers() {

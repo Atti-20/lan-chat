@@ -5,6 +5,10 @@ import AdminPasswordResetModal from '../components/admin/AdminPasswordResetModal
 import AdminSidebar from '../components/admin/AdminSidebar.vue'
 import type { AdminModule } from '../components/admin/adminNavigation'
 import RuntimeLogConsole from '../components/admin/logs/RuntimeLogConsole.vue'
+import BroadcastSidebar from '../components/broadcasts/BroadcastSidebar.vue'
+import BroadcastWorkspace from '../components/broadcasts/BroadcastWorkspace.vue'
+import CreateBroadcastModal from '../components/broadcasts/CreateBroadcastModal.vue'
+import EmergencyBroadcastAlert from '../components/broadcasts/EmergencyBroadcastAlert.vue'
 import ConnectionDiagnosticsModal from '../components/diagnostics/ConnectionDiagnosticsModal.vue'
 import AppRail from '../components/chat/AppRail.vue'
 import ChangePasswordModal from '../components/chat/ChangePasswordModal.vue'
@@ -20,13 +24,26 @@ import SearchPeopleModal from '../components/chat/SearchPeopleModal.vue'
 import UserAvatar from '../components/base/UserAvatar.vue'
 import UiIcon from '../components/base/UiIcon.vue'
 import WorkspaceWelcome from '../components/chat/WorkspaceWelcome.vue'
+import CreateTemporaryRoomModal from '../components/rooms/CreateTemporaryRoomModal.vue'
+import JoinTemporaryRoomModal from '../components/rooms/JoinTemporaryRoomModal.vue'
 import { useAdmin } from '../composables/useAdmin'
 import { useAuth } from '../composables/useAuth'
 import { useChat, type ChatSection } from '../composables/useChat'
+import { useBroadcasts } from '../composables/useBroadcasts'
 import { useDiagnostics } from '../composables/useDiagnostics'
+import { useTemporaryRooms } from '../composables/useTemporaryRooms'
 import { useToast } from '../composables/useToast'
 import { ApiError } from '../services/api'
-import type { AdminUser, ChatMessage, Conversation, User } from '../types'
+import type {
+  AdminUser,
+  BroadcastCreatePayload,
+  ChatMessage,
+  Conversation,
+  EmergencyBroadcast,
+  TemporaryRoom,
+  TemporaryRoomCreatePayload,
+  User,
+} from '../types'
 
 const auth = useAuth()
 const chat = useChat()
@@ -34,6 +51,7 @@ const admin = useAdmin()
 const toast = useToast()
 const {
   friends,
+  groups,
   requests,
   members,
   messages,
@@ -47,6 +65,7 @@ const {
   loading,
   loadingMessages,
   typingLabel,
+  fileTransferLabel,
   visibleConversations,
   connected,
   reconnecting,
@@ -58,6 +77,10 @@ const {
   pendingCount,
   failedCount,
 } = chat
+const broadcasts = useBroadcasts()
+const temporaryRooms = useTemporaryRooms({
+  onChanged: async () => { await chat.refreshLists() },
+})
 const {
   users: adminUsers,
   loading: adminLoading,
@@ -68,6 +91,9 @@ const {
 } = admin
 const searchOpen = shallowRef(false)
 const groupOpen = shallowRef(false)
+const roomCreateOpen = shallowRef(false)
+const roomJoinOpen = shallowRef(false)
+const broadcastCreateOpen = shallowRef(false)
 const profileOpen = shallowRef(false)
 const contextOpen = shallowRef(false)
 const devicesOpen = shallowRef(false)
@@ -78,6 +104,8 @@ const adminModule = shallowRef<AdminModule | null>(null)
 const groupSaving = shallowRef(false)
 const profileSaving = shallowRef(false)
 const uploading = shallowRef(false)
+const broadcastConfirming = shallowRef(false)
+const broadcastStatisticsLoading = shallowRef(false)
 const replyTo = shallowRef<ChatMessage | null>(null)
 const MOBILE_BREAKPOINT = 760
 const SIDEBAR_MIN_WIDTH = 280
@@ -97,7 +125,9 @@ const user = computed<User>(() => auth.currentUser.value || {
   avatar: auth.session.value?.avatar,
 })
 const isAdminSection = computed(() => section.value === 'admin')
+const isBroadcastSection = computed(() => section.value === 'broadcasts')
 const isAdministrator = computed(() => user.value.username === 'admin')
+const canCreateBroadcast = computed(() => isAdministrator.value || groups.value.length > 0)
 const mobile = computed(() => viewportWidth.value <= MOBILE_BREAKPOINT)
 const sidebarMaxWidth = computed(() => sidebarMaximumForViewport(viewportWidth.value))
 const diagnostics = useDiagnostics({
@@ -110,9 +140,11 @@ const diagnostics = useDiagnostics({
   failedCount,
   isAdmin: isAdministrator,
 })
-const hasWorkspaceSelection = computed(() => isAdminSection.value
-  ? Boolean(adminModule.value)
-  : Boolean(selected.value))
+const hasWorkspaceSelection = computed(() => {
+  if (isAdminSection.value) return Boolean(adminModule.value)
+  if (isBroadcastSection.value) return Boolean(broadcasts.selected.value)
+  return Boolean(selected.value)
+})
 const showSidebar = computed(() => !mobile.value || !hasWorkspaceSelection.value)
 const showWorkspace = computed(() => !mobile.value || hasWorkspaceSelection.value)
 const adminModuleTitles: Record<AdminModule, string> = {
@@ -122,6 +154,24 @@ const adminModuleTitles: Record<AdminModule, string> = {
 }
 const selectedAdminTitle = computed(() => adminModule.value ? adminModuleTitles[adminModule.value] : '管理')
 const friendIds = computed(() => friends.value.map((friend) => friend.friendId))
+const selectedTemporaryRoom = computed<TemporaryRoom | null>(() => selected.value?.kind === 'temporary'
+  ? selected.value.source as TemporaryRoom
+  : null)
+const conversationWritable = computed(() => {
+  const room = selectedTemporaryRoom.value
+  if (!room) return true
+  const expiresAt = Date.parse(room.expiresAt)
+  return room.status === 'ACTIVE' && !Number.isNaN(expiresAt) && expiresAt > Date.now()
+})
+const conversationFileAllowed = computed(() => conversationWritable.value
+  && (selectedTemporaryRoom.value?.allowFileUpload ?? true))
+const conversationStatusLabel = computed(() => {
+  const room = selectedTemporaryRoom.value
+  if (!room || conversationWritable.value) return ''
+  if (room.status === 'ARCHIVED') return '房间已归档，仅可查看历史消息'
+  if (room.status === 'DESTROYED') return '房间已销毁'
+  return '房间已到期或冻结，仅可查看历史消息'
+})
 const connectionCopy = computed(() => reconnecting.value
   ? '正在重连'
   : connectionState.value === 'SYNCING'
@@ -140,7 +190,7 @@ onMounted(async () => {
     return
   }
   try {
-    await chat.load()
+    await Promise.all([chat.load(), broadcasts.load()])
   } catch (cause) {
     handleError(cause, '载入聊天失败')
   }
@@ -295,6 +345,104 @@ async function createGroup(name: string, memberIds: number[]): Promise<void> {
   }
 }
 
+async function createTemporaryRoom(payload: TemporaryRoomCreatePayload): Promise<void> {
+  try {
+    const room = await temporaryRooms.create(payload)
+    roomCreateOpen.value = false
+    changeSection('groups')
+    const conversation = chat.conversations.value.find(
+      (item) => item.kind === 'temporary' && item.id === room.id,
+    )
+    if (conversation) await selectConversation(conversation)
+    toast.push(`临时房间已创建，房间码：${room.roomCode || '仅所有者可见'}`, 'success', 4200)
+  } catch (cause) {
+    handleError(cause, '创建临时房间失败')
+  }
+}
+
+async function joinTemporaryRoom(roomCode: string): Promise<void> {
+  try {
+    const room = await temporaryRooms.join(roomCode)
+    roomJoinOpen.value = false
+    changeSection('groups')
+    const conversation = chat.conversations.value.find(
+      (item) => item.kind === 'temporary' && item.id === room.id,
+    )
+    if (conversation) await selectConversation(conversation)
+    toast.push(`已加入“${room.roomName}”`, 'success')
+  } catch (cause) {
+    handleError(cause, '加入临时房间失败')
+  }
+}
+
+async function leaveTemporaryRoom(): Promise<void> {
+  const room = selectedTemporaryRoom.value
+  if (!room || !window.confirm(`确定退出临时房间“${room.roomName}”吗？`)) return
+  try {
+    await temporaryRooms.leave(room.id)
+    contextOpen.value = false
+    selected.value = null
+    await chat.refreshLists()
+    toast.push('已退出临时房间', 'success')
+  } catch (cause) {
+    handleError(cause, '退出临时房间失败')
+  }
+}
+
+async function selectBroadcast(broadcast: EmergencyBroadcast): Promise<void> {
+  try {
+    await broadcasts.selectBroadcast(broadcast.id)
+  } catch (cause) {
+    handleError(cause, '无法打开广播')
+  }
+}
+
+async function createBroadcast(payload: BroadcastCreatePayload): Promise<void> {
+  try {
+    await broadcasts.createBroadcast(payload)
+    broadcastCreateOpen.value = false
+    toast.push('广播已发布并开始统计送达状态', 'success')
+  } catch (cause) {
+    handleError(cause, '发布广播失败')
+  }
+}
+
+async function confirmBroadcast(status: string, broadcastId?: number): Promise<void> {
+  broadcastConfirming.value = true
+  try {
+    await broadcasts.confirm(status, broadcastId)
+    toast.push('处理回执已提交', 'success')
+  } catch (cause) {
+    handleError(cause, '提交广播回执失败')
+  } finally {
+    broadcastConfirming.value = false
+  }
+}
+
+async function refreshBroadcastStatistics(): Promise<void> {
+  broadcastStatisticsLoading.value = true
+  try {
+    await broadcasts.refreshStatistics()
+  } catch (cause) {
+    handleError(cause, '刷新广播统计失败')
+  } finally {
+    broadcastStatisticsLoading.value = false
+  }
+}
+
+async function openEmergencyBroadcast(broadcastId: number): Promise<void> {
+  changeSection('broadcasts')
+  const broadcast = broadcasts.broadcasts.value.find((item) => item.id === broadcastId)
+  if (broadcast) await selectBroadcast(broadcast)
+  else {
+    try {
+      await broadcasts.selectBroadcast(broadcastId)
+    } catch (cause) {
+      handleError(cause, '无法打开紧急广播')
+    }
+  }
+}
+
 async function saveProfile(payload: { nickname: string; avatar: string }): Promise<void> {
   profileSaving.value = true
   try {
@@ -395,6 +543,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         :section="section"
         :user="user"
         :request-count="requests.length"
+        :broadcast-count="broadcasts.pendingCount.value"
         :connected="connected"
         @change="changeSection"
         @profile="profileOpen = true"
@@ -407,6 +556,18 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         :account-count="adminLoaded ? adminUsers.length : undefined"
         :connection-state="connectionState"
         @select="selectAdminModule"
+      />
+
+      <BroadcastSidebar
+        v-else-if="isBroadcastSection"
+        v-show="showSidebar"
+        :broadcasts="broadcasts.broadcasts.value"
+        :selected-id="broadcasts.selected.value?.broadcast.id"
+        :loading="broadcasts.loading.value"
+        :can-create="canCreateBroadcast"
+        :pending-broadcast-ids="[...broadcasts.pendingIds.value]"
+        @select="selectBroadcast"
+        @create="broadcastCreateOpen = true"
       />
 
       <ConversationSidebar
@@ -427,6 +588,8 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         @handle-request="handleFriendRequest"
         @search-people="searchOpen = true"
         @create-group="groupOpen = true"
+        @create-temporary-room="roomCreateOpen = true"
+        @join-temporary-room="roomJoinOpen = true"
       />
       <button
         v-if="!mobile"
@@ -502,6 +665,21 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         <RuntimeLogConsole v-else />
       </section>
 
+      <section
+        v-else-if="isBroadcastSection && showWorkspace"
+        class="workspace workspace--broadcast"
+      >
+        <BroadcastWorkspace
+          :detail="broadcasts.selected.value"
+          :statistics="broadcasts.statistics.value"
+          :loading="broadcasts.loading.value"
+          :confirming="broadcastConfirming"
+          :statistics-loading="broadcastStatisticsLoading"
+          @confirm="confirmBroadcast"
+          @refresh-stats="refreshBroadcastStatistics"
+        />
+      </section>
+
       <section v-else-if="selected && showWorkspace" class="workspace">
         <header class="workspace-header">
           <button v-if="mobile" class="back-button" type="button" aria-label="返回会话列表" @click="selected = null">
@@ -550,6 +728,10 @@ async function resetUserPassword(newPassword: string): Promise<void> {
           :reply-to="replyTo"
           :connected="connected"
           :uploading="uploading"
+          :transfer-label="fileTransferLabel"
+          :writable="conversationWritable"
+          :file-allowed="conversationFileAllowed"
+          :status-label="conversationStatusLabel"
           @send="sendMessage"
           @typing="chat.sendTyping"
           @file="sendFile"
@@ -573,6 +755,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         @toggle-mute="toggleMute"
         @delete-friend="deleteFriend"
         @update-remark="updateRemark"
+        @leave-room="leaveTemporaryRoom"
       />
     </div>
 
@@ -589,6 +772,35 @@ async function resetUserPassword(newPassword: string): Promise<void> {
       :saving="groupSaving"
       @close="groupOpen = false"
       @create="createGroup"
+    />
+    <CreateTemporaryRoomModal
+      :open="roomCreateOpen"
+      :saving="temporaryRooms.saving.value"
+      @close="roomCreateOpen = false"
+      @create="createTemporaryRoom"
+    />
+    <JoinTemporaryRoomModal
+      :open="roomJoinOpen"
+      :saving="temporaryRooms.saving.value"
+      @close="roomJoinOpen = false"
+      @join="joinTemporaryRoom"
+    />
+    <CreateBroadcastModal
+      :open="broadcastCreateOpen"
+      :groups="groups"
+      :friends="friends"
+      :is-admin="isAdministrator"
+      :saving="broadcasts.saving.value"
+      @close="broadcastCreateOpen = false"
+      @create="createBroadcast"
+    />
+    <EmergencyBroadcastAlert
+      :broadcast="broadcasts.emergencyAlert.value?.broadcast"
+      :confirmation-options="broadcasts.emergencyAlert.value?.confirmationOptions"
+      :busy="broadcastConfirming"
+      @open="openEmergencyBroadcast"
+      @confirm="(broadcastId, status) => confirmBroadcast(status, broadcastId)"
+      @dismiss="broadcasts.closeEmergencyAlert"
     />
     <ProfileModal
       :open="profileOpen"
@@ -647,6 +859,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
 .chat-page { width: 100%; min-height: 100dvh; padding: 18px; }
 .chat-shell { display: grid; width: 100%; height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: var(--rail-width, 72px) var(--sidebar-width, 320px) minmax(0, 1fr); gap: 10px; }
 .workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr) max-content; border-radius: 18px; overflow: hidden; }
+.workspace--broadcast { grid-template-rows: minmax(0, 1fr); }
 .connection-status-slot { min-width: 0; min-height: 0; }
 .workspace-header { display: flex; padding: 14px 19px; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.54); background: rgba(255,255,255,.16); }
 .workspace-title { display: grid; min-width: 0; flex: 1; gap: 3px; }

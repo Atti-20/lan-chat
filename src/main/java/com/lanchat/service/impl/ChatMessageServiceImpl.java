@@ -8,12 +8,10 @@ import com.lanchat.dto.ReliableMessageResult;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.MessageRecall;
-import com.lanchat.entity.GroupMember;
 import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.FileAccessGrantMapper;
 import com.lanchat.mapper.FileMetadataMapper;
 import com.lanchat.mapper.MessageRecallMapper;
-import com.lanchat.mapper.GroupMemberMapper;
 import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.ConversationService;
 import org.slf4j.Logger;
@@ -46,9 +44,6 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
 
     @Autowired
     private FileAccessGrantMapper fileAccessGrantMapper;
-
-    @Autowired
-    private GroupMemberMapper groupMemberMapper;
 
     @Autowired
     private ConversationService conversationService;
@@ -239,14 +234,7 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
         ChatMessage message = getByMessageId(messageId);
         if (message == null) return false;
 
-        if (message.getGroupId() != null) {
-            LambdaQueryWrapper<GroupMember> memberWrapper = new LambdaQueryWrapper<>();
-            memberWrapper.eq(GroupMember::getGroupId, message.getGroupId())
-                    .eq(GroupMember::getUserId, userId);
-            return groupMemberMapper.selectCount(memberWrapper) > 0;
-        }
-
-        return userId.equals(message.getFromUserId()) || userId.equals(message.getToUserId());
+        return conversationService.canAccess(message.getConversationId(), userId);
     }
 
     @Override
@@ -260,11 +248,10 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
     @Override
     public List<ChatMessage> searchMessages(Long userId, String keyword, int limit) {
         limit = Math.max(1, Math.min(limit, 100));
+        List<String> conversationIds = conversationService.getAccessibleConversationIds(userId);
+        if (conversationIds.isEmpty()) return List.of();
         LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<>();
-        wrapper.and(w -> w
-                        .eq(ChatMessage::getFromUserId, userId)
-                        .or()
-                        .eq(ChatMessage::getToUserId, userId))
+        wrapper.in(ChatMessage::getConversationId, conversationIds)
                 .like(ChatMessage::getContent, keyword)
                 .eq(ChatMessage::getIsRecalled, 0)
                 .ne(ChatMessage::getStatus, 2)

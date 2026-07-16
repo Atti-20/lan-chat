@@ -41,7 +41,7 @@ public interface ChatMessageService extends IService<ChatMessage> {
     /** 标记消息为已焚毁（操作者必须能够访问该消息） */
     void markAsBurned(String messageId, Long operatorId);
 
-    /** 判断用户是否是私聊参与者或当前群成员 */
+    /** 判断用户是否仍可访问消息所属统一会话。 */
     boolean canAccessMessage(String messageId, Long userId);
 
     /** 根据消息ID获取消息 */

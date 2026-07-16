@@ -5,6 +5,7 @@ import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.ConversationMapper;
 import com.lanchat.mapper.ConversationMemberMapper;
 import com.lanchat.mapper.GroupMemberMapper;
+import com.lanchat.mapper.TemporaryRoomMapper;
 import com.lanchat.service.impl.ConversationServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ class ConversationServiceImplTest {
     private ChatMessageMapper messageMapper;
     private GroupMemberMapper groupMemberMapper;
     private FriendService friendService;
+    private TemporaryRoomMapper temporaryRoomMapper;
     private ConversationServiceImpl service;
 
     @BeforeEach
@@ -32,8 +34,10 @@ class ConversationServiceImplTest {
         messageMapper = mock(ChatMessageMapper.class);
         groupMemberMapper = mock(GroupMemberMapper.class);
         friendService = mock(FriendService.class);
+        temporaryRoomMapper = mock(TemporaryRoomMapper.class);
         service = new ConversationServiceImpl(
-                conversationMapper, memberMapper, messageMapper, groupMemberMapper, friendService);
+                conversationMapper, memberMapper, messageMapper, groupMemberMapper,
+                temporaryRoomMapper, friendService);
     }
 
     @Test

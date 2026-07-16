@@ -254,6 +254,116 @@ CREATE TABLE `device_login` (
     KEY `idx_token` (`token`(100))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备登录表';
 
+-- ----------------------------
+-- 临时协作房间（成员复用 conversation_member）
+-- ----------------------------
+DROP TABLE IF EXISTS `temporary_room`;
+CREATE TABLE `temporary_room` (
+    `id`                     BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `room_name`              VARCHAR(50)  NOT NULL COMMENT '房间名称',
+    `purpose`                VARCHAR(500) DEFAULT '' COMMENT '使用目的',
+    `owner_id`               BIGINT       NOT NULL COMMENT '房间所有者用户ID',
+    `room_code`              VARCHAR(12)  NOT NULL COMMENT '高熵房间码',
+    `expires_at`             DATETIME     NOT NULL COMMENT '房间到期时间',
+    `max_members`            INT          NOT NULL DEFAULT 50 COMMENT '成员上限',
+    `allow_guests`           TINYINT      NOT NULL DEFAULT 0 COMMENT '是否允许访客：0-否 1-是',
+    `allow_member_invite`    TINYINT      NOT NULL DEFAULT 1 COMMENT '是否允许成员分享房间码',
+    `allow_file_upload`      TINYINT      NOT NULL DEFAULT 1 COMMENT '是否允许上传文件',
+    `allow_file_download`    TINYINT      NOT NULL DEFAULT 1 COMMENT '是否允许下载文件',
+    `allow_forward`          TINYINT      NOT NULL DEFAULT 0 COMMENT '是否允许转发',
+    `message_retention_days` INT          NOT NULL DEFAULT 7 COMMENT '消息保存天数',
+    `allow_external_sync`    TINYINT      NOT NULL DEFAULT 0 COMMENT '是否允许外部节点同步',
+    `expire_action`          VARCHAR(20)  NOT NULL DEFAULT 'FREEZE' COMMENT 'FREEZE/ARCHIVE/DESTROY',
+    `status`                 VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/FROZEN/ARCHIVED/DESTROYED',
+    `create_time`            DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`            DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_temporary_room_code` (`room_code`),
+    KEY `idx_temporary_room_owner` (`owner_id`),
+    KEY `idx_temporary_room_expiry` (`status`, `expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='临时协作房间扩展信息';
+
+-- ----------------------------
+-- WebRTC 文件直传与节点中转状态（逻辑关联 file_metadata）
+-- ----------------------------
+DROP TABLE IF EXISTS `file_transfer`;
+CREATE TABLE `file_transfer` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `transfer_id`        VARCHAR(64)  NOT NULL COMMENT '服务端传输唯一标识',
+    `client_transfer_id` VARCHAR(64)  NOT NULL COMMENT '发送者范围内的幂等键',
+    `conversation_id`    VARCHAR(64)  NOT NULL COMMENT '私聊会话ID',
+    `sender_user_id`     BIGINT       NOT NULL COMMENT '发送用户ID',
+    `sender_device_id`   BIGINT       NOT NULL COMMENT '发起设备会话ID',
+    `receiver_user_id`   BIGINT       NOT NULL COMMENT '接收用户ID',
+    `receiver_device_id` BIGINT       DEFAULT NULL COMMENT '首个认领的接收设备会话ID',
+    `file_name`          VARCHAR(180) NOT NULL COMMENT '净化后的原始文件名',
+    `file_size`          BIGINT       NOT NULL COMMENT '文件大小（字节）',
+    `file_type`          VARCHAR(120) NOT NULL COMMENT '客户端声明的MIME，仅作元数据',
+    `file_hash`          CHAR(64)     NOT NULL COMMENT '双方校验的SHA-256',
+    `status`             VARCHAR(24)  NOT NULL COMMENT 'OFFERED/CLAIMED/NEGOTIATING/TRANSFERRING/P2P_COMPLETED/RELAY_PENDING/RELAY_COMPLETED/FAILED/EXPIRED',
+    `transport_path`     VARCHAR(20)  NOT NULL COMMENT 'PENDING/PEER_TO_PEER/NODE_RELAY',
+    `file_metadata_id`   BIGINT       DEFAULT NULL COMMENT '节点中转完成后的文件元数据ID',
+    `stored_file_name`   VARCHAR(100) DEFAULT NULL COMMENT '节点中转完成后的安全存储名',
+    `fallback_reason`    VARCHAR(64)  DEFAULT NULL COMMENT '脱敏机器原因码',
+    `expires_at`         DATETIME     NOT NULL COMMENT '未完成阶段截止时间',
+    `claimed_time`       DATETIME     DEFAULT NULL COMMENT '接收设备认领时间',
+    `completed_time`     DATETIME     DEFAULT NULL COMMENT 'P2P或节点中转完成时间',
+    `create_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_file_transfer_id` (`transfer_id`),
+    UNIQUE KEY `uk_file_transfer_sender_client` (`sender_user_id`, `client_transfer_id`),
+    KEY `idx_file_transfer_receiver_status` (`receiver_user_id`, `status`, `expires_at`),
+    KEY `idx_file_transfer_sender_status` (`sender_user_id`, `status`, `expires_at`),
+    KEY `idx_file_transfer_conversation` (`conversation_id`, `create_time`),
+    KEY `idx_file_transfer_expiry` (`status`, `expires_at`),
+    KEY `idx_file_transfer_metadata` (`file_metadata_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='WebRTC文件直传与节点中转状态';
+
+-- ----------------------------
+-- 应急广播及持久接收回执
+-- ----------------------------
+DROP TABLE IF EXISTS `broadcast_receiver`;
+DROP TABLE IF EXISTS `broadcast`;
+CREATE TABLE `broadcast` (
+    `id`                    BIGINT        NOT NULL AUTO_INCREMENT COMMENT '广播ID',
+    `sender_id`             BIGINT        NOT NULL COMMENT '创建者用户ID',
+    `title`                 VARCHAR(100)  NOT NULL COMMENT '广播标题',
+    `content`               TEXT          NOT NULL COMMENT '广播正文',
+    `priority`              VARCHAR(20)   NOT NULL DEFAULT 'NORMAL' COMMENT 'NORMAL/IMPORTANT/EMERGENCY',
+    `scope_type`            VARCHAR(20)   NOT NULL COMMENT 'ALL/GROUP/USERS',
+    `scope_group_id`        BIGINT        DEFAULT NULL COMMENT 'GROUP范围对应群ID',
+    `confirmation_required` TINYINT       NOT NULL DEFAULT 0 COMMENT '是否要求确认',
+    `confirmation_options`  VARCHAR(1000) NOT NULL DEFAULT '[]' COMMENT '允许的确认值JSON数组',
+    `deadline_at`           DATETIME      DEFAULT NULL COMMENT '确认截止时间',
+    `bypass_mute`           TINYINT       NOT NULL DEFAULT 0 COMMENT '是否绕过普通免打扰',
+    `repeat_reminder`       TINYINT       NOT NULL DEFAULT 0 COMMENT '是否允许重复提醒',
+    `status`                VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/CANCELLED',
+    `create_time`           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_broadcast_sender_time` (`sender_id`, `create_time`),
+    KEY `idx_broadcast_status_deadline` (`status`, `deadline_at`),
+    KEY `idx_broadcast_group_time` (`scope_group_id`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应急广播';
+
+CREATE TABLE `broadcast_receiver` (
+    `id`                  BIGINT      NOT NULL AUTO_INCREMENT COMMENT '接收记录ID',
+    `broadcast_id`        BIGINT      NOT NULL COMMENT '广播ID',
+    `user_id`             BIGINT      NOT NULL COMMENT '接收者用户ID',
+    `delivered_at`        DATETIME    DEFAULT NULL COMMENT '首次送达时间',
+    `viewed_at`           DATETIME    DEFAULT NULL COMMENT '首次查看时间',
+    `confirm_status`      VARCHAR(32) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/NOT_REQUIRED/确认值',
+    `confirmed_at`        DATETIME    DEFAULT NULL COMMENT '确认时间',
+    `confirm_device_type` VARCHAR(50) DEFAULT NULL COMMENT '确认设备类型',
+    `create_time`         DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`         DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_broadcast_receiver` (`broadcast_id`, `user_id`),
+    KEY `idx_receiver_user_pending` (`user_id`, `confirm_status`, `viewed_at`),
+    KEY `idx_receiver_broadcast_status` (`broadcast_id`, `confirm_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='广播接收、查看与确认状态';
+
 -- 不在结构脚本中写入任何默认账号或口令。
 -- 私有部署由 LANCHAT_BOOTSTRAP_ADMIN_PASSWORD 首次创建 admin；
 -- 如需本地演示账号，可在开发数据库中手动执行 sql/demo-data.sql。

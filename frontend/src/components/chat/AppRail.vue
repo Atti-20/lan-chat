@@ -9,6 +9,7 @@ interface Props {
   section: ChatSection
   user: User
   requestCount: number
+  broadcastCount?: number
   connected: boolean
 }
 
@@ -28,6 +29,7 @@ const items: RailItem[] = [
   { id: 'messages', label: '消息', icon: 'messages' },
   { id: 'contacts', label: '好友', icon: 'contacts' },
   { id: 'groups', label: '群组', icon: 'groups' },
+  { id: 'broadcasts', label: '广播', icon: 'bell' },
 ]
 const adminItem: RailItem = {
   id: 'admin',
@@ -67,6 +69,7 @@ function activateItem(item: RailItem): void {
         <UiIcon :name="item.icon" :size="23" />
         <span class="rail-label">{{ item.label }}</span>
         <b v-if="item.id === 'contacts' && requestCount" class="rail-badge">{{ Math.min(requestCount, 9) }}</b>
+        <b v-else-if="item.id === 'broadcasts' && broadcastCount" class="rail-badge">{{ Math.min(broadcastCount, 9) }}</b>
       </button>
     </div>
 

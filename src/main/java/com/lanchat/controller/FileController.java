@@ -44,7 +44,7 @@ public class FileController {
     public Result<FileUploadVO> checkFile(@RequestBody FileCheckDTO dto) {
         Long userId = UserContextHolder.getCurrentUserId();
         if (userId == null) return Result.unauthorized("请先登录");
-        if (dto == null || !conversationService.canSend(dto.getConversationId(), userId)) {
+        if (dto == null || !conversationService.canUploadFile(dto.getConversationId(), userId)) {
             return Result.forbidden("无权在该会话发送文件");
         }
         FileUploadVO vo = fileService.checkFile(dto, userId);
@@ -58,7 +58,7 @@ public class FileController {
         if (userId == null) {
             return Result.unauthorized("请先登录");
         }
-        if (!conversationService.canSend(conversationId, userId)) {
+        if (!conversationService.canUploadFile(conversationId, userId)) {
             return Result.forbidden("无权在该会话发送文件");
         }
         return Result.success(fileService.uploadFile(file, userId));

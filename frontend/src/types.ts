@@ -48,6 +48,48 @@ export interface ChatGroup {
   lastMessageTime?: string
 }
 
+export type TemporaryRoomStatus = 'ACTIVE' | 'EXPIRING' | 'FROZEN' | 'ARCHIVED' | 'DESTROYED'
+export type TemporaryRoomExpiryAction = 'FREEZE' | 'ARCHIVE' | 'DESTROY'
+
+export interface TemporaryRoom {
+  id: number
+  conversationId: string
+  roomName: string
+  purpose?: string
+  ownerId: number
+  roomCode?: string
+  status: TemporaryRoomStatus
+  expiresAt: string
+  maxMembers: number
+  memberCount?: number
+  currentUserRole?: 'OWNER' | 'ADMIN' | 'MEMBER' | 'READ_ONLY'
+  allowGuests: boolean
+  allowMemberInvite: boolean
+  allowFileUpload: boolean
+  allowFileDownload: boolean
+  allowForward: boolean
+  messageRetentionDays: number
+  allowExternalSync: boolean
+  expireAction: TemporaryRoomExpiryAction
+  createTime?: string
+  updateTime?: string
+}
+
+export interface TemporaryRoomCreatePayload {
+  roomName: string
+  purpose?: string
+  expiresAt: string
+  maxMembers: number
+  allowGuests: boolean
+  allowMemberInvite: boolean
+  allowFileUpload: boolean
+  allowFileDownload: boolean
+  allowForward: boolean
+  messageRetentionDays: number
+  allowExternalSync: boolean
+  expireAction: TemporaryRoomExpiryAction
+}
+
 export interface FriendRequest {
   id: number
   fromUserId: number
@@ -69,7 +111,7 @@ export interface GroupMember {
 export interface Conversation {
   id: number
   conversationId: string
-  kind: 'private' | 'group'
+  kind: 'private' | 'group' | 'temporary'
   name: string
   avatar?: string
   subtitle?: string
@@ -81,7 +123,7 @@ export interface Conversation {
   muted?: boolean
   unreadCount?: number
   pendingCount?: number
-  source: Friend | ChatGroup
+  source: Friend | ChatGroup | TemporaryRoom
 }
 
 export type MessageDeliveryState =
@@ -128,6 +170,106 @@ export interface FileUpload {
   fileType?: string
   fileHash?: string
   instantUpload?: boolean
+}
+
+export type FileTransferPath = 'PEER_TO_PEER' | 'NODE_RELAY'
+
+export interface FileAttachmentData {
+  url?: string
+  originalUrl?: string
+  thumbnailUrl?: string
+  name?: string
+  size?: number
+  mime?: string
+  fileHash?: string
+  transferId?: string
+  transferPath?: FileTransferPath
+}
+
+export interface DirectFileRecord {
+  transferId: string
+  name: string
+  mime: string
+  size: number
+  fileHash: string
+  blob: Blob
+  savedAt: string
+}
+
+export type BroadcastPriority = 'NORMAL' | 'IMPORTANT' | 'EMERGENCY'
+export type BroadcastScopeType = 'ALL' | 'GROUP' | 'USERS'
+export type BroadcastReceiptStatus =
+  | 'PENDING'
+  | 'DELIVERED'
+  | 'VIEWED'
+  | 'RECEIVED'
+  | 'EXECUTED'
+  | 'NEED_SUPPORT'
+  | 'EXPIRED'
+
+export interface EmergencyBroadcast {
+  id: number
+  title: string
+  content: string
+  priority: BroadcastPriority
+  scopeType: BroadcastScopeType
+  scopeGroupId?: number
+  senderId: number
+  confirmationRequired: boolean
+  confirmationOptions?: string
+  deadlineAt?: string
+  bypassMute: boolean
+  repeatReminder: boolean
+  status: 'ACTIVE' | 'CANCELLED'
+  createTime: string
+  updateTime?: string
+}
+
+export interface BroadcastReceiver {
+  id: number
+  broadcastId: number
+  userId: number
+  deliveredAt?: string
+  viewedAt?: string
+  confirmStatus: BroadcastReceiptStatus | 'NOT_REQUIRED'
+  confirmedAt?: string
+  confirmDeviceType?: string
+  createTime: string
+  updateTime?: string
+}
+
+export interface BroadcastDetail {
+  broadcast: EmergencyBroadcast
+  receiver?: BroadcastReceiver
+  confirmationOptions: readonly string[]
+  createdByCurrentUser: boolean
+}
+
+export interface BroadcastCreatePayload {
+  title: string
+  content: string
+  priority: BroadcastPriority
+  scopeType: BroadcastScopeType
+  groupId?: number
+  receiverIds?: number[]
+  confirmationRequired: boolean
+  confirmationOptions?: string[]
+  deadlineAt?: string
+  bypassMute: boolean
+  repeatReminder: boolean
+}
+
+export interface BroadcastStatistics {
+  broadcastId: number
+  targetCount: number
+  deliveredCount: number
+  viewedCount: number
+  confirmedCount: number
+  unconfirmedCount: number
+  unconfirmedUserIds: readonly number[]
+  expiredCount: number
+  expired: boolean
+  confirmationCounts: Readonly<Record<string, number>>
 }
 
 export interface DeviceLogin {

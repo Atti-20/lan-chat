@@ -42,6 +42,12 @@ const welcomeBySection: Record<ChatSection, WelcomeContent> = {
     action: '创建群聊',
     icon: 'groups',
   },
+  broadcasts: {
+    kicker: '应急协作',
+    title: '选择一条广播',
+    description: '查看通知、提交处理回执，或追踪成员确认进度。',
+    icon: 'bell',
+  },
   admin: {
     kicker: '节点控制台',
     title: '选择管理模块',
@@ -107,6 +113,7 @@ const content = computed(() => welcomeBySection[props.section])
 .welcome-panel > span { max-width: 320px; margin: 8px 0 15px; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
 .workspace-welcome[data-section="contacts"] .signal-core { color: var(--violet); }
 .workspace-welcome[data-section="groups"] .signal-core { color: var(--green); }
+.workspace-welcome[data-section="broadcasts"] .signal-core { color: var(--coral); }
 .workspace-welcome[data-section="admin"] .signal-core { color: #d97706; }
 .workspace-welcome .secondary-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 55%, transparent); outline-offset: 3px; }
 

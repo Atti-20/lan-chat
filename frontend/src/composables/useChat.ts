@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, readonly, ref, shallowRef, watch } from 'vue'
 import { api } from '../services/api'
+import { publishRealtimeEvent } from '../services/realtimeEvents'
 import {
   cacheMessages,
   clearLocalChatDatabase,
@@ -15,12 +16,13 @@ import type {
   ChatMessage,
   ChatSendPayload,
   Conversation,
-  FileUpload,
+  FileAttachmentData,
   Friend,
   FriendRequest,
   GroupMember,
   MessageDeliveryState,
   OutboxEntry,
+  TemporaryRoom,
   User,
   WsEnvelope,
 } from '../types'
@@ -30,10 +32,11 @@ import { createClientMessageId } from '../utils/id'
 import { clearCacheOwner, clearSession } from '../utils/storage'
 import { useAuth } from './useAuth'
 import { useOutbox } from './useOutbox'
+import { usePeerFileTransfer } from './usePeerFileTransfer'
 import { useToast } from './useToast'
 import { useWebSocket } from './useWebSocket'
 
-export type ChatSection = 'messages' | 'contacts' | 'groups' | 'admin'
+export type ChatSection = 'messages' | 'contacts' | 'groups' | 'broadcasts' | 'admin'
 
 type AckOutcome = 'ACK' | 'ERROR'
 
@@ -48,6 +51,7 @@ export function useChat() {
   const outbox = useOutbox()
   const friends = ref<Friend[]>([])
   const groups = ref<ChatGroup[]>([])
+  const rooms = ref<TemporaryRoom[]>([])
   const requests = ref<FriendRequest[]>([])
   const members = ref<GroupMember[]>([])
   const messages = ref<ChatMessage[]>([])
@@ -61,6 +65,7 @@ export function useChat() {
   const loadingMessages = shallowRef(false)
   const typingLabel = shallowRef('')
   const onlineIds = ref<Set<number>>(new Set())
+  const relayTransferLabel = shallowRef('')
 
   const ackWaiters = new Map<string, AckWaiter>()
   const burnTimers = new Map<string, number>()
@@ -153,7 +158,17 @@ export function useChat() {
         source: group,
       }
     })
-    return [...privateChats, ...groupChats].sort((first, second) => {
+    const temporaryChats = rooms.value.map((room): Conversation => ({
+      id: room.id,
+      conversationId: room.conversationId,
+      kind: 'temporary',
+      name: room.roomName,
+      subtitle: room.purpose || temporaryRoomStatusLabel(room.status),
+      lastMessage: temporaryRoomStatusLabel(room.status),
+      lastMessageTime: room.updateTime || room.createTime,
+      source: room,
+    }))
+    return [...privateChats, ...groupChats, ...temporaryChats].sort((first, second) => {
       if (first.pinned !== second.pinned) return first.pinned ? -1 : 1
       return new Date(second.lastMessageTime || 0).getTime()
         - new Date(first.lastMessageTime || 0).getTime()
@@ -164,8 +179,8 @@ export function useChat() {
     const base = section.value === 'contacts'
       ? conversations.value.filter((item) => item.kind === 'private')
       : section.value === 'groups'
-        ? conversations.value.filter((item) => item.kind === 'group')
-        : section.value === 'admin'
+        ? conversations.value.filter((item) => item.kind === 'group' || item.kind === 'temporary')
+        : section.value === 'admin' || section.value === 'broadcasts'
           ? []
           : conversations.value
     const needle = query.value.trim().toLocaleLowerCase('zh-CN')
@@ -176,7 +191,14 @@ export function useChat() {
 
   const ws = useWebSocket({
     onMessage: handleSocketMessage,
-    onReady: synchronizeAfterReconnect,
+    onReady: async () => {
+      await synchronizeAfterReconnect()
+      try {
+        await refreshLists()
+      } catch {
+        toast.push('好友申请列表刷新失败，请稍后重试', 'warning')
+      }
+    },
     onError: (message) => toast.push(message, 'warning'),
     refreshAuth: api.auth.refreshSession,
     onAuthFailed: (reason) => {
@@ -193,6 +215,17 @@ export function useChat() {
       window.location.replace('/')
     },
   })
+  const peerFiles = usePeerFileTransfer({
+    sendEvent: (event, payload, metadata) => ws.sendEvent(event, payload, metadata),
+  })
+  const fileTransferLabel = computed(() => {
+    if (relayTransferLabel.value) return relayTransferLabel.value
+    if (peerFiles.phase.value === 'HASHING') return '正在校验文件完整性…'
+    if (peerFiles.phase.value === 'NEGOTIATING') return '正在协商局域网设备直传…'
+    if (peerFiles.phase.value === 'TRANSFERRING') return `设备直传 ${peerFiles.progress.value}%`
+    if (peerFiles.phase.value === 'VERIFYING') return '对端正在校验文件…'
+    return ''
+  })
 
   async function load(): Promise<void> {
     loading.value = true
@@ -206,17 +239,20 @@ export function useChat() {
       if (cachedDirectory) {
         friends.value = cachedDirectory.friends || []
         groups.value = cachedDirectory.groups || []
+        rooms.value = cachedDirectory.rooms || []
       }
       try {
-        const [friendList, groupList, requestList] = await Promise.all([
+        const [friendList, groupList, roomList, requestList] = await Promise.all([
           api.friends.list(),
           api.groups.list(),
+          api.rooms.list(),
           api.friends.requests(),
         ])
         friends.value = friendList || []
         groups.value = groupList || []
+        rooms.value = roomList || []
         requests.value = await enrichRequests(requestList || [])
-        await saveConversationDirectory(friends.value, groups.value).catch(() => undefined)
+        await saveConversationDirectory(friends.value, groups.value, rooms.value).catch(() => undefined)
       } catch (cause) {
         if (!cachedDirectory) throw cause
         requests.value = []
@@ -252,15 +288,17 @@ export function useChat() {
   }
 
   async function refreshLists(): Promise<void> {
-    const [friendList, groupList, requestList] = await Promise.all([
+    const [friendList, groupList, roomList, requestList] = await Promise.all([
       api.friends.list(),
       api.groups.list(),
+      api.rooms.list(),
       api.friends.requests(),
     ])
     friends.value = friendList || []
     groups.value = groupList || []
+    rooms.value = roomList || []
     requests.value = await enrichRequests(requestList || [])
-    await saveConversationDirectory(friends.value, groups.value).catch(() => undefined)
+    await saveConversationDirectory(friends.value, groups.value, rooms.value).catch(() => undefined)
   }
 
   async function selectConversation(conversation: Conversation): Promise<void> {
@@ -323,6 +361,10 @@ export function useChat() {
   }
 
   async function handleSocketMessage(envelope: WsEnvelope): Promise<void> {
+    if (envelope.event.startsWith('FILE_TRANSFER_')) {
+      await publishRealtimeEvent(envelope)
+      return
+    }
     switch (envelope.event) {
       case 'ERROR':
         handleProtocolError(envelope)
@@ -358,6 +400,12 @@ export function useChat() {
         return
       case 'CHAT_READ':
         handleReadEvent(envelope)
+        return
+      case 'BROADCAST':
+      case 'BROADCAST_UPDATED':
+      case 'ROOM_STATUS_CHANGED':
+        await publishRealtimeEvent(envelope)
+        if (envelope.event === 'ROOM_STATUS_CHANGED') await refreshLists()
         return
       default:
         // V1 客户端必须忽略未知但非致命事件，以便服务端向前兼容。
@@ -562,7 +610,7 @@ export function useChat() {
       content: content.trim(),
       isBurn: Boolean(options.burn),
       replyToId: options.replyToId || null,
-      [conversation.kind === 'group' ? 'groupId' : 'toUserId']: conversation.id,
+      ...conversationTarget(conversation),
     }
     await queueMessage(conversation, payload)
     return true
@@ -572,30 +620,82 @@ export function useChat() {
     const conversation = selected.value
     if (!conversation) return
     if (!ws.connected.value) throw new Error('文件需要连接节点后上传；文本消息仍可离线发送')
-    const uploaded = await api.files.upload(file, conversation.conversationId)
     const image = file.type.startsWith('image/')
-    const content = fileContent(uploaded, file, image)
+    let attachment: FileAttachmentData
+    if (conversation.kind === 'private' && peerFiles.supported.value) {
+      try {
+        attachment = await peerFiles.sendDirect(file, conversation.conversationId, conversation.id)
+      } catch {
+        relayTransferLabel.value = '直传不可用，正在切换节点中转…'
+        toast.push('设备直传不可用，已自动切换节点中转', 'warning', 2600)
+        attachment = await uploadThroughNode(
+          file,
+          conversation.conversationId,
+          image,
+          peerFiles.lastFailedTransferId.value || undefined,
+        )
+      } finally {
+        relayTransferLabel.value = ''
+      }
+    } else {
+      relayTransferLabel.value = conversation.kind === 'private'
+        ? '正在通过节点中转…'
+        : '群组或房间文件正在通过节点中转…'
+      try {
+        attachment = await uploadThroughNode(file, conversation.conversationId, image)
+      } finally {
+        relayTransferLabel.value = ''
+      }
+    }
     const payload: ChatSendPayload = {
       contentType: image ? 'image' : 'file',
-      content,
+      content: JSON.stringify(attachment),
       isBurn: false,
-      [conversation.kind === 'group' ? 'groupId' : 'toUserId']: conversation.id,
+      ...conversationTarget(conversation),
     }
     await queueMessage(conversation, payload)
   }
 
-  function fileContent(uploaded: FileUpload, file: File, image: boolean): string {
+  async function uploadThroughNode(
+    file: File,
+    conversationId: string,
+    image: boolean,
+    transferId?: string,
+  ): Promise<FileAttachmentData> {
+    const uploaded = await api.files.upload(file, conversationId)
+    if (transferId) {
+      ws.sendEvent('FILE_TRANSFER_RELAY_COMPLETE', {
+        transferId,
+        storedFileName: uploaded.fileName,
+      }, { requestId: createRequestId(), conversationId })
+    }
     return image
-      ? JSON.stringify({
+      ? {
           url: uploaded.url,
           thumbnailUrl: uploaded.thumbnailUrl,
           originalUrl: uploaded.url,
-        })
-      : JSON.stringify({
+          name: uploaded.originalName || file.name,
+          size: uploaded.fileSize,
+          mime: uploaded.fileType || file.type,
+          fileHash: uploaded.fileHash,
+          transferId,
+          transferPath: 'NODE_RELAY',
+        }
+      : {
           name: uploaded.originalName || file.name,
           size: uploaded.fileSize,
           url: uploaded.url,
-        })
+          mime: uploaded.fileType || file.type,
+          fileHash: uploaded.fileHash,
+          transferId,
+          transferPath: 'NODE_RELAY',
+        }
+  }
+
+  function conversationTarget(conversation: Conversation): Pick<ChatSendPayload, 'toUserId' | 'groupId'> {
+    if (conversation.kind === 'private') return { toUserId: conversation.id }
+    if (conversation.kind === 'group') return { groupId: conversation.id }
+    return {}
   }
 
   async function queueMessage(conversation: Conversation, payload: ChatSendPayload): Promise<void> {
@@ -926,7 +1026,7 @@ export function useChat() {
   }
 
   function persistConversationDirectory(): void {
-    void saveConversationDirectory(friends.value, groups.value).catch(() => undefined)
+    void saveConversationDirectory(friends.value, groups.value, rooms.value).catch(() => undefined)
   }
 
   async function handleRequest(requestId: number, accept: boolean): Promise<void> {
@@ -980,6 +1080,7 @@ export function useChat() {
   return {
     friends: readonly(friends),
     groups: readonly(groups),
+    rooms: readonly(rooms),
     requests: readonly(requests),
     members: readonly(members),
     messages: readonly(messages),
@@ -992,6 +1093,7 @@ export function useChat() {
     loading: readonly(loading),
     loadingMessages: readonly(loadingMessages),
     typingLabel: readonly(typingLabel),
+    fileTransferLabel,
     conversations,
     visibleConversations,
     connected: ws.connected,
@@ -1028,4 +1130,14 @@ export function useChat() {
 
 function createRequestId(): string {
   return `req_${createClientMessageId()}`
+}
+
+function temporaryRoomStatusLabel(status: TemporaryRoom['status']): string {
+  return {
+    ACTIVE: '临时协作房间',
+    EXPIRING: '即将到期',
+    FROZEN: '已冻结，只读',
+    ARCHIVED: '已归档，只读',
+    DESTROYED: '已销毁',
+  }[status]
 }

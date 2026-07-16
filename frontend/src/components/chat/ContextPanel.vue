@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { shallowRef, watch } from 'vue'
-import type { Conversation, GroupMember } from '../../types'
+import type { Conversation, GroupMember, TemporaryRoom } from '../../types'
 import UserAvatar from '../base/UserAvatar.vue'
 import UiIcon from '../base/UiIcon.vue'
 
@@ -17,6 +17,7 @@ const emit = defineEmits<{
   toggleMute: []
   deleteFriend: []
   updateRemark: [remark: string]
+  leaveRoom: []
 }>()
 
 const editingRemark = shallowRef(false)
@@ -32,6 +33,28 @@ function friendNickname(): string {
 function friendRemark(): string {
   const src = props.conversation.source
   return ('remark' in src && src.remark) || ''
+}
+
+function temporaryRoom(): TemporaryRoom | null {
+  return props.conversation.kind === 'temporary'
+    ? props.conversation.source as TemporaryRoom
+    : null
+}
+
+function roomStatusLabel(status?: TemporaryRoom['status']): string {
+  return status ? {
+    ACTIVE: '协作中',
+    EXPIRING: '即将到期',
+    FROZEN: '已冻结',
+    ARCHIVED: '已归档',
+    DESTROYED: '已销毁',
+  }[status] : '状态未知'
+}
+
+function formatRoomExpiry(value?: string): string {
+  if (!value) return '未设置'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
 }
 
 watch(() => props.open, (open) => {
@@ -71,7 +94,7 @@ function saveRemark(): void {
         <div class="context-profile">
           <UserAvatar :name="conversation.name" :avatar="conversation.avatar" :size="72" :online="conversation.online" />
           <strong>{{ conversation.name }}</strong>
-          <span class="status-line">{{ conversation.kind === 'group' ? `${members.length} 位成员` : (conversation.online ? '在线' : '离线') }}</span>
+          <span class="status-line">{{ conversation.kind === 'group' ? `${members.length} 位成员` : conversation.kind === 'temporary' ? roomStatusLabel(temporaryRoom()?.status) : (conversation.online ? '在线' : '离线') }}</span>
           <p v-if="conversation.subtitle" class="bio">{{ conversation.subtitle }}</p>
         </div>
 
@@ -126,6 +149,24 @@ function saveRemark(): void {
             <span>删除好友</span>
           </button>
         </template>
+
+        <div v-else-if="conversation.kind === 'temporary' && temporaryRoom()" class="room-detail-section">
+          <dl class="room-facts">
+            <div><dt>到期时间</dt><dd>{{ formatRoomExpiry(temporaryRoom()?.expiresAt) }}</dd></div>
+            <div><dt>成员</dt><dd>{{ temporaryRoom()?.memberCount || 1 }} / {{ temporaryRoom()?.maxMembers }}</dd></div>
+            <div v-if="temporaryRoom()?.roomCode"><dt>房间码</dt><dd class="room-code">{{ temporaryRoom()?.roomCode }}</dd></div>
+            <div><dt>文件权限</dt><dd>{{ temporaryRoom()?.allowFileUpload ? '可上传' : '禁止上传' }} · {{ temporaryRoom()?.allowFileDownload ? '可下载' : '禁止下载' }}</dd></div>
+          </dl>
+          <button
+            v-if="temporaryRoom()?.currentUserRole !== 'OWNER'"
+            class="danger-action"
+            type="button"
+            @click="emit('leaveRoom')"
+          >
+            <UiIcon name="back" :size="16" />
+            <span>退出临时房间</span>
+          </button>
+        </div>
 
         <div v-else class="member-section">
           <div class="member-heading">
@@ -262,6 +303,12 @@ function saveRemark(): void {
   cursor: pointer;
   transition: background-color 150ms ease;
 }
+.room-detail-section { display: grid; gap: 14px; }
+.room-facts { display: grid; margin: 0; gap: 1px; overflow: hidden; border: 1px solid var(--separator); border-radius: 14px; background: var(--separator); }
+.room-facts > div { display: grid; padding: 11px 12px; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; background: var(--surface-raise); }
+.room-facts dt { color: var(--ink-faint); font-size: 11px; }
+.room-facts dd { margin: 0; color: var(--ink); font-size: 11px; text-align: right; overflow-wrap: anywhere; }
+.room-code { font-family: "SF Mono", ui-monospace, monospace; letter-spacing: .06em; }
 .remark-cancel { color: var(--ink); background: var(--button-hover); }
 .remark-cancel:hover { background: var(--button-hover-strong); }
 .remark-save { color: #fff; background: var(--blue); }

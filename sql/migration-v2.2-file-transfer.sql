@@ -1,0 +1,35 @@
+-- LanChat V2.2 WebRTC file-transfer control plane.
+-- This migration is intentionally repeatable and does not depend on init.sql.
+
+CREATE TABLE IF NOT EXISTS `file_transfer` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `transfer_id`        VARCHAR(64)  NOT NULL COMMENT '服务端传输唯一标识',
+    `client_transfer_id` VARCHAR(64)  NOT NULL COMMENT '发送者范围内的幂等键',
+    `conversation_id`    VARCHAR(64)  NOT NULL COMMENT '私聊会话ID',
+    `sender_user_id`     BIGINT       NOT NULL COMMENT '发送用户ID',
+    `sender_device_id`   BIGINT       NOT NULL COMMENT '发起设备会话ID',
+    `receiver_user_id`   BIGINT       NOT NULL COMMENT '接收用户ID',
+    `receiver_device_id` BIGINT       DEFAULT NULL COMMENT '首个认领的接收设备会话ID',
+    `file_name`          VARCHAR(180) NOT NULL COMMENT '净化后的原始文件名',
+    `file_size`          BIGINT       NOT NULL COMMENT '文件大小（字节）',
+    `file_type`          VARCHAR(120) NOT NULL COMMENT '客户端声明的MIME，仅作元数据',
+    `file_hash`          CHAR(64)     NOT NULL COMMENT '双方校验的SHA-256',
+    `status`             VARCHAR(24)  NOT NULL COMMENT 'OFFERED/CLAIMED/NEGOTIATING/TRANSFERRING/P2P_COMPLETED/RELAY_PENDING/RELAY_COMPLETED/FAILED/EXPIRED',
+    `transport_path`     VARCHAR(20)  NOT NULL COMMENT 'PENDING/PEER_TO_PEER/NODE_RELAY',
+    `file_metadata_id`   BIGINT       DEFAULT NULL COMMENT '节点中转完成后的文件元数据ID',
+    `stored_file_name`   VARCHAR(100) DEFAULT NULL COMMENT '节点中转完成后的安全存储名',
+    `fallback_reason`    VARCHAR(64)  DEFAULT NULL COMMENT '脱敏机器原因码',
+    `expires_at`         DATETIME     NOT NULL COMMENT '未完成阶段截止时间',
+    `claimed_time`       DATETIME     DEFAULT NULL COMMENT '接收设备认领时间',
+    `completed_time`     DATETIME     DEFAULT NULL COMMENT 'P2P或节点中转完成时间',
+    `create_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_file_transfer_id` (`transfer_id`),
+    UNIQUE KEY `uk_file_transfer_sender_client` (`sender_user_id`, `client_transfer_id`),
+    KEY `idx_file_transfer_receiver_status` (`receiver_user_id`, `status`, `expires_at`),
+    KEY `idx_file_transfer_sender_status` (`sender_user_id`, `status`, `expires_at`),
+    KEY `idx_file_transfer_conversation` (`conversation_id`, `create_time`),
+    KEY `idx_file_transfer_expiry` (`status`, `expires_at`),
+    KEY `idx_file_transfer_metadata` (`file_metadata_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='WebRTC文件直传与节点中转状态';

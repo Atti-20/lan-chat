@@ -3,11 +3,14 @@ package com.lanchat.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lanchat.common.ConversationIds;
 import com.lanchat.entity.ConversationMember;
+import com.lanchat.entity.Conversation;
 import com.lanchat.entity.GroupMember;
+import com.lanchat.entity.TemporaryRoom;
 import com.lanchat.mapper.ConversationMapper;
 import com.lanchat.mapper.ConversationMemberMapper;
 import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.GroupMemberMapper;
+import com.lanchat.mapper.TemporaryRoomMapper;
 import com.lanchat.service.ConversationService;
 import com.lanchat.service.FriendService;
 import org.springframework.stereotype.Service;
@@ -15,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.time.LocalDateTime;
@@ -26,17 +30,20 @@ public class ConversationServiceImpl implements ConversationService {
     private final ConversationMemberMapper conversationMemberMapper;
     private final ChatMessageMapper chatMessageMapper;
     private final GroupMemberMapper groupMemberMapper;
+    private final TemporaryRoomMapper temporaryRoomMapper;
     private final FriendService friendService;
 
     public ConversationServiceImpl(ConversationMapper conversationMapper,
                                    ConversationMemberMapper conversationMemberMapper,
                                    ChatMessageMapper chatMessageMapper,
                                    GroupMemberMapper groupMemberMapper,
+                                   TemporaryRoomMapper temporaryRoomMapper,
                                    FriendService friendService) {
         this.conversationMapper = conversationMapper;
         this.conversationMemberMapper = conversationMemberMapper;
         this.chatMessageMapper = chatMessageMapper;
         this.groupMemberMapper = groupMemberMapper;
+        this.temporaryRoomMapper = temporaryRoomMapper;
         this.friendService = friendService;
     }
 
@@ -69,12 +76,92 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
+    public String ensureTemporaryConversation(Long roomId) {
+        String conversationId = ConversationIds.temporaryConversation(roomId);
+        conversationMapper.insertIfAbsent(conversationId, "TEMPORARY", roomId);
+        return conversationId;
+    }
+
+    @Override
+    public void addConversationMember(String conversationId, Long userId, String role) {
+        if (!StringUtils.hasText(conversationId) || userId == null) {
+            throw new IllegalArgumentException("会话成员参数无效");
+        }
+        String safeRole = switch (role == null ? "MEMBER" : role.trim().toUpperCase()) {
+            case "OWNER" -> "OWNER";
+            case "ADMIN" -> "ADMIN";
+            case "READ_ONLY" -> "READ_ONLY";
+            default -> "MEMBER";
+        };
+        conversationMemberMapper.insertIfAbsent(conversationId, userId, safeRole);
+    }
+
+    @Override
+    public void removeConversationMember(String conversationId, Long userId) {
+        if (StringUtils.hasText(conversationId) && userId != null) {
+            conversationMemberMapper.markLeft(conversationId, userId);
+        }
+    }
+
+    @Override
+    public void removeAllConversationMembers(String conversationId) {
+        if (StringUtils.hasText(conversationId)) conversationMemberMapper.markAllLeft(conversationId);
+    }
+
+    @Override
+    public void updateStatus(String conversationId, String status) {
+        if (!StringUtils.hasText(conversationId)) throw new IllegalArgumentException("会话标识无效");
+        String normalized = status == null ? "" : status.trim().toUpperCase();
+        if (!List.of("ACTIVE", "READ_ONLY", "ARCHIVED", "DESTROYED").contains(normalized)) {
+            throw new IllegalArgumentException("会话状态无效");
+        }
+        conversationMapper.updateStatus(conversationId, normalized);
+    }
+
+    @Override
+    public List<Long> getActiveMemberIds(String conversationId) {
+        if (!StringUtils.hasText(conversationId)) return List.of();
+        return conversationMemberMapper.selectList(new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, conversationId)
+                        .isNull(ConversationMember::getLeftTime)
+                        .orderByAsc(ConversationMember::getId))
+                .stream()
+                .map(ConversationMember::getUserId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    @Override
+    public List<String> getAccessibleConversationIds(Long userId) {
+        if (userId == null) return List.of();
+        List<ConversationMember> memberships = conversationMemberMapper.selectList(
+                new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getUserId, userId)
+                        .isNull(ConversationMember::getLeftTime));
+        List<String> result = new ArrayList<>();
+        for (ConversationMember membership : memberships) {
+            if (canAccess(membership.getConversationId(), userId)) result.add(membership.getConversationId());
+        }
+        return result.stream().distinct().toList();
+    }
+
+    @Override
     public String resolveForMessage(Long senderId,
                                     Long toUserId,
                                     Long groupId,
                                     String requestedConversationId) {
         boolean hasPrivateTarget = toUserId != null;
         boolean hasGroupTarget = groupId != null;
+        if (!hasPrivateTarget && !hasGroupTarget
+                && ConversationIds.parseTemporary(requestedConversationId).isPresent()) {
+            String resolved = ConversationIds.temporaryConversation(
+                    ConversationIds.parseTemporary(requestedConversationId).orElseThrow());
+            if (!canSend(resolved, senderId)) {
+                throw new IllegalArgumentException("当前用户无权在该临时房间发送消息");
+            }
+            return resolved;
+        }
         if (hasPrivateTarget == hasGroupTarget) {
             throw new IllegalArgumentException("消息接收方无效");
         }
@@ -108,15 +195,36 @@ public class ConversationServiceImpl implements ConversationService {
         }
 
         var groupId = ConversationIds.parseGroup(conversationId);
-        if (groupId.isEmpty()) return false;
-        return groupMemberMapper.selectCount(new LambdaQueryWrapper<GroupMember>()
-                .eq(GroupMember::getGroupId, groupId.get())
-                .eq(GroupMember::getUserId, userId)) > 0;
+        if (groupId.isPresent()) {
+            return groupMemberMapper.selectCount(new LambdaQueryWrapper<GroupMember>()
+                    .eq(GroupMember::getGroupId, groupId.get())
+                    .eq(GroupMember::getUserId, userId)) > 0;
+        }
+
+        Long roomId = ConversationIds.parseTemporary(conversationId).orElse(null);
+        if (roomId == null) return false;
+        TemporaryRoom room = temporaryRoomMapper.selectById(roomId);
+        if (room == null || "DESTROYED".equals(room.getStatus())) return false;
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null || "DESTROYED".equals(conversation.getStatus())) return false;
+        return conversationMemberMapper.selectCount(new LambdaQueryWrapper<ConversationMember>()
+                .eq(ConversationMember::getConversationId, conversationId)
+                .eq(ConversationMember::getUserId, userId)
+                .isNull(ConversationMember::getLeftTime)) > 0;
     }
 
     @Override
     public boolean canSend(String conversationId, Long userId) {
         if (!canAccess(conversationId, userId)) return false;
+        Long temporaryRoomId = ConversationIds.parseTemporary(conversationId).orElse(null);
+        if (temporaryRoomId != null) {
+            TemporaryRoom room = temporaryRoomMapper.selectById(temporaryRoomId);
+            if (room == null || !"ACTIVE".equals(room.getStatus())
+                    || room.getExpiresAt() == null
+                    || !room.getExpiresAt().isAfter(LocalDateTime.now())) return false;
+        }
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation != null && !"ACTIVE".equals(conversation.getStatus())) return false;
         var privateParticipants = ConversationIds.parsePrivate(conversationId);
         if (privateParticipants.isPresent()) {
             long peerId = privateParticipants.get().peerOf(userId);
@@ -125,14 +233,43 @@ public class ConversationServiceImpl implements ConversationService {
         }
 
         Long groupId = ConversationIds.parseGroup(conversationId).orElse(null);
-        if (groupId == null) return false;
-        GroupMember membership = groupMemberMapper.selectOne(new LambdaQueryWrapper<GroupMember>()
-                .eq(GroupMember::getGroupId, groupId)
-                .eq(GroupMember::getUserId, userId)
-                .last("LIMIT 1"));
-        return membership != null
-                && (membership.getMuteUntil() == null
-                || membership.getMuteUntil().isBefore(LocalDateTime.now()));
+        if (groupId != null) {
+            GroupMember membership = groupMemberMapper.selectOne(new LambdaQueryWrapper<GroupMember>()
+                    .eq(GroupMember::getGroupId, groupId)
+                    .eq(GroupMember::getUserId, userId)
+                    .last("LIMIT 1"));
+            return membership != null
+                    && (membership.getMuteUntil() == null
+                    || membership.getMuteUntil().isBefore(LocalDateTime.now()));
+        }
+
+        ConversationMember membership = conversationMemberMapper.selectOne(
+                new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, conversationId)
+                        .eq(ConversationMember::getUserId, userId)
+                        .isNull(ConversationMember::getLeftTime)
+                        .last("LIMIT 1"));
+        return membership != null && !"READ_ONLY".equals(membership.getRole());
+    }
+
+    @Override
+    public boolean canUploadFile(String conversationId, Long userId) {
+        if (!canSend(conversationId, userId)) return false;
+        Long roomId = ConversationIds.parseTemporary(conversationId).orElse(null);
+        if (roomId == null) return true;
+        TemporaryRoom room = temporaryRoomMapper.selectById(roomId);
+        return room != null && Integer.valueOf(1).equals(room.getAllowFileUpload());
+    }
+
+    @Override
+    public boolean canDownloadFile(String conversationId, Long userId) {
+        if (!canAccess(conversationId, userId)) return false;
+        Long roomId = ConversationIds.parseTemporary(conversationId).orElse(null);
+        if (roomId == null) return true;
+        TemporaryRoom room = temporaryRoomMapper.selectById(roomId);
+        return room != null
+                && !"DESTROYED".equals(room.getStatus())
+                && Integer.valueOf(1).equals(room.getAllowFileDownload());
     }
 
     @Override
@@ -169,7 +306,7 @@ public class ConversationServiceImpl implements ConversationService {
         if (ConversationIds.parsePrivate(conversationId).isPresent()) {
             var participants = ConversationIds.parsePrivate(conversationId).orElseThrow();
             ensurePrivateConversation(participants.firstUserId(), participants.secondUserId());
-        } else {
+        } else if (ConversationIds.parseGroup(conversationId).isPresent()) {
             ensureGroupConversation(ConversationIds.parseGroup(conversationId).orElseThrow());
         }
         conversationMemberMapper.advanceReadSequence(conversationId, userId, safeSequence);

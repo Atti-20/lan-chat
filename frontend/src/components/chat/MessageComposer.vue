@@ -9,11 +9,19 @@ interface Props {
   replyTo?: ChatMessage | null
   connected: boolean
   uploading?: boolean
+  transferLabel?: string
+  writable?: boolean
+  fileAllowed?: boolean
+  statusLabel?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   replyTo: null,
   uploading: false,
+  transferLabel: '',
+  writable: true,
+  fileAllowed: true,
+  statusLabel: '',
 })
 const emit = defineEmits<{
   send: [content: string, burn: boolean]
@@ -30,6 +38,7 @@ const pasting = shallowRef(false)
 let typingTimer: number | null = null
 
 function submit(): void {
+  if (!props.writable) return
   const value = content.value.trim()
   if (!value) return
   emit('send', value, burn.value)
@@ -45,7 +54,7 @@ function onInput(): void {
     textarea.style.height = 'auto'
     textarea.style.height = `${Math.min(textarea.scrollHeight, 132)}px`
   }
-  if (typingTimer !== null) return
+  if (!props.writable || typingTimer !== null) return
   emit('typing')
   typingTimer = window.setTimeout(() => { typingTimer = null }, 1800)
 }
@@ -58,7 +67,7 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 async function onPaste(event: ClipboardEvent): Promise<void> {
-  if (!props.connected || pasting.value) return
+  if (!props.connected || !props.writable || !props.fileAllowed || pasting.value) return
   const clipboard = event.clipboardData
   if (!clipboard) return
 
@@ -122,13 +131,13 @@ function onFileChange(event: Event): void {
 
     <div class="composer glass-surface" :class="{ 'composer--burn': burn }">
       <div class="composer-tools">
-        <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading || pasting || !connected" :title="connected ? '' : '连接节点后可上传图片'" @click="chooseFile(imageRef)">
+        <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading || pasting || !connected || !writable || !fileAllowed" :title="!fileAllowed ? '房间不允许上传附件' : connected ? '' : '连接节点后可上传图片'" @click="chooseFile(imageRef)">
           <UiIcon name="image" :size="20" />
         </button>
-        <button class="tool-button" type="button" aria-label="发送文件" :disabled="uploading || pasting || !connected" :title="connected ? '' : '连接节点后可上传文件'" @click="chooseFile(fileRef)">
+        <button class="tool-button" type="button" aria-label="发送文件" :disabled="uploading || pasting || !connected || !writable || !fileAllowed" :title="!fileAllowed ? '房间不允许上传附件' : connected ? '' : '连接节点后可上传文件'" @click="chooseFile(fileRef)">
           <UiIcon name="paperclip" :size="20" />
         </button>
-        <button class="tool-button burn-button" :class="{ 'burn-button--active': burn }" type="button" :aria-pressed="burn" aria-label="切换阅后即焚" @click="burn = !burn">
+        <button class="tool-button burn-button" :class="{ 'burn-button--active': burn }" type="button" :disabled="!writable" :aria-pressed="burn" aria-label="切换阅后即焚" @click="burn = !burn">
           <UiIcon name="flame" :size="20" />
         </button>
       </div>
@@ -138,20 +147,21 @@ function onFileChange(event: Event): void {
         v-model="content"
         rows="1"
         maxlength="4000"
-        :placeholder="connected ? `发消息给 ${conversation.name}` : '离线消息将保存在本机，连接恢复后自动发送'"
+        :disabled="!writable"
+        :placeholder="!writable ? (statusLabel || '当前会话为只读状态') : connected ? `发消息给 ${conversation.name}` : '离线消息将保存在本机，连接恢复后自动发送'"
         @input="onInput"
         @keydown="onKeydown"
         @paste="onPaste"
       />
 
-      <button class="send-button" type="button" :disabled="!content.trim()" aria-label="发送消息" @click="submit">
+      <button class="send-button" type="button" :disabled="!writable || !content.trim()" aria-label="发送消息" @click="submit">
         <UiIcon name="send" :size="22" />
       </button>
 
       <input ref="imageInput" class="sr-only" type="file" accept="image/*" @change="onFileChange" />
       <input ref="fileInput" class="sr-only" type="file" @change="onFileChange" />
     </div>
-    <p class="composer-hint">{{ connected ? 'Enter 发送 · Shift + Enter 换行' : '离线可发送文本 · 文件任务等待连接' }}</p>
+    <p class="composer-hint">{{ statusLabel || transferLabel || (connected ? 'Enter 发送 · Shift + Enter 换行' : '离线可发送文本 · 文件任务等待连接') }}</p>
   </footer>
 </template>
 
@@ -181,6 +191,7 @@ function onFileChange(event: Event): void {
 .burn-button--active { color: #fff; background: var(--coral); box-shadow: none; }
 .composer textarea { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 132px; padding: 8px 4px; align-self: end; resize: none; overflow-y: auto; border: 0; outline: none; color: var(--ink); line-height: 1.5; background: transparent; }
 .composer textarea::placeholder { color: var(--ink-faint); }
+.composer textarea:disabled { cursor: not-allowed; opacity: .72; }
 .send-button { display: grid; width: 40px; height: 40px; padding: 0; align-self: end; place-items: center; border: 0; border-radius: 50%; color: #fff; cursor: pointer; transition: 180ms var(--ease-liquid); flex: 0 0 auto; background: var(--blue); box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.28); }
 .send-button:hover { transform: translateY(-1px); background: color-mix(in srgb, var(--blue) 88%, #000); }
 .send-button:disabled { opacity: .36; filter: grayscale(.5); cursor: not-allowed; transform: none; }

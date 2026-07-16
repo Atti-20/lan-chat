@@ -12,6 +12,7 @@ public final class ConversationIds {
 
     private static final String PRIVATE_PREFIX = "private:";
     private static final String GROUP_PREFIX = "group:";
+    private static final String TEMPORARY_PREFIX = "temporary:";
 
     private ConversationIds() {
     }
@@ -30,6 +31,11 @@ public final class ConversationIds {
     public static String groupConversation(Long groupId) {
         requirePositive(groupId, "群组 ID");
         return GROUP_PREFIX + groupId;
+    }
+
+    public static String temporaryConversation(Long roomId) {
+        requirePositive(roomId, "临时房间 ID");
+        return TEMPORARY_PREFIX + roomId;
     }
 
     public static Optional<PrivateParticipants> parsePrivate(String conversationId) {
@@ -55,6 +61,18 @@ public final class ConversationIds {
         try {
             long groupId = Long.parseLong(conversationId.substring(GROUP_PREFIX.length()));
             return groupId > 0 ? Optional.of(groupId) : Optional.empty();
+        } catch (NumberFormatException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    public static Optional<Long> parseTemporary(String conversationId) {
+        if (conversationId == null || !conversationId.startsWith(TEMPORARY_PREFIX)) {
+            return Optional.empty();
+        }
+        try {
+            long roomId = Long.parseLong(conversationId.substring(TEMPORARY_PREFIX.length()));
+            return roomId > 0 ? Optional.of(roomId) : Optional.empty();
         } catch (NumberFormatException ignored) {
             return Optional.empty();
         }

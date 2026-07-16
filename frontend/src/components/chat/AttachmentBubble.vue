@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
 import { useToast } from '../../composables/useToast'
 import { api } from '../../services/api'
+import { loadDirectFile } from '../../services/localChatDb'
+import type { FileAttachmentData } from '../../types'
 import { formatFileSize } from '../../utils/format'
 import UiIcon from '../base/UiIcon.vue'
 
@@ -21,19 +23,13 @@ const previewOpen = shallowRef(false)
 const previewUrl = shallowRef('')
 const previewThumbnailUrl = shallowRef('')
 const previewLoading = shallowRef(false)
+const directAvailable = shallowRef<boolean | null>(null)
+let localObjectUrl = ''
 
-interface AttachmentData {
-  url?: string
-  originalUrl?: string
-  thumbnailUrl?: string
-  name?: string
-  size?: number
-}
-
-const data = computed<AttachmentData>(() => {
+const data = computed<FileAttachmentData>(() => {
   if (!props.content) return {}
   try {
-    return JSON.parse(props.content) as AttachmentData
+    return JSON.parse(props.content) as FileAttachmentData
   } catch {
     return { url: props.content, originalUrl: props.content }
   }
@@ -42,6 +38,27 @@ const data = computed<AttachmentData>(() => {
 watch(
   () => [props.type, props.content] as const,
   async ([type], _previous, onCleanup) => {
+    releaseLocalUrl()
+    imageUrl.value = ''
+    directAvailable.value = null
+    const transferId = data.value.transferId
+    if (data.value.transferPath === 'PEER_TO_PEER' && transferId) {
+      let cancelled = false
+      onCleanup(() => { cancelled = true })
+      loading.value = true
+      try {
+        const record = await loadDirectFile(transferId)
+        if (cancelled) return
+        directAvailable.value = Boolean(record)
+        if (record && type === 'image') {
+          localObjectUrl = URL.createObjectURL(record.blob)
+          imageUrl.value = localObjectUrl
+        }
+      } finally {
+        if (!cancelled) loading.value = false
+      }
+      return
+    }
     if (type !== 'image') return
     const source = data.value.thumbnailUrl || data.value.url
     if (!source) return
@@ -61,19 +78,32 @@ watch(
   { immediate: true },
 )
 
+onBeforeUnmount(releaseLocalUrl)
+
 async function download(): Promise<void> {
+  if (data.value.transferPath === 'PEER_TO_PEER' && data.value.transferId) {
+    loading.value = true
+    try {
+      const record = await loadDirectFile(data.value.transferId)
+      directAvailable.value = Boolean(record)
+      if (!record) {
+        toast.push('文件只保存在完成直传的设备上，当前设备没有本地副本', 'warning')
+        return
+      }
+      const url = URL.createObjectURL(record.blob)
+      triggerDownload(url, data.value.name || record.name)
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
+    } finally {
+      loading.value = false
+    }
+    return
+  }
   const source = data.value.originalUrl || data.value.url
   if (!source) return
   loading.value = true
   try {
     const url = await api.files.temporaryUrl(source)
-    const anchor = document.createElement('a')
-    anchor.href = `${url}?download=true`
-    anchor.download = data.value.name || 'LanChat 文件'
-    anchor.hidden = true
-    document.body.append(anchor)
-    anchor.click()
-    anchor.remove()
+    triggerDownload(`${url}?download=true`, data.value.name || 'LanChat 文件')
   } catch {
     toast.push('文件下载失败', 'danger')
   } finally {
@@ -82,6 +112,17 @@ async function download(): Promise<void> {
 }
 
 async function openImage(): Promise<void> {
+  if (data.value.transferPath === 'PEER_TO_PEER') {
+    if (!imageUrl.value) {
+      toast.push('图片只保存在完成直传的设备上，当前设备没有本地副本', 'warning')
+      return
+    }
+    previewOpen.value = true
+    previewLoading.value = false
+    previewThumbnailUrl.value = ''
+    previewUrl.value = imageUrl.value
+    return
+  }
   const source = data.value.originalUrl || data.value.url
   if (!source) return
   previewOpen.value = true
@@ -98,6 +139,21 @@ async function openImage(): Promise<void> {
     previewLoading.value = false
     toast.push('原图暂时无法打开', 'danger')
   }
+}
+
+function triggerDownload(url: string, name: string): void {
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = name
+  anchor.hidden = true
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+}
+
+function releaseLocalUrl(): void {
+  if (localObjectUrl) URL.revokeObjectURL(localObjectUrl)
+  localObjectUrl = ''
 }
 
 function closePreview(): void {
@@ -120,8 +176,9 @@ function handlePreviewError(): void {
   <button v-if="type === 'image'" class="image-attachment" type="button" :disabled="loading" @click="openImage">
     <span v-if="loading" class="image-loading">正在载入图片…</span>
     <img v-else-if="imageUrl" :src="imageUrl" alt="聊天图片，点击查看原图" />
-    <span v-else class="image-loading">图片不可用</span>
+    <span v-else class="image-loading">{{ directAvailable === false ? '当前设备没有直传副本' : '图片不可用' }}</span>
     <span v-if="data.thumbnailUrl" class="image-hint">查看原图</span>
+    <span v-else-if="data.transferPath" class="path-hint">{{ data.transferPath === 'PEER_TO_PEER' ? '设备直传' : '节点中转' }}</span>
   </button>
 
   <button
@@ -138,7 +195,7 @@ function handlePreviewError(): void {
     </span>
     <span class="file-copy">
       <strong>{{ data.name || '文件' }}</strong>
-      <small>{{ loading ? '正在准备下载…' : formatFileSize(data.size) }}</small>
+      <small>{{ loading ? '正在准备下载…' : `${formatFileSize(data.size)} · ${data.transferPath === 'PEER_TO_PEER' ? '设备直传' : '节点中转'}` }}</small>
     </span>
     <span class="download-action" aria-hidden="true">
       <UiIcon class="download-icon" name="download" :size="18" />
@@ -175,6 +232,7 @@ function handlePreviewError(): void {
 .image-attachment img { display: block; width: 100%; max-height: 330px; object-fit: cover; }
 .image-loading { display: grid; min-height: 150px; padding: 20px; place-items: center; font-size: 12px; }
 .image-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.35); border-radius: 9px; color: white; font-size: 9px; font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
+.path-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border-radius: 9px; color: white; font-size: 9px; font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
 .file-attachment { display: flex; width: min(288px, 68vw); min-height: 60px; padding: 9px 10px; align-items: center; gap: 10px; border: 0; border-radius: 15px; color: inherit; text-align: left; background: transparent; cursor: pointer; transition: background-color 150ms ease, transform 150ms ease; }
 .file-attachment:hover { background: rgba(0,122,255,.045); }
 .file-attachment:active { transform: scale(.985); }

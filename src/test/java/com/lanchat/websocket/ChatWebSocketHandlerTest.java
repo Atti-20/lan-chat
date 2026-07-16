@@ -8,6 +8,8 @@ import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.ConversationService;
 import com.lanchat.service.FileService;
 import com.lanchat.service.FriendService;
+import com.lanchat.service.FileTransferService;
+import com.lanchat.service.BroadcastService;
 import com.lanchat.service.GroupService;
 import com.lanchat.service.UserService;
 import org.junit.jupiter.api.AfterEach;
@@ -50,7 +52,9 @@ class ChatWebSocketHandlerTest {
                 mock(FileService.class),
                 userService,
                 mock(GroupService.class),
-                mock(FriendService.class)
+                mock(FriendService.class),
+                mock(FileTransferService.class),
+                mock(BroadcastService.class)
         );
 
         String token = "access-token-not-in-url";

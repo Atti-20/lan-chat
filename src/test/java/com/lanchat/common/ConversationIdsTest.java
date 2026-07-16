@@ -24,5 +24,13 @@ class ConversationIdsTest {
                 () -> ConversationIds.privateConversation(7L, 7L));
         assertTrue(ConversationIds.parsePrivate("private:42:7").isEmpty());
         assertTrue(ConversationIds.parseGroup("group:not-a-number").isEmpty());
+        assertTrue(ConversationIds.parseTemporary("temporary:0").isEmpty());
+    }
+
+    @Test
+    void temporaryConversationIdIsStrictlyParsed() {
+        assertEquals("temporary:19", ConversationIds.temporaryConversation(19L));
+        assertEquals(19L, ConversationIds.parseTemporary("temporary:19").orElseThrow());
+        assertTrue(ConversationIds.parseTemporary("group:19").isEmpty());
     }
 }

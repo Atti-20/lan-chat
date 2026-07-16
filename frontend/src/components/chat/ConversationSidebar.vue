@@ -32,6 +32,8 @@ const emit = defineEmits<{
   handleRequest: [requestId: number, accept: boolean]
   searchPeople: []
   createGroup: []
+  createTemporaryRoom: []
+  joinTemporaryRoom: []
 }>()
 const moreOpen = shallowRef(false)
 const headerActionsRef = useTemplateRef<HTMLElement>('headerActions')
@@ -40,10 +42,12 @@ function closeMoreMenu(): void {
   moreOpen.value = false
 }
 
-function chooseMoreAction(action: 'searchPeople' | 'createGroup'): void {
+function chooseMoreAction(action: 'searchPeople' | 'createGroup' | 'createTemporaryRoom' | 'joinTemporaryRoom'): void {
   closeMoreMenu()
   if (action === 'searchPeople') emit('searchPeople')
-  else emit('createGroup')
+  else if (action === 'createGroup') emit('createGroup')
+  else if (action === 'createTemporaryRoom') emit('createTemporaryRoom')
+  else emit('joinTemporaryRoom')
 }
 
 function handleDocumentPointerDown(event: PointerEvent): void {
@@ -59,24 +63,28 @@ const kicker = computed(() => ({
   messages: 'MESSAGE',
   contacts: 'FRIENDS',
   groups: 'GROUPS',
+  broadcasts: 'BROADCASTS',
   admin: 'ADMINISTRATION',
 }[props.section]))
 const title = computed(() => ({
   messages: '消息',
   contacts: '好友',
   groups: '群组',
+  broadcasts: '广播',
   admin: '管理',
 }[props.section]))
 const searchPlaceholder = computed(() => ({
   messages: '搜索对话',
   contacts: '搜索好友',
   groups: '搜索群组',
+  broadcasts: '搜索广播',
   admin: '搜索管理模块',
 }[props.section]))
 const emptyIcons: Record<ChatSection, IconName> = {
   messages: 'messages',
   contacts: 'contacts',
   groups: 'groups',
+  broadcasts: 'bell',
   admin: 'admin',
 }
 const emptyIcon = computed(() => emptyIcons[props.section])
@@ -193,6 +201,10 @@ function itemTime(item: ConversationListItem): string {
         <div v-if="moreOpen" class="action-menu" role="menu" aria-label="更多操作">
           <button type="button" role="menuitem" @click="chooseMoreAction('searchPeople')">添加好友</button>
           <button type="button" role="menuitem" @click="chooseMoreAction('createGroup')">创建群聊</button>
+          <template v-if="section === 'groups'">
+            <button type="button" role="menuitem" @click="chooseMoreAction('createTemporaryRoom')">创建临时房间</button>
+            <button type="button" role="menuitem" @click="chooseMoreAction('joinTemporaryRoom')">凭房间码加入</button>
+          </template>
         </div>
       </div>
     </header>

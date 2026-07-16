@@ -3,6 +3,10 @@ import type {
   AuthSession,
   ChatGroup,
   ChatMessage,
+  BroadcastCreatePayload,
+  BroadcastDetail,
+  BroadcastReceiver,
+  BroadcastStatistics,
   DeviceLogin,
   FileUpload,
   Friend,
@@ -13,6 +17,9 @@ import type {
   NodePublicInfo,
   RuntimeLogLevelFilter,
   RuntimeLogSnapshot,
+  EmergencyBroadcast,
+  TemporaryRoom,
+  TemporaryRoomCreatePayload,
   User,
 } from '../types'
 import { clearSession, readSession, writeSession } from '../utils/storage'
@@ -224,6 +231,37 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ groupName, memberIds }),
     }),
+  },
+  rooms: {
+    list: () => request<TemporaryRoom[]>('/rooms'),
+    get: (roomId: number) => request<TemporaryRoom>(`/rooms/${roomId}`),
+    create: (payload: TemporaryRoomCreatePayload) => request<TemporaryRoom>('/rooms', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+    join: (roomCode: string) => request<TemporaryRoom>('/rooms/join', {
+      method: 'POST',
+      body: JSON.stringify({ roomCode }),
+    }),
+    leave: (roomId: number) => request<void>(`/rooms/${roomId}/leave`, { method: 'POST' }),
+  },
+  broadcasts: {
+    list: () => request<EmergencyBroadcast[]>('/broadcast'),
+    pending: () => request<EmergencyBroadcast[]>('/broadcast/pending'),
+    detail: (broadcastId: number) => request<BroadcastDetail>(`/broadcast/${broadcastId}`),
+    create: (payload: BroadcastCreatePayload) => request<EmergencyBroadcast>('/broadcast', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+    view: (broadcastId: number) => request<BroadcastReceiver>(
+      `/broadcast/${broadcastId}/view`,
+      { method: 'POST' },
+    ),
+    confirm: (broadcastId: number, status: string) => request<BroadcastReceiver>(
+      `/broadcast/${broadcastId}/confirm`,
+      { method: 'POST', body: JSON.stringify({ status }) },
+    ),
+    stats: (broadcastId: number) => request<BroadcastStatistics>(`/broadcast/${broadcastId}/stats`),
   },
   chat: {
     history: (conversationId: string, limit = 50, beforeSequence?: number) => request<ChatMessage[]>(

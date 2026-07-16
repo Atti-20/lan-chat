@@ -29,6 +29,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   let manuallyClosed = false
   let authenticated = false
   let refreshingAuth = false
+  let inboundQueue: Promise<void> = Promise.resolve()
 
   function createEnvelope(
     event: string,
@@ -67,7 +68,11 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
     nextSocket.onmessage = (messageEvent) => {
       if (socket !== nextSocket) return
-      void handleMessage(messageEvent.data)
+      // Preserve server event order even when a handler performs async IndexedDB
+      // work (for example transfer-id remapping before a fallback notification).
+      inboundQueue = inboundQueue
+        .then(() => socket === nextSocket ? handleMessage(messageEvent.data) : undefined)
+        .catch(() => options.onError?.('实时消息处理失败'))
     }
 
     nextSocket.onerror = () => {

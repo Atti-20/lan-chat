@@ -14,11 +14,16 @@ export function groupConversationId(groupId: number): string {
   return `group:${groupId}`
 }
 
+export function temporaryConversationId(roomId: number): string {
+  if (roomId <= 0) throw new Error('无法生成临时房间会话标识')
+  return `temporary:${roomId}`
+}
+
 export function resolveConversationId(
   conversation: Pick<Conversation, 'kind' | 'id'>,
   currentUserId: number,
 ): string {
-  return conversation.kind === 'group'
-    ? groupConversationId(conversation.id)
-    : privateConversationId(currentUserId, conversation.id)
+  if (conversation.kind === 'group') return groupConversationId(conversation.id)
+  if (conversation.kind === 'temporary') return temporaryConversationId(conversation.id)
+  return privateConversationId(currentUserId, conversation.id)
 }

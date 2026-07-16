@@ -8,13 +8,12 @@ import com.lanchat.dto.FileUploadVO;
 import com.lanchat.entity.FileAccessLog;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.ChatMessage;
-import com.lanchat.entity.GroupMember;
 import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.FileAccessGrantMapper;
 import com.lanchat.mapper.FileAccessLogMapper;
 import com.lanchat.mapper.FileMetadataMapper;
-import com.lanchat.mapper.GroupMemberMapper;
 import com.lanchat.service.FileService;
+import com.lanchat.service.ConversationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,7 +77,7 @@ public class FileServiceImpl implements FileService {
     private ChatMessageMapper chatMessageMapper;
 
     @Autowired
-    private GroupMemberMapper groupMemberMapper;
+    private ConversationService conversationService;
 
     @Autowired
     private com.lanchat.mapper.UserMapper userMapper;
@@ -250,23 +249,12 @@ public class FileServiceImpl implements FileService {
         if (userMapper.selectCount(thumbAvatarWrapper) > 0) return true;
 
         String storedName = metadata.getFilePath();
-        LambdaQueryWrapper<ChatMessage> privateWrapper = new LambdaQueryWrapper<>();
-        privateWrapper.eq(ChatMessage::getFilePath, storedName)
-                .and(w -> w.eq(ChatMessage::getFromUserId, userId)
-                        .or()
-                        .eq(ChatMessage::getToUserId, userId));
-        if (chatMessageMapper.selectCount(privateWrapper) > 0) return true;
-
-        LambdaQueryWrapper<GroupMember> membershipWrapper = new LambdaQueryWrapper<>();
-        membershipWrapper.eq(GroupMember::getUserId, userId);
-        List<GroupMember> memberships = groupMemberMapper.selectList(membershipWrapper);
-        if (memberships.isEmpty()) return false;
-
-        List<Long> groupIds = memberships.stream().map(GroupMember::getGroupId).toList();
-        LambdaQueryWrapper<ChatMessage> groupWrapper = new LambdaQueryWrapper<>();
-        groupWrapper.eq(ChatMessage::getFilePath, storedName)
-                .in(ChatMessage::getGroupId, groupIds);
-        return chatMessageMapper.selectCount(groupWrapper) > 0;
+        List<ChatMessage> references = chatMessageMapper.selectList(
+                new LambdaQueryWrapper<ChatMessage>()
+                        .eq(ChatMessage::getFilePath, storedName)
+                        .eq(ChatMessage::getIsRecalled, 0));
+        return references.stream().anyMatch(message ->
+                conversationService.canDownloadFile(message.getConversationId(), userId));
     }
 
     @Override

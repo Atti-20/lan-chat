@@ -1,12 +1,13 @@
 import { toRaw } from 'vue'
-import type { ChatGroup, ChatMessage, Friend, OutboxEntry } from '../types'
+import type { ChatGroup, ChatMessage, DirectFileRecord, Friend, OutboxEntry, TemporaryRoom } from '../types'
 
 const DATABASE_NAME = 'lanchat_local_v2'
-const DATABASE_VERSION = 3
+const DATABASE_VERSION = 4
 const OUTBOX_STORE = 'outbox'
 const MESSAGE_STORE = 'messages'
 const POSITION_STORE = 'positions'
 const DIRECTORY_STORE = 'directory'
+const DIRECT_FILE_STORE = 'directFiles'
 
 interface CachedMessageRecord {
   cacheKey: string
@@ -25,6 +26,7 @@ interface ConversationDirectoryRecord {
   key: 'current'
   friends: Friend[]
   groups: ChatGroup[]
+  rooms?: TemporaryRoom[]
   savedAt: string
 }
 
@@ -67,6 +69,10 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!database.objectStoreNames.contains(DIRECTORY_STORE)) {
         database.createObjectStore(DIRECTORY_STORE, { keyPath: 'key' })
+      }
+      if (!database.objectStoreNames.contains(DIRECT_FILE_STORE)) {
+        const files = database.createObjectStore(DIRECT_FILE_STORE, { keyPath: 'transferId' })
+        files.createIndex('bySavedAt', 'savedAt')
       }
     }
     request.onsuccess = () => {
@@ -247,6 +253,7 @@ export async function loadPositions(): Promise<Record<string, number>> {
 export async function saveConversationDirectory(
   friends: readonly Friend[],
   groups: readonly ChatGroup[],
+  rooms: readonly TemporaryRoom[] = [],
 ): Promise<void> {
   const database = await openDatabase()
   const transaction = database.transaction(DIRECTORY_STORE, 'readwrite')
@@ -254,6 +261,7 @@ export async function saveConversationDirectory(
     key: 'current',
     friends: [...friends],
     groups: [...groups],
+    rooms: [...rooms],
     savedAt: new Date().toISOString(),
   } satisfies ConversationDirectoryRecord))
   await transactionDone(transaction)
@@ -269,15 +277,49 @@ export async function loadConversationDirectory(): Promise<ConversationDirectory
   return record || null
 }
 
+export async function saveDirectFile(record: DirectFileRecord): Promise<void> {
+  const database = await openDatabase()
+  const transaction = database.transaction(DIRECT_FILE_STORE, 'readwrite')
+  // Blob is natively structured-cloneable by IndexedDB. Do not pass it through
+  // storageSnapshot, whose plain-object fallback is intended for JSON message data.
+  transaction.objectStore(DIRECT_FILE_STORE).put({ ...record })
+  await transactionDone(transaction)
+}
+
+export async function loadDirectFile(transferId: string): Promise<DirectFileRecord | null> {
+  if (!transferId) return null
+  const database = await openDatabase()
+  const transaction = database.transaction(DIRECT_FILE_STORE, 'readonly')
+  const record = await requestResult(
+    transaction.objectStore(DIRECT_FILE_STORE).get(transferId),
+  ) as DirectFileRecord | undefined
+  await transactionDone(transaction)
+  return record || null
+}
+
+export async function moveDirectFile(oldTransferId: string, newTransferId: string): Promise<void> {
+  if (!oldTransferId || !newTransferId || oldTransferId === newTransferId) return
+  const database = await openDatabase()
+  const transaction = database.transaction(DIRECT_FILE_STORE, 'readwrite')
+  const store = transaction.objectStore(DIRECT_FILE_STORE)
+  const record = await requestResult(store.get(oldTransferId)) as DirectFileRecord | undefined
+  if (record) {
+    store.put({ ...record, transferId: newTransferId })
+    store.delete(oldTransferId)
+  }
+  await transactionDone(transaction)
+}
+
 export async function clearLocalChatDatabase(): Promise<void> {
   const database = await openDatabase()
   const transaction = database.transaction(
-    [OUTBOX_STORE, MESSAGE_STORE, POSITION_STORE, DIRECTORY_STORE],
+    [OUTBOX_STORE, MESSAGE_STORE, POSITION_STORE, DIRECTORY_STORE, DIRECT_FILE_STORE],
     'readwrite',
   )
   transaction.objectStore(OUTBOX_STORE).clear()
   transaction.objectStore(MESSAGE_STORE).clear()
   transaction.objectStore(POSITION_STORE).clear()
   transaction.objectStore(DIRECTORY_STORE).clear()
+  transaction.objectStore(DIRECT_FILE_STORE).clear()
   await transactionDone(transaction)
 }
