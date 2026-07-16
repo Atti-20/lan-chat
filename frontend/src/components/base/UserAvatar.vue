@@ -89,7 +89,7 @@ function preloadImage(url: string): Promise<void> {
     image.onerror = () => reject(new Error('头像加载失败'))
     image.src = url
     if (image.complete && image.naturalWidth > 0) {
-      resolve
+      resolve()
     }
   })
 }
@@ -143,8 +143,12 @@ watch(
       const url = await resolveAvatarUrl(avatar)
       if(cancelled || requestVersion !== avatarRequestVersion || props.avatar !== avatar) return
       resolvedImageUrl.value = url
+      resolvingImage.value = false
     } catch {
-      if (!cancelled && requestVersion === avatarRequestVersion) resolvingImage.value = false
+      if (!cancelled && requestVersion === avatarRequestVersion) {
+        resolvedImageUrl.value = ''
+        resolvingImage.value = false
+      }
     }
   },
     { immediate: true }
@@ -185,7 +189,7 @@ function adjustColor(hex: string, amount: number): string {
 <template>
   <span class="avatar" :style="avatarStyle" :aria-label="`${name}的头像`">
     <img v-if="resolvedImageUrl" class="avatar-image" :src="resolvedImageUrl" alt="" @error="handleAvatarImageError"/>
-    <span v-else-if="resolvingImage" class="avatar-loading" aria-hidden="true" 34/>
+    <span v-else-if="resolvingImage" class="avatar-loading" aria-hidden="true" />
     <span v-else-if="emoji" aria-hidden="true">{{ emoji }}</span>
     <span v-else class="avatar-letter" aria-hidden="true">{{ textInitial }}</span>
     <span v-if="online" class="online-dot" aria-label="在线" />
