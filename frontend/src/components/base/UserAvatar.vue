@@ -1,3 +1,14 @@
+<script lang="ts">
+interface AvatarUrlCacheEntry {
+  url: string
+  expiresAt: number
+}
+
+const avatarUrlCache = new Map<string, AvatarUrlCacheEntry>()
+const avatarUrlRequestCache = new Map<string, Promise<string>>()
+
+const AVATAR_URL_CACHE_TTL = 5 * 60 * 1000
+</script>
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
 import { api } from '../../services/api'
@@ -50,29 +61,101 @@ const customColor = computed(() => {
 
 // 签名后的可用图片 URL
 const resolvedImageUrl = shallowRef('')
+const resolvingImage = shallowRef(false)
+let avatarRequestVersion = 0
+
+function isImageAvatar(avatar: string): boolean {
+  return Boolean(avatar) && avatar !== 'text' && !avatar.startsWith('letter:') && !avatar.startsWith('emoji:') && !avatar.startsWith('svg:')
+}
+
+function isProtectedAvatar(avatar: string): boolean {
+  return avatar.startsWith('/api/v1/file/content') || avatar.startsWith('/api/v1/file/preview')
+}
+
+function getCachedAvatarUrl(avatar: string): string {
+  const cached = avatarUrlCache.get(avatar)
+  if (!cached) return ''
+  if (cached.expiresAt <= Date.now()) {
+    avatarUrlCache.delete(avatar)
+    return ''
+  }
+  return cached.url
+}
+
+function preloadImage(url: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve()
+    image.onerror = () => reject(new Error('头像加载失败'))
+    image.src = url
+    if (image.complete && image.naturalWidth > 0) {
+      resolve
+    }
+  })
+}
+
+async function resolveAvatarUrl(avatar: string): Promise<string> {
+  const cachedUrl = getCachedAvatarUrl(avatar)
+  if (cachedUrl) return cachedUrl
+  const existingRequest = avatarUrlRequestCache.get(avatar)
+  if (existingRequest) return existingRequest
+  const request = (async () => {
+    const url = isProtectedAvatar(avatar) ? await api.files.temporaryUrl(avatar) : avatar
+    await preloadImage(url)
+    avatarUrlCache.set(avatar, {
+      url,
+      expiresAt: Date.now() + AVATAR_URL_CACHE_TTL
+    })
+    return url
+  })()
+
+  avatarUrlRequestCache.set(avatar, request)
+
+  try {
+    return await request
+  } finally {
+    avatarUrlRequestCache.delete(avatar)
+  }
+}
 
 watch(
   () => props.avatar,
-  async (avatar) => {
-    if (!avatar || avatar === 'text' || avatar.startsWith('letter:') || avatar.startsWith('emoji:') || avatar.startsWith('svg:')) {
+  async (avatar, _previous, onCleanup) => {
+    const requestVersion = ++avatarRequestVersion
+    let cancelled = false
+    onCleanup(() => {
+      cancelled = true
+    })
+
+    if (!isImageAvatar(avatar)) {
       resolvedImageUrl.value = ''
+      resolvingImage.value = false
       return
     }
-    if (avatar.startsWith('/api/v1/file/content/') || avatar.startsWith('/api/v1/file/preview/')) {
-      // 受保护路径，需要获取签名 URL
-      try {
-        const signedUrl = await api.files.temporaryUrl(avatar)
-        resolvedImageUrl.value = signedUrl
-      } catch {
-        resolvedImageUrl.value = ''
-      }
-    } else {
-      // 普通 URL（http:// 等），直接使用
-      resolvedImageUrl.value = avatar
+    const cachedUrl = getCachedAvatarUrl(avatar)
+    if (cachedUrl) {
+      resolvedImageUrl.value = cachedUrl
+      resolvingImage.value = false
+      return
+    }
+    resolvingImage.value = true
+    try {
+      const url = await resolveAvatarUrl(avatar)
+      if(cancelled || requestVersion !== avatarRequestVersion || props.avatar !== avatar) return
+      resolvedImageUrl.value = url
+    } catch {
+      if (!cancelled && requestVersion === avatarRequestVersion) resolvingImage.value = false
     }
   },
-  { immediate: true },
+    { immediate: true }
 )
+
+function handleAvatarImageError(): void {
+  const avatar = props.avatar
+  if (avatar) avatarUrlCache.delete(avatar)
+  resolvedImageUrl.value = ''
+  resolvingImage.value = false
+}
 
 const avatarStyle = computed(() => {
   const base: Record<string, string> = {
@@ -101,7 +184,8 @@ function adjustColor(hex: string, amount: number): string {
 
 <template>
   <span class="avatar" :style="avatarStyle" :aria-label="`${name}的头像`">
-    <img v-if="resolvedImageUrl" class="avatar-image" :src="resolvedImageUrl" alt="" />
+    <img v-if="resolvedImageUrl" class="avatar-image" :src="resolvedImageUrl" alt="" @error="handleAvatarImageError"/>
+    <span v-else-if="resolvingImage" class="avatar-loading" aria-hidden="true" 34/>
     <span v-else-if="emoji" aria-hidden="true">{{ emoji }}</span>
     <span v-else class="avatar-letter" aria-hidden="true">{{ textInitial }}</span>
     <span v-if="online" class="online-dot" aria-label="在线" />
@@ -127,6 +211,25 @@ function adjustColor(hex: string, amount: number): string {
   height: 100%;
   border-radius: inherit;
   object-fit: cover;
+}
+
+.avatar-loading {
+  width: 38%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  animation: avatar-loading-pulse 900ms ease-in-out infinite alternate;
+}
+
+@keyframes avatar-loading-pulse {
+  from {
+    opacity: 0.35;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 0.75;
+    transform: scale(1);
+  }
 }
 
 .avatar-letter {

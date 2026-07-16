@@ -33,9 +33,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
@@ -49,6 +52,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -57,7 +61,10 @@ public class FileServiceImpl implements FileService {
     private static final Logger log = LoggerFactory.getLogger(FileServiceImpl.class);
 
     /** 缩略图尺寸 */
-    private static final int THUMBNAIL_SIZE = 300;
+    private static final int THUMBNAIL_MAX_EDGE = 960;
+
+    /** JPEG 缩略图编码质量 */
+    private static final float THUMBNAIL_JPEG_QUALITY = 0.90f;
 
     /** 预览URL有效期：10分钟 */
     private static final long PREVIEW_URL_EXPIRE_MINUTES = 10;
@@ -420,43 +427,137 @@ public class FileServiceImpl implements FileService {
             }
             if (sourceImage == null) return null;
 
-            // 等比缩放到 300x300 以内
             int sourceWidth = sourceImage.getWidth();
             int sourceHeight = sourceImage.getHeight();
-            int targetWidth, targetHeight;
+            if (sourceWidth <= 0 || sourceHeight <= 0) return  null;
 
-            if (sourceWidth > sourceHeight) {
-                targetWidth = THUMBNAIL_SIZE;
-                targetHeight = (int) ((double) sourceHeight / sourceWidth * THUMBNAIL_SIZE);
-            } else {
-                targetHeight = THUMBNAIL_SIZE;
-                targetWidth = (int) ((double) sourceWidth / sourceHeight * THUMBNAIL_SIZE);
+            double scale = Math.min(
+                    1.0,
+                    (double) THUMBNAIL_MAX_EDGE
+                            / Math.max(sourceWidth, sourceHeight)
+            );
+
+            int targetWidth = Math.max(
+                    1,
+                    (int) Math.round(sourceWidth * scale)
+            );
+
+            int targetHeight = Math.max(
+                    1,
+                    (int) Math.round(sourceHeight * scale)
+            );
+
+            String suffix = normalized
+                    .substring(normalized.lastIndexOf('.') + 1)
+                    .toLowerCase(Locale.ROOT);
+
+            boolean preserveAlpha = sourceImage.getColorModel().hasAlpha()
+                    && ("png".equals(suffix) || "gif".equals(suffix));
+
+            BufferedImage thumbnail = new BufferedImage(
+                    targetWidth,
+                    targetHeight,
+                    preserveAlpha
+                            ? BufferedImage.TYPE_INT_ARGB
+                            : BufferedImage.TYPE_INT_RGB
+            );
+
+            Graphics2D graphics = thumbnail.createGraphics();
+
+            try {
+                // JPEG 不支持透明背景，使用白色填充，避免透明区域变黑。
+                if (!preserveAlpha) {
+                    graphics.setColor(Color.WHITE);
+                    graphics.fillRect(0, 0, targetWidth, targetHeight);
+                }
+
+                graphics.setRenderingHint(
+                        RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_BICUBIC
+                );
+
+                graphics.setRenderingHint(
+                        RenderingHints.KEY_RENDERING,
+                        RenderingHints.VALUE_RENDER_QUALITY
+                );
+
+                graphics.setRenderingHint(
+                        RenderingHints.KEY_ANTIALIASING,
+                        RenderingHints.VALUE_ANTIALIAS_ON
+                );
+
+                graphics.setRenderingHint(
+                        RenderingHints.KEY_COLOR_RENDERING,
+                        RenderingHints.VALUE_COLOR_RENDER_QUALITY
+                );
+
+                graphics.drawImage(
+                        sourceImage,
+                        0,
+                        0,
+                        targetWidth,
+                        targetHeight,
+                        null
+                );
+            } finally {
+                graphics.dispose();
             }
 
-            BufferedImage thumbnail = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
-            Graphics2D g2d = thumbnail.createGraphics();
-            g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g2d.drawImage(sourceImage, 0, 0, targetWidth, targetHeight, null);
-            g2d.dispose();
+            String thumbName = "thumb_" + normalized;
 
-            // 保存缩略图
-            String suffix = fileName.substring(fileName.lastIndexOf(".") + 1);
-            String thumbName = "thumb_" + fileName;
-            temporary = Files.createTempFile(ensureStagingReady(0), ".thumbnail-", ".tmp");
-            if (!ImageIO.write(thumbnail, suffix, temporary.toFile())) {
-                // Some safe upload readers (notably WebP) intentionally have no
-                // matching ImageIO writer. In that case the original image stays
-                // available and no broken thumbnail URL is returned.
+            temporary = Files.createTempFile(
+                    ensureStagingReady(0),
+                    ".thumbnail-",
+                    ".tmp"
+            );
+
+            if (!writeThumbnail(thumbnail, suffix, temporary)) {
+                // 例如运行环境只有 WebP reader，没有对应 writer。
                 return null;
             }
-            storage.put(thumbName, temporary, metadata.getFileType());
+
+            storage.put(
+                    thumbName,
+                    temporary,
+                    metadata.getFileType()
+            );
 
             return getFileUrl(thumbName);
-        } catch (IOException e) {
-            log.warn("生成缩略图失败: {}", e.getMessage());
+        } catch (IOException exception) {
+            log.warn(
+                    "生成缩略图失败，fileName={}, reason={}",
+                    fileName,
+                    exception.getMessage()
+            );
+
             return null;
         } finally {
             deleteQuietly(temporary);
+        }
+    }
+
+    private boolean writeThumbnail(
+            BufferedImage image,
+            String suffix,
+            Path target
+    ) throws IOException {
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName(suffix);
+        if (!writers.hasNext()) return false;
+        ImageWriter writer = writers.next();
+        try (ImageOutputStream output = ImageIO.createImageOutputStream(target.toFile())) {
+            if (output == null) return false;
+            writer .setOutput(output);
+            ImageWriteParam writeParam = writer.getDefaultWriteParam();
+            boolean jpeg = "jpg".equalsIgnoreCase(suffix) || "jpeg".equalsIgnoreCase(suffix);
+            if (jpeg && writeParam.canWriteCompressed()) {
+                writeParam.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                writeParam.setCompressionQuality(THUMBNAIL_JPEG_QUALITY);
+            }
+            writer.write(null, new IIOImage(image, null, null), writeParam);
+            output.flush();
+            return true;
+        } finally {
+            writer.dispose();
         }
     }
 

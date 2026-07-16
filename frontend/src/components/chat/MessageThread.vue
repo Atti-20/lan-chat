@@ -32,6 +32,7 @@ let scrollFrame: number | null = null
 let scrollRequestId = 0
 let layoutObserver: ResizeObserver | null = null
 let layoutSettleTimer: number | null = null
+let keepBottomPinnedUntil = 0
 
 watch(
   () => [
@@ -52,9 +53,16 @@ watch(
       // message count. Scroll after the final layout, without an animation.
       // Attachments resolve their image URL after the history request, so keep
       // the initial position pinned while the message list is still resizing.
+      if (!loading) {
+        keepBottomPinnedUntil = Date.now() + 5_000
+      }
       scheduleScrollToBottom('auto', !loading)
-    } else if (messagesChanged && !loading) {
-      scheduleScrollToBottom('smooth')
+      return
+    }
+    if (messagesChanged && !loading) {
+      if (isNearBottom() || Date.now() <= keepBottomPinnedUntil) {
+        scheduleScrollToBottom('smooth')
+      }
     }
   },
   { immediate: true, flush: 'post' },
@@ -65,6 +73,22 @@ onBeforeUnmount(() => {
   if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
   stopLayoutSettling()
 })
+
+function isNearBottom(tolerance = 160): boolean {
+  const thread = threadRef.value
+  if (!thread) return true
+  const remaining = thread.scrollHeight - thread.scrollTop - thread.clientHeight
+  return remaining <= tolerance
+}
+
+function handleAttachmentLayoutChange(): void {
+  const initialLayoutStillSettling = Date.now() <= keepBottomPinnedUntil
+  if (!initialLayoutStillSettling && !isNearBottom()) return
+  scheduleScrollToBottom(
+      'auto',
+      initialLayoutStillSettling
+  )
+}
 
 function scheduleScrollToBottom(behavior: ScrollBehavior, settleLayout = false): void {
   const requestId = ++scrollRequestId
@@ -101,7 +125,7 @@ function startLayoutSettling(requestId: number): void {
   }
   const resetTimer = () => {
     if (layoutSettleTimer !== null) window.clearTimeout(layoutSettleTimer)
-    layoutSettleTimer = window.setTimeout(finish, 320)
+    layoutSettleTimer = window.setTimeout(finish, 1_200)
   }
 
   if (typeof ResizeObserver !== 'undefined' && list) {
@@ -222,6 +246,7 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
                 :type="messageType(message) as 'image' | 'file'"
                 :content="message.content"
                 :outgoing="isSelf(message)"
+                @layout-change="handleAttachmentLayoutChange"
               />
               <p v-else class="message-text">{{ message.content }}</p>
               <span v-if="Number(message.isBurn) === 1" class="burn-label">阅后即焚</span>
@@ -262,7 +287,7 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
 </template>
 
 <style scoped>
-.message-thread { position: relative; min-width: 0; min-height: 0; padding: 24px clamp(18px, 3vw, 42px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(92,124,156,.2) transparent; }
+.message-thread { position: relative; min-width: 0; min-height: 0; padding: 24px clamp(18px, 3vw, 42px); overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(92,124,156,.2) transparent; }
 .message-list { display: grid; width: 100%; max-width: none; min-height: 100%; padding: 0; margin: 0; align-content: start; gap: 14px; list-style: none; }
 .message-row { display: flex; align-items: flex-end; gap: 10px; }
 .message-row--self { flex-direction: row-reverse; }

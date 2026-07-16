@@ -252,6 +252,9 @@ function itemTime(item: ConversationListItem): string {
           </span>
           <span class="conversation-line conversation-preview">
             <span>{{ item.preview }}</span>
+            <i v-if="!item.messageHit && item.conversation.unreadCount" class="unread-badge" :aria-label="`${item.conversation.unreadCount} 条未读消息`">
+              {{item.conversation.unreadCount > 99 ? '99+' : item.conversation.unreadCount}}
+            </i>
             <i v-if="!item.messageHit && item.conversation.pendingCount" class="pending" :aria-label="`${item.conversation.pendingCount} 条待发送`">
               {{ item.conversation.pendingCount }}
             </i>
@@ -331,6 +334,7 @@ function itemTime(item: ConversationListItem): string {
 .conversation-preview { color: #718398; font-size: 12px; }
 .conversation-preview > span { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-preview i { font-style: normal; }
+.conversation-preview .unread-badge {display: grid; min-width: 18px; height: 18px; padding: 0 5px; place-items: center; flex: 0 0 auto; border-radius: 999px; color: white; font-size: 9px; font-weight: 700; font-style: normal; background: var(--coral)}
 .conversation-preview .pending { min-width: 17px; padding: 1px 5px; border-radius: 999px; color: var(--blue); font-size: 9px; font-style: normal; text-align: center; background: rgba(0,122,255,.1); }
 .conversation-pin { display: grid; width: 20px; height: 20px; margin-left: auto; place-items: center; color: var(--blue); }
 .conversation-pin .ui-icon { width: 15px; height: 15px; }

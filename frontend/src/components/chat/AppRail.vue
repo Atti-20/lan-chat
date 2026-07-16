@@ -9,6 +9,7 @@ interface Props {
   section: ChatSection
   user: User
   requestCount: number
+  messageCount?: number
   broadcastCount?: number
   connected: boolean
 }
@@ -68,6 +69,7 @@ function activateItem(item: RailItem): void {
       >
         <UiIcon :name="item.icon" :size="23" />
         <span class="rail-label">{{ item.label }}</span>
+        <b v-if="item.id === 'messages'&& messageCount" class="rail-badge">{{messageCount > 99 ? '99+' : messageCount}}</b>
         <b v-if="item.id === 'contacts' && requestCount" class="rail-badge">{{ Math.min(requestCount, 9) }}</b>
         <b v-else-if="item.id === 'broadcasts' && broadcastCount" class="rail-badge">{{ Math.min(broadcastCount, 9) }}</b>
       </button>

@@ -16,6 +16,9 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   outgoing: false,
 })
+const emit = defineEmits<{
+  layoutChange: []
+}>()
 const toast = useToast()
 const imageUrl = shallowRef('')
 const loading = shallowRef(false)
@@ -33,6 +36,30 @@ const data = computed<FileAttachmentData>(() => {
   } catch {
     return { url: props.content, originalUrl: props.content }
   }
+})
+
+function restoreOriginalUrl(url: string): string {
+  if (!url) return ''
+  try {
+    const parsed = new URL(url, window.location.origin)
+    parsed.pathname = parsed.pathname.replace(
+        /\/thumb_([^/]+)$/,
+        '/$1',
+    )
+    if (parsed.origin === window.location.origin) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`
+    }
+    return parsed.toString()
+  } catch {
+    return url.replace('/thumb_', '/')
+  }
+}
+
+const originalImageSource = computed(() => {
+  const explicitOriginal = data.value.originalUrl || ''
+  if (explicitOriginal) return restoreOriginalUrl(explicitOriginal)
+  const fallback = data.value.url || data.value.thumbnailUrl || ''
+  return restoreOriginalUrl(fallback)
 })
 
 watch(
@@ -76,6 +103,16 @@ watch(
     }
   },
   { immediate: true },
+)
+
+watch(
+    () => [loading.value, imageUrl.value] as const,
+    () => {
+      requestAnimationFrame(() => {
+        emit('layoutChange')
+      })
+    },
+    { flush: 'post'}
 )
 
 onBeforeUnmount(releaseLocalUrl)
@@ -123,20 +160,21 @@ async function openImage(): Promise<void> {
     previewUrl.value = imageUrl.value
     return
   }
-  const source = data.value.originalUrl || data.value.url
-  if (!source) return
+  const source = originalImageSource.value
+  if (!source) {
+    toast.push('没有可用的原图地址', 'warning')
+    return
+  }
   previewOpen.value = true
   previewLoading.value = true
   previewUrl.value = ''
   previewThumbnailUrl.value = imageUrl.value
   try {
-    const thumbnailSource = data.value.thumbnailUrl || data.value.url
-    previewUrl.value = source === thumbnailSource && imageUrl.value
-      ? imageUrl.value
-      : await api.files.temporaryUrl(source)
+    previewUrl.value = await api.files.temporaryUrl(source)
   } catch {
     previewOpen.value = false
     previewLoading.value = false
+    previewUrl.value = ''
     toast.push('原图暂时无法打开', 'danger')
   }
 }
@@ -160,6 +198,12 @@ function closePreview(): void {
   previewOpen.value = false
 }
 
+function notifyLayoutChange(): void {
+  requestAnimationFrame(() => {
+    emit('layoutChange')
+  })
+}
+
 function handlePreviewLoaded(): void {
   previewLoading.value = false
 }
@@ -175,7 +219,7 @@ function handlePreviewError(): void {
 <template>
   <button v-if="type === 'image'" class="image-attachment" type="button" :disabled="loading" @click="openImage">
     <span v-if="loading" class="image-loading">正在载入图片…</span>
-    <img v-else-if="imageUrl" :src="imageUrl" alt="聊天图片，点击查看原图" />
+    <img v-else-if="imageUrl" :src="imageUrl" alt="聊天图片，点击查看原图" @load="notifyLayoutChange" @error="notifyLayoutChange"/>
     <span v-else class="image-loading">{{ directAvailable === false ? '当前设备没有直传副本' : '图片不可用' }}</span>
     <span v-if="data.thumbnailUrl" class="image-hint">查看原图</span>
     <span v-else-if="data.transferPath" class="path-hint">{{ data.transferPath === 'PEER_TO_PEER' ? '设备直传' : '节点中转' }}</span>
@@ -253,7 +297,7 @@ function handlePreviewError(): void {
 .image-preview-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; padding: 28px; place-items: center; background: rgba(12,18,26,.72); backdrop-filter: blur(14px) saturate(125%); -webkit-backdrop-filter: blur(14px) saturate(125%); }
 .image-preview { position: relative; display: grid; max-width: min(94vw, 1440px); max-height: 92dvh; place-items: center; }
 .image-preview img { display: block; max-width: 100%; max-height: 92dvh; object-fit: contain; border-radius: 14px; box-shadow: 0 28px 90px rgba(0,0,0,.36); }
-.image-preview .preview-thumbnail { opacity: .82; filter: saturate(.92); }
+.image-preview .preview-thumbnail { max-width: min(82vw, 960px); max-height: 82dvh; opacity: .72; filter: blur(0.4px) saturate(.92); }
 .preview-image--loading { position: absolute; opacity: 0; pointer-events: none; }
 .preview-close { position: absolute; z-index: 1; top: 12px; right: 12px; display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid rgba(255,255,255,.24); border-radius: 50%; color: white; font-size: 24px; background: rgba(18,24,32,.58); cursor: pointer; backdrop-filter: blur(10px); }
 .preview-loading { position: absolute; z-index: 1; bottom: 14px; left: 50%; padding: 7px 11px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: white; font-size: 11px; background: rgba(18,24,32,.62); transform: translateX(-50%); backdrop-filter: blur(10px); }

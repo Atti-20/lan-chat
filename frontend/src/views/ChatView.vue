@@ -56,6 +56,7 @@ const {
   members,
   messages,
   conversations,
+  totalUnreadCount,
   messageSearchResults,
   messageSearchLoading,
   messageSearchError,
@@ -149,7 +150,7 @@ const diagnostics = useDiagnostics({
 })
 const hasWorkspaceSelection = computed(() => {
   if (isAdminSection.value) return Boolean(adminModule.value)
-  if (isBroadcastSection.value) return Boolean(broadcasts.selected.value)
+  if (isBroadcastSection.value) return broadcasts.selectedId.value !== null
   return Boolean(selected.value)
 })
 const showSidebar = computed(() => !mobile.value || !hasWorkspaceSelection.value)
@@ -384,13 +385,28 @@ async function joinTemporaryRoom(roomCode: string): Promise<void> {
 
 async function leaveTemporaryRoom(): Promise<void> {
   const room = selectedTemporaryRoom.value
-  if (!room || !window.confirm(`确定退出临时房间“${room.roomName}”吗？`)) return
+  if (!room) return
+
+  const confirmed = window.confirm(
+      `确定退出临时房间“${room.roomName}”吗？\n\n`
+      + '退出后将不再接收该房间的新消息，'
+      + '需要房间码才能重新加入。',
+  )
+
+  if (!confirmed) return
+
   try {
     await temporaryRooms.leave(room.id)
+
+    // 清除该房间未读数和最新消息运行状态。
+    chat.forgetConversation(room.conversationId)
+
     contextOpen.value = false
     selected.value = null
+
     await chat.refreshLists()
-    toast.push('已退出临时房间', 'success')
+
+    toast.push('已退出临时房间，不再接收该房间消息', 'success')
   } catch (cause) {
     handleError(cause, '退出临时房间失败')
   }
@@ -566,6 +582,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         :section="section"
         :user="user"
         :request-count="requests.length"
+        :message-count="totalUnreadCount"
         :broadcast-count="broadcasts.pendingCount.value"
         :connected="connected"
         @change="changeSection"
@@ -585,8 +602,8 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         v-else-if="isBroadcastSection"
         v-show="showSidebar"
         :broadcasts="broadcasts.broadcasts.value"
-        :selected-id="broadcasts.selected.value?.broadcast.id"
-        :loading="broadcasts.loading.value"
+        :selected-id="broadcasts.selectedId.value ?? undefined"
+        :loading="broadcasts.listLoading.value"
         :can-create="canCreateBroadcast"
         :pending-broadcast-ids="[...broadcasts.pendingIds.value]"
         @select="selectBroadcast"
@@ -690,13 +707,13 @@ async function resetUserPassword(newPassword: string): Promise<void> {
       </section>
 
       <section
-        v-else-if="isBroadcastSection && broadcasts.selected.value && showWorkspace"
+        v-else-if="isBroadcastSection && broadcasts.selectedId.value !== null && showWorkspace"
         class="workspace workspace--broadcast"
       >
         <BroadcastWorkspace
           :detail="broadcasts.selected.value"
           :statistics="broadcasts.statistics.value"
-          :loading="broadcasts.loading.value"
+          :loading="broadcasts.detailLoading.value"
           :confirming="broadcastConfirming"
           :statistics-loading="broadcastStatisticsLoading"
           :can-cancel="isAdministrator"

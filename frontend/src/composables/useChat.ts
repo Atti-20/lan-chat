@@ -37,6 +37,7 @@ import { usePeerFileTransfer } from './usePeerFileTransfer'
 import { useResumableUpload } from './useResumableUpload'
 import { useToast } from './useToast'
 import { useWebSocket } from './useWebSocket'
+import {playNotificationSound} from "../services/notificationSound";
 
 export type ChatSection = 'messages' | 'contacts' | 'groups' | 'broadcasts' | 'admin'
 
@@ -45,6 +46,13 @@ type AckOutcome = 'ACK' | 'ERROR'
 interface AckWaiter {
   resolve: (outcome: AckOutcome | 'TIMEOUT') => void
   timer: number
+}
+
+interface ConversationRuntimeState {
+  lastMessage?: string
+  lastMessageType?: string
+  lastMessageTime?: string
+  unreadCount: number
 }
 
 export function useChat() {
@@ -69,6 +77,7 @@ export function useChat() {
   const typingLabel = shallowRef('')
   const onlineIds = ref<Set<number>>(new Set())
   const relayTransferLabel = shallowRef('')
+  const conversationRuntime = ref<Record<string, ConversationRuntimeState>>({})
 
   const ackWaiters = new Map<string, AckWaiter>()
   const burnTimers = new Map<string, number>()
@@ -127,10 +136,69 @@ export function useChat() {
     },
   )
 
+  function getConversationRuntime(conversationId:string): ConversationRuntimeState {
+    return conversationRuntime.value[conversationId] || {
+      unreadCount: 0,
+    }
+  }
+
+  function patchConversationRuntime(
+      conversationId: string,
+      patch: Partial<ConversationRuntimeState>,
+  ): void {
+    if (!conversationId) return
+    const current = getConversationRuntime(conversationId)
+    conversationRuntime.value = {
+      ...conversationRuntime.value,
+      [conversationId]: {
+        ...current,
+        ...patch,
+      },
+    }
+  }
+
+  function increaseConversationUnread(
+      conversationId: string,
+      amount = 1,
+  ): void {
+    if (!conversationId || amount <= 0) return
+    const current = getConversationRuntime(conversationId)
+    patchConversationRuntime(conversationId, {
+      unreadCount: current.unreadCount + amount,
+    })
+  }
+
+  function clearConversationUnread(conversationId: string): void {
+    if(!conversationId) return
+    patchConversationRuntime(conversationId, {
+      unreadCount: 0,
+    })
+  }
+
+  function forgetConversation(conversationId: string): void {
+    if(!conversationId) return
+    const next = {
+      ...conversationRuntime.value,
+    }
+    delete next[conversationId]
+    conversationRuntime.value = next
+  }
+
   const conversations = computed<Conversation[]>(() => {
     const me = currentUser.value?.id
+
     const privateChats = friends.value.map((friend): Conversation => {
       const conversationId = me ? privateConversationId(me, friend.friendId) : ''
+      const runtime = getConversationRuntime(conversationId)
+
+      const lastMessage = runtime.lastMessage !== undefined
+          ? runtime.lastMessage
+          : friend.lastMessage
+
+      const lastMessageType = runtime.lastMessageType !== undefined
+          ? runtime.lastMessageType
+          : friend.lastMessageType
+
       return {
         id: friend.friendId,
         conversationId,
@@ -138,18 +206,32 @@ export function useChat() {
         name: friend.remark || friend.nickname,
         avatar: friend.avatar,
         subtitle: friend.signature,
-        lastMessage: conversationPreview(friend.lastMessageType, friend.lastMessage),
-        lastMessageType: friend.lastMessageType,
-        lastMessageTime: friend.lastMessageTime,
+        lastMessage: conversationPreview(lastMessageType, lastMessage),
+        lastMessageType,
+        lastMessageTime: runtime.lastMessageTime || friend.lastMessageTime,
         online: onlineIds.value.has(friend.friendId) || friend.online === 1,
         pinned: friend.isPinned === 1,
         muted: friend.isMuted === 1,
-        pendingCount: outbox.entries.value.filter((entry) => entry.conversationId === conversationId).length,
+        unreadCount: runtime.unreadCount,
+        pendingCount: outbox.entries.value.filter(
+            (entry) => entry.conversationId === conversationId,
+        ).length,
         source: friend,
       }
     })
+
     const groupChats = groups.value.map((group): Conversation => {
       const conversationId = groupConversationId(group.id)
+      const runtime = getConversationRuntime(conversationId)
+
+      const lastMessage = runtime.lastMessage !== undefined
+          ? runtime.lastMessage
+          : group.lastMessage
+
+      const lastMessageType = runtime.lastMessageType !== undefined
+          ? runtime.lastMessageType
+          : group.lastMessageType
+
       return {
         id: group.id,
         conversationId,
@@ -157,29 +239,57 @@ export function useChat() {
         name: group.groupName,
         avatar: group.avatar,
         subtitle: group.announcement,
-        lastMessage: conversationPreview(group.lastMessageType, group.lastMessage),
-        lastMessageType: group.lastMessageType,
-        lastMessageTime: group.lastMessageTime,
-        pendingCount: outbox.entries.value.filter((entry) => entry.conversationId === conversationId).length,
+        lastMessage: conversationPreview(lastMessageType, lastMessage),
+        lastMessageType,
+        lastMessageTime: runtime.lastMessageTime || group.lastMessageTime,
+        unreadCount: runtime.unreadCount,
+        pendingCount: outbox.entries.value.filter(
+            (entry) => entry.conversationId === conversationId,
+        ).length,
         source: group,
       }
     })
-    const temporaryChats = rooms.value.map((room): Conversation => ({
-      id: room.id,
-      conversationId: room.conversationId,
-      kind: 'temporary',
-      name: room.roomName,
-      subtitle: room.purpose || temporaryRoomStatusLabel(room.status),
-      lastMessage: temporaryRoomStatusLabel(room.status),
-      lastMessageTime: room.updateTime || room.createTime,
-      source: room,
-    }))
-    return [...privateChats, ...groupChats, ...temporaryChats].sort((first, second) => {
-      if (first.pinned !== second.pinned) return first.pinned ? -1 : 1
-      return new Date(second.lastMessageTime || 0).getTime()
-        - new Date(first.lastMessageTime || 0).getTime()
+
+    const temporaryChats = rooms.value.map((room): Conversation => {
+      const runtime = getConversationRuntime(room.conversationId)
+      const hasRuntimeMessage = runtime.lastMessage !== undefined
+
+      return {
+        id: room.id,
+        conversationId: room.conversationId,
+        kind: 'temporary',
+        name: room.roomName,
+        subtitle: room.purpose || temporaryRoomStatusLabel(room.status),
+        lastMessage: hasRuntimeMessage
+            ? conversationPreview(runtime.lastMessageType, runtime.lastMessage)
+            : temporaryRoomStatusLabel(room.status),
+        lastMessageType: runtime.lastMessageType,
+        lastMessageTime: runtime.lastMessageTime || room.updateTime || room.createTime,
+        unreadCount: runtime.unreadCount,
+        pendingCount: outbox.entries.value.filter(
+            (entry) => entry.conversationId === room.conversationId,
+        ).length,
+        source: room,
+      }
     })
+
+    return [...privateChats, ...groupChats, ...temporaryChats]
+        .sort((first, second) => {
+          if (first.pinned !== second.pinned) {
+            return first.pinned ? -1 : 1
+          }
+
+          return new Date(second.lastMessageTime || 0).getTime()
+              - new Date(first.lastMessageTime || 0).getTime()
+        })
   })
+
+  const totalUnreadCount = computed(() =>
+      conversations.value.reduce(
+          (total, conversation) => total + (conversation.unreadCount || 0),
+          0,
+      ),
+  )
 
   const visibleConversations = computed(() => {
     const base = section.value === 'contacts'
@@ -327,7 +437,8 @@ export function useChat() {
     const user = currentUser.value
     if (!user) throw new Error('登录状态已失效')
     const conversationId = conversation.conversationId || resolveConversationId(conversation, user.id)
-    selected.value = { ...conversation, conversationId }
+    clearConversationUnread(conversationId)
+    selected.value = { ...conversation, conversationId, unreadCount: 0 }
     loadingMessages.value = true
     typingLabel.value = ''
 
@@ -561,6 +672,10 @@ export function useChat() {
   async function handleDelivery(envelope: WsEnvelope): Promise<void> {
     const delivered = normalizeMessage(envelope.payload as unknown as ChatMessage)
     if (!delivered.messageId || !delivered.conversationId) return
+    const conversationId = delivered.conversationId
+    const isCurrentConversation = belongsToSelected(delivered)
+    const isIncomingMessage = delivered.fromUserId !== currentUser.value?.id
+    const conversation =  conversations.value.find((item) => item.conversationId === conversationId)
     const previousSequence = runtimePositions.get(delivered.conversationId) || 0
     const hasSequenceGap = delivered.sequence != null
       && delivered.sequence > previousSequence + 1
@@ -568,15 +683,29 @@ export function useChat() {
     // A high sequence is not a contiguous receive position. Advancing it before
     // SYNC_REQUEST would make the server skip the missing range permanently.
     if (delivered.sequence != null && !hasSequenceGap) {
-      await recordPosition(delivered.conversationId, delivered.sequence)
+      await recordPosition(conversationId, delivered.sequence)
     }
-    if (belongsToSelected(delivered)) {
+    if(isCurrentConversation) {
       mergeCurrentMessages([delivered])
-      if (delivered.fromUserId !== currentUser.value?.id) {
+      if (isIncomingMessage) {
         startBurnCountdown(delivered)
-        if (!hasSequenceGap) sendReadPosition(delivered.conversationId, [delivered])
+        if(!hasSequenceGap) {
+          sendReadPosition(conversationId, [delivered])
+        }
       }
-    }
+    } else if (isIncomingMessage) {
+      increaseConversationUnread(conversationId)
+      if (!conversation?.muted) {
+        const title = conversation?.name || delivered.fromNickname || '收到新消息'
+        const preview = conversationPreview(delivered.type || delivered.contentType, delivered.content)
+        toast.push(
+            preview ? `${title}: ${preview}` : `${title}发来一条新消息`,
+            'default',
+            2800,
+        )
+        playNotificationSound()
+        }
+      }
     updateConversationPreview(delivered)
     ws.sendEvent('CHAT_DELIVER', {
       messageId: delivered.messageId,
@@ -610,7 +739,27 @@ export function useChat() {
         sendReadPosition(selectedConversationId, selectedItems)
       }
     }
-    synced.forEach(updateConversationPreview)
+    const unreadByConversation = new Map<string, number>()
+    synced.forEach((messages) => {
+      updateConversationPreview(messages)
+      if(!messages.conversationId || belongsToSelected(messages) || messages.fromUserId === currentUser.value?.id) return
+      unreadByConversation.set(
+          messages.conversationId,
+          (unreadByConversation.get(messages.conversationId) || 0) + 1,
+      )
+    })
+    let synchronizedUnreadCount = 0
+    unreadByConversation.forEach((count, conversationId) => {
+      increaseConversationUnread(conversationId, count)
+      synchronizedUnreadCount += count
+    })
+    if (synchronizedUnreadCount > 0) {
+      toast.push(
+          `连接恢复，已同步 ${synchronizedUnreadCount} 条未读消息`,
+          'default',
+          3000,
+      )
+    }
 
     const denied = Array.isArray(envelope.payload.deniedConversationIds)
       ? envelope.payload.deniedConversationIds.map(String)
@@ -1159,20 +1308,57 @@ export function useChat() {
   }
 
   function updateConversationPreview(message: ChatMessage): void {
-    const previewContent = message.status === 2 ? '消息已焚毁' : message.content
+    const conversationId = message.conversationId
+    if (!conversationId) return
+
+    const previewContent = message.status === 2
+        ? '消息已焚毁'
+        : message.content
+
+    const messageTime = message.createTime || message.timestamp || message.clientCreatedAt || new Date().toISOString()
+
+    // 所有会话统一记录运行时摘要。
+    patchConversationRuntime(conversationId, {
+      lastMessage: previewContent,
+      lastMessageType: message.status === 2 ? 'text' : message.type,
+      lastMessageTime: messageTime
+    })
+
+    // 临时房间通过 conversationId 匹配。
+    const room = rooms.value.find(
+        (item) => item.conversationId === conversationId,
+    )
+
+    if (room) {
+      return
+    }
+
+    // 普通群聊继续同步原有群组目录。
     if (message.groupId) {
-      const group = groups.value.find((item) => item.id === message.groupId)
+      const group = groups.value.find(
+          (item) => item.id === message.groupId,
+      )
+
       if (group) {
         group.lastMessage = previewContent
         group.lastMessageType = message.type
         group.lastMessageTime = message.createTime
         persistConversationDirectory()
       }
+
       return
     }
+
+    // 私聊继续同步好友目录。
     const me = currentUser.value?.id
-    const otherId = message.fromUserId === me ? message.toUserId : message.fromUserId
-    const friend = friends.value.find((item) => item.friendId === otherId)
+    const otherId = message.fromUserId === me
+        ? message.toUserId
+        : message.fromUserId
+
+    const friend = friends.value.find(
+        (item) => item.friendId === otherId,
+    )
+
     if (friend) {
       friend.lastMessage = previewContent
       friend.lastMessageType = message.type
@@ -1252,6 +1438,7 @@ export function useChat() {
     fileTransferLabel,
     conversations,
     visibleConversations,
+    totalUnreadCount,
     connected: ws.connected,
     reconnecting: ws.reconnecting,
     connectionState: ws.state,
@@ -1264,6 +1451,7 @@ export function useChat() {
     load,
     refreshLists,
     selectConversation,
+    forgetConversation,
     sendText,
     sendFile,
     sendTyping,
