@@ -53,6 +53,16 @@ export function useAdmin() {
     })
   }
 
+  async function setBroadcastPermission(payload: { userId: number; enabled: boolean }): Promise<void> {
+    await runUserAction(payload.userId, async () => {
+      await api.admin.setBroadcastPermission(payload.userId, payload.enabled)
+      toast.push(
+        payload.enabled ? '已授予广播发布权限' : '已撤销广播发布权限',
+        'success',
+      )
+    })
+  }
+
   async function deleteUser(userId: number): Promise<void> {
     await runUserAction(userId, async () => {
       await api.admin.deleteUser(userId)
@@ -100,6 +110,7 @@ export function useAdmin() {
     createUser,
     setUserStatus,
     setMutePeriod,
+    setBroadcastPermission,
     resetUserPassword,
     deleteUser,
   }

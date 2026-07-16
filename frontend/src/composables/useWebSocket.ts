@@ -6,6 +6,7 @@ import { readSession } from '../utils/storage'
 interface UseWebSocketOptions {
   onMessage: (message: WsEnvelope) => void | Promise<void>
   onReady?: () => void | Promise<void>
+  onOnline?: () => void | Promise<void>
   onError?: (message: string) => void
   refreshAuth?: () => Promise<boolean>
   onAuthFailed?: (reason: 'TOKEN_EXPIRED' | 'FORCE_LOGOUT') => void
@@ -106,14 +107,30 @@ export function useWebSocket(options: UseWebSocketOptions) {
       reconnectAttempts.value = 0
       state.value = 'SYNCING'
       startHeartbeat()
-      try {
-        await options.onReady?.()
+      const readySocket = socket
+      // onReady sends SYNC_REQUEST and waits for a later SYNC_RESPONSE. Running
+      // it inline would deadlock the serialized inbound queue that must process
+      // that response, so keep the connection in SYNCING and finish readiness
+      // independently of the current frame.
+      void (async () => {
+        try {
+          await options.onReady?.()
+        } catch (cause) {
+          if (socket !== readySocket || !authenticated) return
+          state.value = 'DEGRADED'
+          options.onError?.(cause instanceof Error ? cause.message : '遗漏消息同步失败')
+          return
+        }
+        if (socket !== readySocket || !authenticated) return
         lastSyncAt.value = new Date().toISOString()
         state.value = 'ONLINE'
-      } catch (cause) {
-        state.value = 'DEGRADED'
-        options.onError?.(cause instanceof Error ? cause.message : '遗漏消息同步失败')
-      }
+        try {
+          await options.onOnline?.()
+        } catch (cause) {
+          if (socket !== readySocket || !authenticated) return
+          options.onError?.(cause instanceof Error ? cause.message : '离线消息补发失败')
+        }
+      })()
       return
     }
 

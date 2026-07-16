@@ -13,6 +13,9 @@ public interface BroadcastService {
 
     Broadcast create(Long senderId, BroadcastCreateDTO request);
 
+    /** 撤销广播并保留广播正文、接收快照与回执历史。 */
+    Broadcast cancel(Long broadcastId, Long operatorId);
+
     List<Broadcast> listVisible(Long userId);
 
     List<Broadcast> listPending(Long userId);

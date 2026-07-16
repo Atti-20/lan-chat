@@ -15,9 +15,9 @@ import com.lanchat.mapper.DeviceLoginMapper;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.security.JwtUtil;
 import com.lanchat.service.LoginAttemptService;
+import com.lanchat.service.FileService;
 import com.lanchat.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -38,9 +38,6 @@ import com.lanchat.entity.MessageRecall;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.ChatGroup;
 import java.time.LocalDateTime;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -86,8 +83,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Autowired
     private ChatGroupMapper chatGroupMapper;
 
-    @Value("${file.path}")
-    private String filePath;
+    @Autowired
+    private FileService fileService;
 
     @Override
     public boolean register(RegisterDTO dto) {
@@ -130,6 +127,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         user.setSignature("");
         user.setOnline(0);
         user.setStatus(1);
+        user.setCanSendBroadcast(0);
         user.setCreateTime(LocalDateTime.now());
 
         return userMapper.insert(user) > 0;
@@ -501,7 +499,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         // 6. 文件：仍被其他消息引用的秒传文件保留，否则连同缩略图一并清理。
         List<FileMetadata> uploadedFiles = fileMetadataMapper.selectList(new LambdaQueryWrapper<FileMetadata>()
                 .eq(FileMetadata::getUploadUserId, userId));
-        Path storageRoot = Paths.get(filePath).toAbsolutePath().normalize();
         for (FileMetadata metadata : uploadedFiles) {
             String storedName = metadata.getFilePath();
             long references = storedName == null ? 0 : chatMessageMapper.selectCount(
@@ -509,14 +506,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                             .eq(ChatMessage::getFilePath, storedName)
                             .eq(ChatMessage::getIsRecalled, 0));
             if (references > 0) continue;
-            if (storedName != null && storedName.matches("^[0-9a-fA-F]{32}\\.[a-zA-Z0-9]{1,10}$")) {
-                try {
-                    Files.deleteIfExists(storageRoot.resolve(storedName).normalize());
-                    Files.deleteIfExists(storageRoot.resolve("thumb_" + storedName).normalize());
-                } catch (java.io.IOException ignored) {
-                    // 元数据仍会被删除，残留物理文件可由运维清理任务处理。
-                }
-            }
+            fileService.deleteStoredObjects(metadata);
             fileMetadataMapper.deleteById(metadata.getId());
         }
 
@@ -559,6 +549,25 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         deviceLoginMapper.update(null, deviceWrapper);
         loginAttemptService.clearAttempts(user.getUsername());
         return true;
+    }
+
+    @Override
+    public boolean setBroadcastPermission(Long userId, boolean enabled) {
+        if (userId == null) {
+            throw new IllegalArgumentException("用户参数不能为空");
+        }
+        User target = userMapper.selectById(userId);
+        if (target == null) {
+            throw new IllegalArgumentException("用户不存在");
+        }
+        if ("admin".equals(target.getUsername())) {
+            throw new IllegalArgumentException("管理员默认拥有广播权限，不能修改");
+        }
+
+        User update = new User();
+        update.setId(userId);
+        update.setCanSendBroadcast(enabled ? 1 : 0);
+        return userMapper.updateById(update) > 0;
     }
 
     @Override

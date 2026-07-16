@@ -44,6 +44,7 @@ class NodeDiagnosticsServiceTest {
         assertFalse(info.selfRegistrationEnabled());
         assertTrue(info.capabilities().contains("CONNECTION_DIAGNOSTICS"));
         assertTrue(info.capabilities().contains("MDNS_DISCOVERY"));
+        assertTrue(info.capabilities().contains("MULTI_INSTANCE_ROUTING"));
         assertFalse(info.toString().contains("must-not-leak"));
     }
 }

@@ -4,7 +4,6 @@ import type {
   BroadcastCreatePayload,
   BroadcastPriority,
   BroadcastScopeType,
-  ChatGroup,
   Friend,
 } from '../../types'
 import UiIcon from '../base/UiIcon.vue'
@@ -12,7 +11,6 @@ import UserAvatar from '../base/UserAvatar.vue'
 
 interface Props {
   open: boolean
-  groups: readonly ChatGroup[]
   friends: readonly Friend[]
   isAdmin?: boolean
   saving?: boolean
@@ -32,7 +30,6 @@ interface FormState {
   content: string
   priority: BroadcastPriority
   scopeType: BroadcastScopeType
-  groupId?: number
   receiverIds: number[]
   confirmationRequired: boolean
   confirmationOptions: string[]
@@ -61,14 +58,20 @@ const attempted = shallowRef(false)
 const minimumDeadline = shallowRef('')
 
 const scopeOptions = computed<readonly { value: BroadcastScopeType; label: string; detail: string }[]>(() => {
-  const group = { value: 'GROUP' as const, label: '群组', detail: '发送给一个协作群组' }
-  if (!props.isAdmin) return [group]
+  const users = {
+    value: 'USERS' as const,
+    label: '指定好友',
+    detail: '从自己的好友中选择接收者',
+  }
+  if (!props.isAdmin) return [users]
   return [
-    { value: 'ALL', label: '全体', detail: '发送给全部有效账号' },
-    group,
-    { value: 'USERS', label: '指定成员', detail: '从好友中选择接收者' },
+    { value: 'ALL' as const, label: '全体', detail: '发送给全部有效普通账号' },
+    users,
   ]
 })
+const recipientFriends = computed(() => props.friends.filter((friend) => (
+  friend.username !== 'admin' && friend.status !== 0
+)))
 const selectedFriendCount = computed(() => form.receiverIds.length)
 const validationMessage = computed(() => {
   const title = form.title.trim()
@@ -77,8 +80,8 @@ const validationMessage = computed(() => {
   if (title.length > 100) return '广播标题不能超过 100 个字符'
   if (!content) return '请输入广播内容'
   if (content.length > 10000) return '广播内容不能超过 10000 个字符'
-  if (!props.isAdmin && form.scopeType !== 'GROUP') return '当前账号只能发布群组广播'
-  if (form.scopeType === 'GROUP' && !form.groupId) return '请选择接收广播的群组'
+  if (!props.isAdmin && form.scopeType !== 'USERS') return '当前账号只能向自己的好友发布广播'
+  if (form.scopeType === 'ALL' && !props.isAdmin) return '只有管理员可以向全体成员发布广播'
   if (form.scopeType === 'USERS' && form.receiverIds.length === 0) return '请至少选择一名接收者'
   if (form.confirmationRequired && form.confirmationOptions.length === 0) return '请至少保留一个确认选项'
   if (form.deadlineAt && Date.parse(form.deadlineAt) <= Date.now()) return '截止时间必须晚于当前时间'
@@ -93,13 +96,21 @@ watch(() => props.open, (open) => {
   attempted.value = false
 }, { immediate: true })
 
+watch(
+  () => recipientFriends.value.map((friend) => friend.friendId),
+  (friendIds) => {
+    const visibleIds = new Set(friendIds)
+    form.receiverIds = form.receiverIds.filter((userId) => visibleIds.has(userId))
+  },
+  { immediate: true },
+)
+
 function initialForm(): FormState {
   return {
     title: '',
     content: '',
     priority: 'IMPORTANT',
-    scopeType: props.isAdmin ? 'ALL' : 'GROUP',
-    groupId: props.groups[0]?.id,
+    scopeType: props.isAdmin ? 'ALL' : 'USERS',
     receiverIds: [],
     confirmationRequired: true,
     confirmationOptions: confirmationChoices.map((choice) => choice.value),
@@ -116,7 +127,6 @@ function toLocalDateTimeInput(date: Date): string {
 
 function selectScope(scope: BroadcastScopeType): void {
   form.scopeType = scope
-  if (scope === 'GROUP' && !form.groupId) form.groupId = props.groups[0]?.id
 }
 
 function toggleReceiver(userId: number): void {
@@ -140,7 +150,6 @@ function submit(): void {
     content: form.content.trim(),
     priority: form.priority,
     scopeType: form.scopeType,
-    groupId: form.scopeType === 'GROUP' ? form.groupId : undefined,
     receiverIds: form.scopeType === 'USERS' ? [...form.receiverIds] : undefined,
     confirmationRequired: form.confirmationRequired,
     confirmationOptions: form.confirmationRequired ? [...form.confirmationOptions] : undefined,
@@ -225,23 +234,14 @@ function submit(): void {
             </button>
           </div>
 
-          <label v-if="form.scopeType === 'GROUP'" class="field-label scope-detail">
-            <span>群组</span>
-            <select v-model.number="form.groupId" class="field scope-select">
-              <option :value="undefined" disabled>选择群组</option>
-              <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.groupName }}</option>
-            </select>
-            <small v-if="groups.length === 0" class="field-help">没有可发布广播的群组。</small>
-          </label>
-
-          <div v-else-if="form.scopeType === 'USERS'" class="recipient-picker">
+          <div v-if="form.scopeType === 'USERS'" class="recipient-picker">
             <div class="picker-heading">
-              <span>选择接收者</span>
+              <span>选择好友 <small>团队成员后续开放</small></span>
               <strong>已选 {{ selectedFriendCount }} 人</strong>
             </div>
             <div class="friend-list">
               <button
-                v-for="friend in friends"
+                v-for="friend in recipientFriends"
                 :key="friend.friendId"
                 class="friend-row"
                 :class="{ 'friend-row--selected': form.receiverIds.includes(friend.friendId) }"
@@ -255,7 +255,7 @@ function submit(): void {
                   <UiIcon v-if="form.receiverIds.includes(friend.friendId)" name="check" :size="13" />
                 </span>
               </button>
-              <p v-if="friends.length === 0" class="empty-friends">好友列表为空，暂时无法选择指定成员。</p>
+              <p v-if="recipientFriends.length === 0" class="empty-friends">好友列表为空，暂时无法选择指定成员。</p>
             </div>
           </div>
         </fieldset>

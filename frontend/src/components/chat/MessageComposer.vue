@@ -67,7 +67,11 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 async function onPaste(event: ClipboardEvent): Promise<void> {
-  if (!props.connected || !props.writable || !props.fileAllowed || pasting.value) return
+  if (!props.connected
+    || !props.writable
+    || !props.fileAllowed
+    || props.uploading
+    || pasting.value) return
   const clipboard = event.clipboardData
   if (!clipboard) return
 
@@ -87,7 +91,7 @@ async function onPaste(event: ClipboardEvent): Promise<void> {
     }
 
     const tableImage = await clipboardTableToImage(html, text)
-    if (tableImage) emit('file', tableImage)
+    if (tableImage && !props.uploading) emit('file', tableImage)
     else insertPastedText(text)
   } finally {
     pasting.value = false
@@ -116,7 +120,7 @@ function chooseFile(target: HTMLInputElement | null): void {
 function onFileChange(event: Event): void {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (file) emit('file', file)
+  if (file && !props.uploading) emit('file', file)
   input.value = ''
 }
 </script>

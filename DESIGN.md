@@ -1,5 +1,7 @@
 # Design System: LanChat
 
+> V2.3.0 applicability: this visual system also governs resumable upload progress, retry/cancel controls, storage/connection diagnostics, and multi-instance Presence. Infrastructure details such as MinIO, Cluster ID, and Redis Channel belong in diagnostics/admin surfaces, not ordinary chat chrome.
+
 ## 1. Visual Theme & Atmosphere
 
 A grounded, daily-app-balanced chat interface with offset-asymmetric layout sensibility and fluid CSS motion. The atmosphere is warm yet clinical — like a well-lit reading room with soft daylight. Density sits at 5/10: enough breathing room for conversations to feel comfortable, but dense enough for information-rich sidebars and member lists. Variance at 6/10: the layout breaks symmetry through offset panels and staggered message bubbles, avoiding the generic "centered everything" chat template. Motion at 5/10: subtle spring-based micro-interactions on hover, focus, and message arrival — no cinematic choreography, just tactile responsiveness.
@@ -107,3 +109,13 @@ No purple. No neon. No gradient buttons. No pure black.
 - No broken Unsplash links — use SVG avatars or `picsum.photos`
 - No centered hero sections (this is an app, not a landing page)
 - No circular spinners for loading states — use skeletal shimmer
+
+## 9. V2.3 Upload & Cluster States
+
+- A resumable upload keeps one stable file card. Progress updates in place; retries must not insert duplicate cards.
+- Show actionable states in plain language: preparing, uploading, verifying, completed, retryable failure, expired and canceled.
+- “Resume” means continuing missing server-side parts for a known `uploadId`; do not label a file as safely stored offline when no upload session exists.
+- Use a determinate progress bar when byte counts are known. Hashing and final verification may use a restrained skeleton/indeterminate bar, never a circular spinner.
+- Retry and cancel remain visible on failed or active uploads, use existing button hierarchy, and meet the 44px mobile touch target.
+- Global Presence should look identical to single-instance Presence. Do not expose the serving instance in ordinary member lists; instance/Redis/MinIO details appear only in diagnostics.
+- When Redis cross-instance routing is degraded, keep the existing connection-status language and explain that persisted messages recover after synchronization. Do not imply independent-node replication or data loss.

@@ -10,15 +10,12 @@ import com.lanchat.dto.BroadcastDetailDTO;
 import com.lanchat.dto.BroadcastStatsDTO;
 import com.lanchat.entity.Broadcast;
 import com.lanchat.entity.BroadcastReceiver;
-import com.lanchat.entity.ChatGroup;
-import com.lanchat.entity.GroupMember;
 import com.lanchat.entity.User;
 import com.lanchat.mapper.BroadcastMapper;
 import com.lanchat.mapper.BroadcastReceiverMapper;
-import com.lanchat.mapper.GroupMemberMapper;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.service.BroadcastService;
-import com.lanchat.service.GroupService;
+import com.lanchat.service.FriendService;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +35,7 @@ import java.util.Set;
 public class BroadcastServiceImpl implements BroadcastService {
 
     private static final List<String> PRIORITIES = List.of("NORMAL", "IMPORTANT", "EMERGENCY");
-    private static final List<String> SCOPES = List.of("ALL", "GROUP", "USERS");
+    private static final List<String> SCOPES = List.of("ALL", "USERS");
     private static final List<String> DEFAULT_CONFIRMATION_OPTIONS =
             List.of("RECEIVED", "EXECUTED", "NEED_SUPPORT");
     private static final int MAX_EXPLICIT_RECEIVERS = 500;
@@ -47,21 +44,18 @@ public class BroadcastServiceImpl implements BroadcastService {
     private final BroadcastMapper broadcastMapper;
     private final BroadcastReceiverMapper receiverMapper;
     private final UserMapper userMapper;
-    private final GroupMemberMapper groupMemberMapper;
-    private final GroupService groupService;
+    private final FriendService friendService;
     private final ObjectMapper objectMapper;
 
     public BroadcastServiceImpl(BroadcastMapper broadcastMapper,
                                 BroadcastReceiverMapper receiverMapper,
                                 UserMapper userMapper,
-                                GroupMemberMapper groupMemberMapper,
-                                GroupService groupService,
+                                FriendService friendService,
                                 ObjectMapper objectMapper) {
         this.broadcastMapper = broadcastMapper;
         this.receiverMapper = receiverMapper;
         this.userMapper = userMapper;
-        this.groupMemberMapper = groupMemberMapper;
-        this.groupService = groupService;
+        this.friendService = friendService;
         this.objectMapper = objectMapper;
     }
 
@@ -69,6 +63,10 @@ public class BroadcastServiceImpl implements BroadcastService {
     @Transactional
     public Broadcast create(Long senderId, BroadcastCreateDTO request) {
         User sender = requireActiveUser(senderId);
+        if (!isSystemAdmin(sender)
+                && !Integer.valueOf(1).equals(sender.getCanSendBroadcast())) {
+            throw new AccessDeniedException("当前账号没有广播发布权限");
+        }
         if (request == null) throw new IllegalArgumentException("广播参数不能为空");
 
         String title = requiredText(request.getTitle(), "广播标题", 100);
@@ -84,7 +82,9 @@ public class BroadcastServiceImpl implements BroadcastService {
         List<String> confirmationOptions = normalizeConfirmationOptions(
                 confirmationRequired, request.getConfirmationOptions());
         Set<Long> receiverIds = resolveReceivers(sender, scope, request);
-        if (receiverIds.isEmpty()) throw new IllegalArgumentException("广播接收范围内没有有效用户");
+        if (receiverIds.isEmpty()) {
+            throw new IllegalArgumentException("广播接收范围内没有需要接收的普通成员");
+        }
 
         Broadcast broadcast = new Broadcast();
         broadcast.setSenderId(senderId);
@@ -92,7 +92,7 @@ public class BroadcastServiceImpl implements BroadcastService {
         broadcast.setContent(content);
         broadcast.setPriority(priority);
         broadcast.setScopeType(scope);
-        broadcast.setScopeGroupId("GROUP".equals(scope) ? request.getGroupId() : null);
+        broadcast.setScopeGroupId(null);
         broadcast.setConfirmationRequired(confirmationRequired);
         broadcast.setConfirmationOptions(writeConfirmationOptions(confirmationOptions));
         broadcast.setDeadlineAt(request.getDeadlineAt());
@@ -120,6 +120,27 @@ public class BroadcastServiceImpl implements BroadcastService {
     }
 
     @Override
+    @Transactional
+    public Broadcast cancel(Long broadcastId, Long operatorId) {
+        User operator = requireActiveUser(operatorId);
+        if (!isSystemAdmin(operator)) {
+            throw new AccessDeniedException("只有管理员可以撤销广播");
+        }
+        Broadcast broadcast = requireBroadcastForUpdate(broadcastId);
+        if ("CANCELLED".equals(broadcast.getStatus())) return broadcast;
+        if (!"ACTIVE".equals(broadcast.getStatus())) {
+            throw new IllegalArgumentException("当前广播状态无法撤销");
+        }
+
+        broadcast.setStatus("CANCELLED");
+        broadcast.setUpdateTime(LocalDateTime.now());
+        if (broadcastMapper.updateById(broadcast) != 1) {
+            throw new IllegalStateException("广播撤销失败");
+        }
+        return broadcast;
+    }
+
+    @Override
     public List<Broadcast> listVisible(Long userId) {
         User user = requireActiveUser(userId);
         if (isSystemAdmin(user)) {
@@ -136,7 +157,8 @@ public class BroadcastServiceImpl implements BroadcastService {
 
     @Override
     public List<Broadcast> listPending(Long userId) {
-        requireActiveUser(userId);
+        User user = requireActiveUser(userId);
+        if (isSystemAdmin(user)) return List.of();
         List<Broadcast> broadcasts = broadcastMapper.selectPending(userId);
         return broadcasts == null ? List.of() : broadcasts;
     }
@@ -145,7 +167,7 @@ public class BroadcastServiceImpl implements BroadcastService {
     public BroadcastDetailDTO getDetail(Long broadcastId, Long userId) {
         Broadcast broadcast = requireBroadcast(broadcastId);
         User user = requireActiveUser(userId);
-        BroadcastReceiver receiver = receiverMapper.selectReceiver(broadcastId, userId);
+        BroadcastReceiver receiver = isSystemAdmin(user) ? null : receiverMapper.selectReceiver(broadcastId, userId);
         boolean createdByCurrentUser = Objects.equals(broadcast.getSenderId(), userId);
         if (!createdByCurrentUser && !isSystemAdmin(user) && receiver == null) {
             throw new AccessDeniedException("无权查看该广播");
@@ -192,7 +214,11 @@ public class BroadcastServiceImpl implements BroadcastService {
                                      Long userId,
                                      String deviceType,
                                      BroadcastConfirmDTO request) {
-        Broadcast broadcast = requireBroadcast(broadcastId);
+        // Cancellation and confirmation lock the same broadcast row. If a cancellation
+        // commits first, this read observes CANCELLED and no confirmation can be written.
+        Broadcast broadcast = requireBroadcastForUpdate(broadcastId);
+        User user = requireActiveUser(userId);
+        if (isSystemAdmin(user)) throw new AccessDeniedException("管理员仅查看广播统计，无需提交回执");
         BroadcastReceiver receiver = requireReceiver(broadcastId, userId);
         if (request == null) throw new IllegalArgumentException("广播确认参数不能为空");
         String requestedStatus = normalizeConfirmationValue(request.getStatus());
@@ -287,40 +313,16 @@ public class BroadcastServiceImpl implements BroadcastService {
                 List<User> activeUsers = userMapper.selectList(
                         new LambdaQueryWrapper<User>()
                                 .eq(User::getStatus, 1)
+                                .ne(User::getUsername, "admin")
                                 .orderByAsc(User::getId));
                 yield userIds(activeUsers);
             }
-            case "GROUP" -> groupReceivers(sender.getId(), request.getGroupId());
-            case "USERS" -> {
-                if (!admin) throw new AccessDeniedException("只有管理员可以向指定用户发送广播");
-                yield explicitReceivers(request.getReceiverIds());
-            }
+            case "USERS" -> friendReceivers(sender.getId(), request.getReceiverIds());
             default -> throw new IllegalArgumentException("广播范围无效");
         };
     }
 
-    private Set<Long> groupReceivers(Long senderId, Long groupId) {
-        if (groupId == null) throw new IllegalArgumentException("群广播必须指定群组");
-        ChatGroup group = groupService.getGroupInfo(groupId);
-        if (group == null) throw new IllegalArgumentException("群组不存在");
-        int role = groupService.getMemberRole(groupId, senderId);
-        if (role < 1) {
-            throw new AccessDeniedException("只有群主或群管理员可以发送群广播");
-        }
-        List<GroupMember> members = groupMemberMapper.selectList(
-                new LambdaQueryWrapper<GroupMember>()
-                        .eq(GroupMember::getGroupId, groupId)
-                        .orderByAsc(GroupMember::getId));
-        LinkedHashSet<Long> result = new LinkedHashSet<>();
-        if (members != null) {
-            for (GroupMember member : members) {
-                if (member != null && member.getUserId() != null) result.add(member.getUserId());
-            }
-        }
-        return result;
-    }
-
-    private Set<Long> explicitReceivers(List<Long> requestedIds) {
+    private Set<Long> friendReceivers(Long senderId, List<Long> requestedIds) {
         LinkedHashSet<Long> ids = new LinkedHashSet<>();
         if (requestedIds != null) {
             for (Long id : requestedIds) if (id != null) ids.add(id);
@@ -331,9 +333,24 @@ public class BroadcastServiceImpl implements BroadcastService {
         }
 
         List<User> users = userMapper.selectBatchIds(ids);
-        LinkedHashSet<Long> activeIds = userIds(users);
+        LinkedHashSet<Long> activeIds = new LinkedHashSet<>();
+        if (users != null) {
+            users.stream()
+                    .filter(Objects::nonNull)
+                    .filter(user -> user.getId() != null)
+                    .filter(user -> Integer.valueOf(1).equals(user.getStatus()))
+                    .filter(user -> !isSystemAdmin(user))
+                    .map(User::getId)
+                    .forEach(activeIds::add);
+        }
         if (activeIds.size() != ids.size() || !activeIds.containsAll(ids)) {
-            throw new IllegalArgumentException("广播接收者包含不存在或已停用的账号");
+            throw new IllegalArgumentException("广播接收者包含不存在、已停用或不可接收的账号");
+        }
+        for (Long receiverId : ids) {
+            if (!friendService.isFriend(senderId, receiverId)
+                    || friendService.isBlockedBy(senderId, receiverId)) {
+                throw new AccessDeniedException("广播接收者只能选择自己的有效好友");
+            }
         }
         return ids;
     }
@@ -342,7 +359,10 @@ public class BroadcastServiceImpl implements BroadcastService {
         LinkedHashSet<Long> result = new LinkedHashSet<>();
         if (users == null) return result;
         for (User user : users) {
-            if (user != null && user.getId() != null && Integer.valueOf(1).equals(user.getStatus())) {
+            if (user != null
+                    && user.getId() != null
+                    && Integer.valueOf(1).equals(user.getStatus())
+                    && !isSystemAdmin(user)) {
                 result.add(user.getId());
             }
         }
@@ -390,6 +410,13 @@ public class BroadcastServiceImpl implements BroadcastService {
     private Broadcast requireBroadcast(Long broadcastId) {
         if (broadcastId == null) throw new IllegalArgumentException("广播标识不能为空");
         Broadcast broadcast = broadcastMapper.selectById(broadcastId);
+        if (broadcast == null) throw new IllegalArgumentException("广播不存在");
+        return broadcast;
+    }
+
+    private Broadcast requireBroadcastForUpdate(Long broadcastId) {
+        if (broadcastId == null) throw new IllegalArgumentException("广播标识不能为空");
+        Broadcast broadcast = broadcastMapper.selectByIdForUpdate(broadcastId);
         if (broadcast == null) throw new IllegalArgumentException("广播不存在");
         return broadcast;
     }

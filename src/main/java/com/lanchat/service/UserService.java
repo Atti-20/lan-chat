@@ -67,6 +67,9 @@ public interface UserService extends IService<User> {
     /** 管理员重置普通用户密码并撤销其全部设备会话 */
     boolean resetPasswordByAdmin(Long userId, String newPassword);
 
+    /** 管理员授予或撤销普通账号的广播发布权限。 */
+    boolean setBroadcastPermission(Long userId, boolean enabled);
+
     /** 用户修改密码 */
     boolean changePassword(ChangePasswordDTO dto);
 

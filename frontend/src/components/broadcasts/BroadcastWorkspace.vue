@@ -13,6 +13,9 @@ interface Props {
   loading?: boolean
   confirming?: boolean
   statisticsLoading?: boolean
+  canCancel?: boolean
+  cancelling?: boolean
+  mobile?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -21,10 +24,15 @@ const props = withDefaults(defineProps<Props>(), {
   loading: false,
   confirming: false,
   statisticsLoading: false,
+  canCancel: false,
+  cancelling: false,
+  mobile: false,
 })
 const emit = defineEmits<{
   confirm: [status: string]
   refreshStats: []
+  cancel: []
+  back: []
 }>()
 
 const broadcast = computed(() => props.detail?.broadcast ?? null)
@@ -41,6 +49,9 @@ const canConfirm = computed(() => Boolean(
   && broadcast.value.status === 'ACTIVE'
   && receiver.value?.confirmStatus === 'PENDING'
   && !expired.value,
+))
+const canCancelCurrent = computed(() => Boolean(
+  props.canCancel && broadcast.value?.status === 'ACTIVE',
 ))
 const confirmationProgress = computed(() => {
   const stats = props.statistics
@@ -115,14 +126,34 @@ function optionLabel(option: string): string {
       <span class="document-rail" aria-hidden="true" />
 
       <header class="document-header">
+        <button
+          v-if="mobile"
+          class="broadcast-back-button"
+          type="button"
+          aria-label="返回广播列表"
+          @click="emit('back')"
+        >
+          <UiIcon name="back" :size="20" />
+        </button>
         <div class="priority-mark" aria-hidden="true"><UiIcon name="bell" :size="22" /></div>
         <div class="heading-copy">
           <p class="priority-kicker">{{ priorityLabel(broadcast.priority) }}</p>
           <h1 class="broadcast-title">{{ broadcast.title }}</h1>
         </div>
-        <span v-if="broadcast.status === 'CANCELLED'" class="status-badge status-badge--cancelled">已取消</span>
-        <span v-else-if="expired" class="status-badge status-badge--expired">已过期</span>
-        <span v-else class="status-badge">进行中</span>
+        <div class="document-actions">
+          <span v-if="broadcast.status === 'CANCELLED'" class="status-badge status-badge--cancelled">已取消</span>
+          <span v-else-if="expired" class="status-badge status-badge--expired">已过期</span>
+          <span v-else class="status-badge">进行中</span>
+          <button
+            v-if="canCancelCurrent"
+            class="cancel-button"
+            type="button"
+            :disabled="cancelling"
+            @click="emit('cancel')"
+          >
+            {{ cancelling ? '撤销中…' : '撤销广播' }}
+          </button>
+        </div>
       </header>
 
       <dl class="broadcast-meta">
@@ -181,7 +212,7 @@ function optionLabel(option: string): string {
         </div>
       </section>
 
-      <section v-if="detail.createdByCurrentUser" class="statistics-panel" aria-labelledby="statistics-title">
+      <section v-if="detail.createdByCurrentUser || statistics" class="statistics-panel" aria-labelledby="statistics-title">
         <div class="panel-heading">
           <div>
             <p class="panel-kicker">实时进度</p>
@@ -285,6 +316,21 @@ function optionLabel(option: string): string {
 .broadcast-document[data-priority="EMERGENCY"] .document-rail { background: var(--coral); }
 
 .document-header { display: flex; align-items: flex-start; gap: 13px; }
+.broadcast-back-button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  cursor: pointer;
+}
+.broadcast-back-button:hover { color: var(--blue); background: var(--active); }
+.broadcast-back-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 48%, transparent); outline-offset: 2px; }
 .priority-mark {
   display: grid;
   width: 46px;
@@ -301,9 +347,13 @@ function optionLabel(option: string): string {
 .heading-copy { min-width: 0; flex: 1; }
 .priority-kicker { margin: 1px 0 5px; color: var(--ink-soft); font-size: 11px; font-weight: 700; }
 .broadcast-title { margin: 0; font-size: clamp(22px, 3vw, 30px); line-height: 1.2; letter-spacing: -0.045em; }
+.document-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .status-badge { padding: 5px 9px; border-radius: 999px; color: var(--green); font-size: 10px; font-weight: 700; background: color-mix(in srgb, var(--green) 10%, transparent); }
 .status-badge--expired { color: #d97706; background: color-mix(in srgb, #d97706 10%, transparent); }
 .status-badge--cancelled { color: var(--ink-soft); background: var(--fill); }
+.cancel-button { min-height: 32px; padding: 0 11px; border: 0; border-radius: 10px; color: var(--coral); font-size: 11px; font-weight: 680; background: color-mix(in srgb, var(--coral) 9%, var(--fill)); cursor: pointer; }
+.cancel-button:hover:not(:disabled) { background: color-mix(in srgb, var(--coral) 16%, var(--fill)); }
+.cancel-button:disabled { cursor: wait; opacity: .55; }
 
 .broadcast-meta {
   display: grid;
@@ -402,8 +452,10 @@ function optionLabel(option: string): string {
   .broadcast-workspace { padding: 0; }
   .broadcast-document { min-height: 100%; padding: 24px 20px calc(100px + env(safe-area-inset-bottom)); border: 0; border-radius: 0; box-shadow: none; }
   .document-header { align-items: center; }
-  .priority-mark { width: 42px; height: 42px; }
-  .status-badge { display: none; }
+  .priority-mark { display: none; }
+  .document-actions { flex-direction: column; align-items: flex-end; gap: 5px; }
+  .status-badge { white-space: nowrap; }
+  .cancel-button { min-height: 38px; padding-inline: 10px; }
   .broadcast-meta { grid-template-columns: 1fr; gap: 10px; }
   .meta-item,
   .meta-item:first-child,

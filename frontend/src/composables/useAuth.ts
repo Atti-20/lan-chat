@@ -106,6 +106,14 @@ export function useAuth() {
     return user
   }
 
+  function applyBroadcastPermission(enabled: boolean): void {
+    if (!currentUser.value) return
+    currentUser.value = {
+      ...currentUser.value,
+      canSendBroadcast: enabled ? 1 : 0,
+    }
+  }
+
   async function logout(): Promise<void> {
     try {
       await api.auth.logout()
@@ -128,6 +136,7 @@ export function useAuth() {
     register,
     hydrate,
     updateProfile,
+    applyBroadcastPermission,
     logout,
   }
 }

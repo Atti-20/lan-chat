@@ -7,6 +7,7 @@ import com.lanchat.dto.RuntimeLogSnapshot;
 import com.lanchat.security.LoginUser;
 import com.lanchat.service.RuntimeLogService;
 import com.lanchat.service.UserService;
+import com.lanchat.websocket.ChatWebSocketHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,7 +21,9 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -28,15 +31,18 @@ class AdminControllerTest {
 
     private UserService userService;
     private RuntimeLogService runtimeLogService;
+    private ChatWebSocketHandler webSocketHandler;
     private AdminController controller;
 
     @BeforeEach
     void setUp() {
         userService = mock(UserService.class);
         runtimeLogService = mock(RuntimeLogService.class);
+        webSocketHandler = mock(ChatWebSocketHandler.class);
         controller = new AdminController();
         ReflectionTestUtils.setField(controller, "userService", userService);
         ReflectionTestUtils.setField(controller, "runtimeLogService", runtimeLogService);
+        ReflectionTestUtils.setField(controller, "webSocketHandler", webSocketHandler);
     }
 
     @AfterEach
@@ -92,6 +98,62 @@ class AdminControllerTest {
 
         assertEquals(200, result.getCode());
         verify(userService).resetPasswordByAdmin(7L, "Member5678");
+    }
+
+    @Test
+    void administratorCanGrantBroadcastPermission() {
+        authenticateAs("admin");
+        when(userService.setBroadcastPermission(7L, true)).thenReturn(true);
+
+        var result = controller.setBroadcastPermission(7L, true);
+
+        assertEquals(200, result.getCode());
+        verify(userService).setBroadcastPermission(7L, true);
+        verify(webSocketHandler).sendBroadcastPermissionUpdated(7L, true);
+    }
+
+    @Test
+    void administratorCanRevokeBroadcastPermission() {
+        authenticateAs("admin");
+        when(userService.setBroadcastPermission(7L, false)).thenReturn(true);
+
+        var result = controller.setBroadcastPermission(7L, false);
+
+        assertEquals(200, result.getCode());
+        verify(userService).setBroadcastPermission(7L, false);
+        verify(webSocketHandler).sendBroadcastPermissionUpdated(7L, false);
+    }
+
+    @Test
+    void missingBroadcastPermissionTargetReturnsNotFound() {
+        authenticateAs("admin");
+        doThrow(new IllegalArgumentException("用户不存在"))
+                .when(userService).setBroadcastPermission(99L, true);
+
+        var result = controller.setBroadcastPermission(99L, true);
+
+        assertEquals(404, result.getCode());
+        verify(webSocketHandler, never()).sendBroadcastPermissionUpdated(99L, true);
+    }
+
+    @Test
+    void rootAdministratorBroadcastPermissionReturnsBadRequest() {
+        authenticateAs("admin");
+        doThrow(new IllegalArgumentException("管理员默认拥有广播权限，不能修改"))
+                .when(userService).setBroadcastPermission(1L, false);
+
+        var result = controller.setBroadcastPermission(1L, false);
+
+        assertEquals(400, result.getCode());
+        verify(webSocketHandler, never()).sendBroadcastPermissionUpdated(1L, false);
+    }
+
+    @Test
+    void regularAccountCannotChangeBroadcastPermission() {
+        authenticateAs("alice");
+
+        assertThrows(AccessDeniedException.class,
+                () -> controller.setBroadcastPermission(7L, true));
     }
 
     @Test

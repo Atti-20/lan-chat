@@ -11,6 +11,18 @@ import java.util.List;
 @Mapper
 public interface BroadcastMapper extends BaseMapper<Broadcast> {
 
+    /**
+     * Serializes broadcast cancellation and recipient confirmation on the same row.
+     * Callers must execute inside a transaction.
+     */
+    @Select("""
+            SELECT *
+            FROM broadcast
+            WHERE id = #{broadcastId}
+            FOR UPDATE
+            """)
+    Broadcast selectByIdForUpdate(@Param("broadcastId") Long broadcastId);
+
     @Select("""
             SELECT b.*
             FROM broadcast b

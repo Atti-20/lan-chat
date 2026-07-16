@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -14,12 +15,14 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -78,6 +81,24 @@ class PrivateDeploymentInitializerTest {
         assertEquals("admin", inserted.getValue().getUsername());
         assertEquals("bcrypt-hash", inserted.getValue().getPassword());
         assertEquals("节点管理员", inserted.getValue().getNickname());
+    }
+
+    @Test
+    void acceptsAdministratorCreatedConcurrentlyByAnotherInstance() {
+        properties.setBootstrapAdminPassword("Admin_9xQ2vL7!Aa");
+        User concurrentAdministrator = new User();
+        concurrentAdministrator.setId(1L);
+        concurrentAdministrator.setUsername("admin");
+        concurrentAdministrator.setPassword(VALID_EXISTING_HASH);
+        when(userMapper.selectOne(any())).thenReturn(null, concurrentAdministrator);
+        when(passwordEncoder.encode("Admin_9xQ2vL7!Aa")).thenReturn(VALID_EXISTING_HASH);
+        when(userMapper.insert(any(User.class)))
+                .thenThrow(new DuplicateKeyException("duplicate admin"));
+
+        assertDoesNotThrow(() -> initializer.run(null));
+
+        verify(userMapper, times(2)).selectOne(any());
+        verify(userMapper).insert(any(User.class));
     }
 
     @Test

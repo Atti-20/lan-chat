@@ -14,16 +14,13 @@ import com.lanchat.mapper.FileMetadataMapper;
 import com.lanchat.mapper.MessageRecallMapper;
 import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.ConversationService;
+import com.lanchat.service.FileService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -48,8 +45,8 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
     @Autowired
     private ConversationService conversationService;
 
-    @Value("${file.path}")
-    private String filePath;
+    @Autowired
+    private FileService fileService;
 
     /** 撤回时限：2分钟 */
     private static final long RECALL_LIMIT_SECONDS = 120;
@@ -281,7 +278,6 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
         try {
             Set<String> fileNames = FileReferenceUtil.extractStoredNames(messageContent);
 
-            Path root = Paths.get(filePath).toAbsolutePath().normalize();
             for (String fileName : fileNames) {
                 LambdaQueryWrapper<ChatMessage> refWrapper = new LambdaQueryWrapper<>();
                 refWrapper.eq(ChatMessage::getFilePath, fileName)
@@ -292,8 +288,7 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
                 fileWrapper.eq(FileMetadata::getFilePath, fileName);
                 FileMetadata fileMeta = fileMetadataMapper.selectOne(fileWrapper);
                 if (fileMeta != null) {
-                    Files.deleteIfExists(root.resolve(fileName).normalize());
-                    Files.deleteIfExists(root.resolve("thumb_" + fileName).normalize());
+                    fileService.deleteStoredObjects(fileMeta);
                     fileAccessGrantMapper.deleteByFileId(fileMeta.getId());
                     fileMetadataMapper.deleteById(fileMeta.getId());
                     log.info("撤回消息清理文件: {}", fileName);

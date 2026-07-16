@@ -10,6 +10,7 @@ import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.NodeDiagnosticsService;
 import com.lanchat.service.RuntimeLogService;
 import com.lanchat.service.UserService;
+import com.lanchat.websocket.ChatWebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
@@ -37,6 +38,9 @@ public class AdminController {
 
     @Autowired
     private RuntimeLogService runtimeLogService;
+
+    @Autowired(required = false)
+    private ChatWebSocketHandler webSocketHandler;
 
     // 检查当前操作者是否 admin
     private void checkAdminPermission() {
@@ -136,6 +140,29 @@ public class AdminController {
             return Result.success();
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
+        }
+    }
+
+    /** 授予或撤销普通账号的广播发布权限。 */
+    @PutMapping("/user/{userId}/broadcast-permission")
+    public Result<Void> setBroadcastPermission(@PathVariable Long userId,
+                                               @RequestParam boolean enabled) {
+        checkAdminPermission();
+        try {
+            if (!userService.setBroadcastPermission(userId, enabled)) {
+                return Result.error("广播权限更新失败");
+            }
+            if (webSocketHandler != null) {
+                webSocketHandler.sendBroadcastPermissionUpdated(userId, enabled);
+            }
+            log.info("Administrator {} {} broadcast permission for account id {}",
+                    UserContextHolder.getCurrentUser().getUsername(),
+                    enabled ? "granted" : "revoked",
+                    userId);
+            return Result.success();
+        } catch (IllegalArgumentException exception) {
+            int code = "用户不存在".equals(exception.getMessage()) ? 404 : 400;
+            return Result.error(code, exception.getMessage());
         }
     }
 

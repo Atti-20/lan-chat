@@ -8,12 +8,14 @@ import com.lanchat.entity.Broadcast;
 import com.lanchat.entity.BroadcastReceiver;
 import com.lanchat.security.LoginUser;
 import com.lanchat.service.BroadcastService;
+import com.lanchat.websocket.ChatWebSocketHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -27,12 +29,15 @@ import static org.mockito.Mockito.when;
 class BroadcastControllerTest {
 
     private BroadcastService broadcastService;
+    private ChatWebSocketHandler webSocketHandler;
     private BroadcastController controller;
 
     @BeforeEach
     void setUp() {
         broadcastService = mock(BroadcastService.class);
+        webSocketHandler = mock(ChatWebSocketHandler.class);
         controller = new BroadcastController(broadcastService);
+        ReflectionTestUtils.setField(controller, "webSocketHandler", webSocketHandler);
         authenticate(7L, "alice", "desktop");
     }
 
@@ -110,6 +115,22 @@ class BroadcastControllerTest {
         assertEquals(stats, controller.stats(31L).getData());
 
         verify(broadcastService).getStats(31L, 7L);
+    }
+
+    @Test
+    void administratorCancelUsesAuthenticatedOperatorAndPublishesUpdate() {
+        authenticate(1L, "admin", "web");
+        Broadcast cancelled = new Broadcast();
+        cancelled.setId(31L);
+        cancelled.setStatus("CANCELLED");
+        when(broadcastService.cancel(31L, 1L)).thenReturn(cancelled);
+
+        var result = controller.cancel(31L);
+
+        assertEquals(200, result.getCode());
+        assertEquals(cancelled, result.getData());
+        verify(broadcastService).cancel(31L, 1L);
+        verify(webSocketHandler).notifyBroadcastCancelled(cancelled);
     }
 
     @Test

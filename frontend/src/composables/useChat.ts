@@ -29,10 +29,12 @@ import type {
 import { resolveConversationId, groupConversationId, privateConversationId } from '../utils/conversation'
 import { conversationPreview } from '../utils/format'
 import { createClientMessageId } from '../utils/id'
+import { advanceContiguousSequence } from '../utils/sequence'
 import { clearCacheOwner, clearSession } from '../utils/storage'
 import { useAuth } from './useAuth'
 import { useOutbox } from './useOutbox'
 import { usePeerFileTransfer } from './usePeerFileTransfer'
+import { useResumableUpload } from './useResumableUpload'
 import { useToast } from './useToast'
 import { useWebSocket } from './useWebSocket'
 
@@ -46,7 +48,8 @@ interface AckWaiter {
 }
 
 export function useChat() {
-  const { currentUser } = useAuth()
+  const auth = useAuth()
+  const { currentUser } = auth
   const toast = useToast()
   const outbox = useOutbox()
   const friends = ref<Friend[]>([])
@@ -79,12 +82,15 @@ export function useChat() {
   let syncTimer: number | null = null
   let messageSearchTimer: number | null = null
   let messageSearchSequence = 0
+  let backgroundSyncTimer: number | null = null
+  let synchronizationPromise: Promise<void> | null = null
 
   onBeforeUnmount(() => {
     burnTimers.forEach((timer) => window.clearTimeout(timer))
     burnTimers.clear()
     burnConversationIds.clear()
     if (messageSearchTimer !== null) window.clearTimeout(messageSearchTimer)
+    if (backgroundSyncTimer !== null) window.clearInterval(backgroundSyncTimer)
   })
 
   watch(
@@ -194,11 +200,18 @@ export function useChat() {
     onReady: async () => {
       await synchronizeAfterReconnect()
       try {
-        await refreshLists()
+        await Promise.all([
+          refreshLists(),
+          auth.hydrate(),
+        ])
       } catch {
-        toast.push('好友申请列表刷新失败，请稍后重试', 'warning')
+        toast.push('好友或账号状态刷新失败，请稍后重试', 'warning')
       }
     },
+    // synchronizeAfterReconnect finishes while the socket still reports
+    // SYNCING, so its defensive flush is intentionally skipped. Retry once the
+    // connection has actually transitioned to ONLINE.
+    onOnline: () => flushOutbox(),
     onError: (message) => toast.push(message, 'warning'),
     refreshAuth: api.auth.refreshSession,
     onAuthFailed: (reason) => {
@@ -218,7 +231,16 @@ export function useChat() {
   const peerFiles = usePeerFileTransfer({
     sendEvent: (event, payload, metadata) => ws.sendEvent(event, payload, metadata),
   })
+  const resumableFiles = useResumableUpload()
+  backgroundSyncTimer = window.setInterval(() => {
+    if (ws.connected.value) void synchronizeAfterReconnect().catch(() => undefined)
+  }, 60_000)
   const fileTransferLabel = computed(() => {
+    if (resumableFiles.phase.value === 'HASHING') return '正在校验中转文件完整性…'
+    if (resumableFiles.phase.value === 'UPLOADING') {
+      return `节点断点续传 ${resumableFiles.progress.value}%`
+    }
+    if (resumableFiles.phase.value === 'COMPLETING') return '节点正在合并并复核文件…'
     if (relayTransferLabel.value) return relayTransferLabel.value
     if (peerFiles.phase.value === 'HASHING') return '正在校验文件完整性…'
     if (peerFiles.phase.value === 'NEGOTIATING') return '正在协商局域网设备直传…'
@@ -379,6 +401,18 @@ export function useChat() {
         toast.push(String(envelope.payload.message || '好友状态有更新'), 'success')
         await refreshLists()
         return
+      case 'PROFILE_UPDATED':
+        handleProfileUpdated(envelope)
+        return
+      case 'BROADCAST_PERMISSION_UPDATED':
+        auth.applyBroadcastPermission(envelope.payload.enabled === true)
+        toast.push(
+          envelope.payload.enabled === true
+            ? '管理员已授予你广播发布权限'
+            : '管理员已撤销你的广播发布权限',
+          'success',
+        )
+        return
       case 'TYPING_START':
         handleTypingEvent(envelope)
         return
@@ -393,6 +427,11 @@ export function useChat() {
         return
       case 'SYNC_RESPONSE':
         await handleSyncResponse(envelope)
+        return
+      case 'SYNC_REQUIRED':
+        // This handler itself runs inside the serialized inbound queue. Do not
+        // await a task whose SYNC_RESPONSE must be processed by that same queue.
+        void synchronizeAfterReconnect().catch(() => undefined)
         return
       case 'CHAT_RECALL':
       case 'CHAT_BURN':
@@ -410,6 +449,44 @@ export function useChat() {
       default:
         // V1 客户端必须忽略未知但非致命事件，以便服务端向前兼容。
     }
+  }
+
+  function handleProfileUpdated(envelope: WsEnvelope): void {
+    const userId = Number(envelope.payload.userId)
+    const nickname = String(envelope.payload.nickname || '')
+    const avatar = String(envelope.payload.avatar || '')
+    if (!Number.isFinite(userId)) return
+
+    // 更新好友列表中的头像和昵称
+    friends.value = friends.value.map((friend) => {
+      if (friend.friendId !== userId) return friend
+      return {
+        ...friend,
+        nickname: nickname || friend.nickname,
+        avatar,
+      }
+    })
+
+    // 当前正在和这个用户聊天时，同步更新聊天标题头像
+    if (selected.value?.kind === 'private' && selected.value.id === userId) {
+      const friend = friends.value.find((item) => item.friendId === userId,)
+      selected.value = {
+        ...selected.value,
+        name: friend?.remark || nickname || selected.value.name,
+        avatar,
+        source: friend || selected.value.source,
+      }
+    }
+
+    // 更新群成员列表头像
+    members.value = members.value.map((member) => {
+      if (member.userId !== userId) return member
+      return {
+        ...member,
+        nickname: nickname || member.nickname,
+        avatar,
+      }
+    })
   }
 
   function handleProtocolError(envelope: WsEnvelope): void {
@@ -451,6 +528,12 @@ export function useChat() {
     const conversationId = envelope.conversationId || String(envelope.payload.conversationId || '')
     const sequence = Number(envelope.payload.sequence)
     const serverTime = Number(envelope.payload.serverTime)
+    const previousSequence = conversationId
+      ? runtimePositions.get(conversationId) || 0
+      : 0
+    const hasSequenceGap = Boolean(conversationId)
+      && Number.isFinite(sequence)
+      && sequence > previousSequence + 1
 
     messages.value = messages.value.map((message) => message.clientMsgId === clientMsgId
       ? normalizeMessage({
@@ -468,20 +551,30 @@ export function useChat() {
     await deleteCachedMessagesByClientMsgId(clientMsgId).catch(() => undefined)
     const acknowledged = messages.value.find((message) => message.clientMsgId === clientMsgId)
     if (acknowledged) await cacheMessages([acknowledged]).catch(() => undefined)
-    if (conversationId && Number.isFinite(sequence)) await recordPosition(conversationId, sequence)
+    if (conversationId && Number.isFinite(sequence) && !hasSequenceGap) {
+      await recordPosition(conversationId, sequence)
+    }
     await outbox.remove(clientMsgId)
+    if (hasSequenceGap) void synchronizeAfterReconnect().catch(() => undefined)
   }
 
   async function handleDelivery(envelope: WsEnvelope): Promise<void> {
     const delivered = normalizeMessage(envelope.payload as unknown as ChatMessage)
     if (!delivered.messageId || !delivered.conversationId) return
+    const previousSequence = runtimePositions.get(delivered.conversationId) || 0
+    const hasSequenceGap = delivered.sequence != null
+      && delivered.sequence > previousSequence + 1
     await cacheMessages([delivered]).catch(() => undefined)
-    if (delivered.sequence != null) await recordPosition(delivered.conversationId, delivered.sequence)
+    // A high sequence is not a contiguous receive position. Advancing it before
+    // SYNC_REQUEST would make the server skip the missing range permanently.
+    if (delivered.sequence != null && !hasSequenceGap) {
+      await recordPosition(delivered.conversationId, delivered.sequence)
+    }
     if (belongsToSelected(delivered)) {
       mergeCurrentMessages([delivered])
       if (delivered.fromUserId !== currentUser.value?.id) {
         startBurnCountdown(delivered)
-        sendReadPosition(delivered.conversationId, [delivered])
+        if (!hasSequenceGap) sendReadPosition(delivered.conversationId, [delivered])
       }
     }
     updateConversationPreview(delivered)
@@ -493,6 +586,7 @@ export function useChat() {
       clientMsgId: delivered.clientMsgId,
       conversationId: delivered.conversationId,
     })
+    if (hasSequenceGap) void synchronizeAfterReconnect().catch(() => undefined)
   }
 
   async function handleSyncResponse(envelope: WsEnvelope): Promise<void> {
@@ -500,11 +594,21 @@ export function useChat() {
       ? (envelope.payload.messages as unknown as ChatMessage[]).map(normalizeMessage)
       : []
     await cacheMessages(synced).catch(() => undefined)
-    await recordReceivedPositions(synced)
+    // SYNC_RESPONSE is an authoritative ascending query from the cursor sent
+    // to the server. Its maximum returned sequence is safe even when physical
+    // message deletion has left a permanent sequence gap. When a deleted tail
+    // produces no rows, latestPositions is the authoritative cursor. Cache and
+    // history pages do not have either guarantee and stay contiguous below.
+    await recordSynchronizedPositions(synced, envelope.payload.latestPositions)
     const selectedItems = synced.filter((message) => belongsToSelected(message))
     if (selectedItems.length > 0) {
       mergeCurrentMessages(selectedItems)
       scheduleBurnCountdowns(selectedItems)
+      const selectedConversationId = selected.value?.conversationId
+      if (selectedConversationId
+        && selectedItems.some((message) => message.fromUserId !== currentUser.value?.id)) {
+        sendReadPosition(selectedConversationId, selectedItems)
+      }
     }
     synced.forEach(updateConversationPreview)
 
@@ -549,23 +653,34 @@ export function useChat() {
     })
   }
 
-  async function synchronizeAfterReconnect(): Promise<void> {
-    let hasMore = false
-    for (let page = 0; page < 50; page += 1) {
-      const positions = await loadPositions().catch(() => ({} as Record<string, number>))
-      runtimePositions.forEach((sequence, conversationId) => {
-        positions[conversationId] = Math.max(positions[conversationId] || 0, sequence)
-      })
-      conversations.value.forEach((conversation) => {
-        if (conversation.conversationId && positions[conversation.conversationId] == null) {
-          positions[conversation.conversationId] = 0
-        }
-      })
-      hasMore = await requestSync(positions)
-      if (!hasMore) break
-    }
-    if (hasMore) throw new Error('待同步消息较多，将在下次重连时继续补拉')
-    await flushOutbox()
+  function synchronizeAfterReconnect(): Promise<void> {
+    if (synchronizationPromise) return synchronizationPromise
+    synchronizationPromise = (async () => {
+      let hasMore = false
+      for (let page = 0; page < 50; page += 1) {
+        const positions = await loadPositions().catch(() => ({} as Record<string, number>))
+        Object.entries(positions).forEach(([conversationId, sequence]) => {
+          if (!Number.isSafeInteger(sequence) || sequence < 0) return
+          runtimePositions.set(conversationId, Math.max(
+            runtimePositions.get(conversationId) || 0,
+            sequence,
+          ))
+        })
+        runtimePositions.forEach((sequence, conversationId) => {
+          positions[conversationId] = Math.max(positions[conversationId] || 0, sequence)
+        })
+        conversations.value.forEach((conversation) => {
+          if (conversation.conversationId && positions[conversation.conversationId] == null) {
+            positions[conversation.conversationId] = 0
+          }
+        })
+        hasMore = await requestSync(positions)
+        if (!hasMore) break
+      }
+      if (hasMore) throw new Error('待同步消息较多，将在下次同步时继续补拉')
+      await flushOutbox()
+    })().finally(() => { synchronizationPromise = null })
+    return synchronizationPromise
   }
 
   function requestSync(positions: Record<string, number>): Promise<boolean> {
@@ -662,7 +777,7 @@ export function useChat() {
     image: boolean,
     transferId?: string,
   ): Promise<FileAttachmentData> {
-    const uploaded = await api.files.upload(file, conversationId)
+    const uploaded = await resumableFiles.upload(file, conversationId)
     if (transferId) {
       ws.sendEvent('FILE_TRANSFER_RELAY_COMPLETE', {
         transferId,
@@ -952,14 +1067,55 @@ export function useChat() {
   }
 
   async function recordReceivedPositions(source: readonly ChatMessage[]): Promise<void> {
+    const candidates = new Map<string, number[]>()
+    source.forEach((message) => {
+      if (!message.conversationId
+        || !Number.isSafeInteger(message.sequence)
+        || (message.sequence || 0) <= 0) return
+      const sequences = candidates.get(message.conversationId) || []
+      sequences.push(message.sequence!)
+      candidates.set(message.conversationId, sequences)
+    })
+    const persisted = await loadPositions().catch(() => ({} as Record<string, number>))
+    await Promise.all([...candidates].map(async ([conversationId, sequences]) => {
+      const current = Math.max(
+        runtimePositions.get(conversationId) || 0,
+        persisted[conversationId] || 0,
+      )
+      runtimePositions.set(conversationId, current)
+      const contiguous = advanceContiguousSequence(current, sequences)
+      if (contiguous > current) await recordPosition(conversationId, contiguous)
+    }))
+  }
+
+  async function recordSynchronizedPositions(
+    source: readonly ChatMessage[],
+    rawLatestPositions: unknown,
+  ): Promise<void> {
     const maximums = new Map<string, number>()
     source.forEach((message) => {
-      if (!message.conversationId || message.sequence == null) return
+      if (!message.conversationId
+        || !Number.isSafeInteger(message.sequence)
+        || (message.sequence || 0) <= 0) return
       maximums.set(message.conversationId, Math.max(
         maximums.get(message.conversationId) || 0,
-        message.sequence,
+        message.sequence!,
       ))
     })
+    if (rawLatestPositions
+      && typeof rawLatestPositions === 'object'
+      && !Array.isArray(rawLatestPositions)) {
+      Object.entries(rawLatestPositions as Record<string, unknown>)
+        .forEach(([conversationId, rawSequence]) => {
+          // A returned page can end before the authoritative latest position.
+          // Only use latestPositions when this conversation returned no rows;
+          // otherwise the page maximum is the safe cursor for the next request.
+          if (!conversationId || maximums.has(conversationId)) return
+          const sequence = Number(rawSequence)
+          if (!Number.isSafeInteger(sequence) || sequence <= 0) return
+          maximums.set(conversationId, sequence)
+        })
+    }
     await Promise.all([...maximums].map(([conversationId, sequence]) =>
       recordPosition(conversationId, sequence)))
   }

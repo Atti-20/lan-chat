@@ -265,6 +265,11 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   scrollbar-color: var(--separator-strong) transparent;
 }
 
+.broadcast-list {
+  display: flex;
+  flex-direction: column;
+}
+
 .broadcast-loading { display: grid; align-content: start; gap: 6px; }
 
 .loading-row {
@@ -380,7 +385,9 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
 .empty-state {
   display: grid;
   min-height: 250px;
+  flex: 1;
   padding: 42px 24px;
+  align-content: center;
   place-content: center;
   place-items: center;
   text-align: center;

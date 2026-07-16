@@ -13,13 +13,7 @@ import com.lanchat.service.BroadcastService;
 import com.lanchat.websocket.ChatWebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -95,6 +89,16 @@ public class BroadcastController {
     public Result<BroadcastStatsDTO> stats(@PathVariable Long broadcastId) {
         LoginUser user = currentUser();
         return Result.success(broadcastService.getStats(broadcastId, user.getUserId()));
+    }
+
+    @PostMapping("/{broadcastId}/cancel")
+    public Result<Broadcast> cancel(@PathVariable Long broadcastId) {
+        LoginUser user = currentUser();
+        Broadcast cancelled = broadcastService.cancel(broadcastId, user.getUserId());
+        if (webSocketHandler != null) {
+            webSocketHandler.notifyBroadcastCancelled(cancelled);
+        }
+        return Result.success(cancelled);
     }
 
     private LoginUser currentUser() {

@@ -5,6 +5,7 @@ import com.lanchat.common.FileContentInspector;
 import com.lanchat.dto.FileCheckDTO;
 import com.lanchat.dto.FilePreviewGrant;
 import com.lanchat.dto.FileUploadVO;
+import com.lanchat.dto.StoredFileContent;
 import com.lanchat.entity.FileAccessLog;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.ChatMessage;
@@ -14,6 +15,12 @@ import com.lanchat.mapper.FileAccessLogMapper;
 import com.lanchat.mapper.FileMetadataMapper;
 import com.lanchat.service.FileService;
 import com.lanchat.service.ConversationService;
+import com.lanchat.service.FileObjectCleanupService;
+import com.lanchat.service.storage.FileObjectStorage;
+import com.lanchat.service.storage.FileObjectStorageRegistry;
+import com.lanchat.service.storage.LocalFileObjectStorage;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.dao.DuplicateKeyException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,16 +37,13 @@ import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -85,8 +89,17 @@ public class FileServiceImpl implements FileService {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    @Autowired(required = false)
+    private FileObjectStorageRegistry storageRegistry;
+
+    @Autowired(required = false)
+    private FileObjectCleanupService objectCleanupService;
+
     @Value("${file.path}")
     private String filePath;
+
+    @Value("${file.staging-path:}")
+    private String stagingPath;
 
     @Value("${file.allowed-types}")
     private String allowedTypes;
@@ -148,65 +161,103 @@ public class FileServiceImpl implements FileService {
                     : "文件大小超过限制（" + readableMegabytes(effectiveLimit) + "）");
         }
 
-        Path root = ensureStorageReady(file.getSize());
+        Path root = ensureStagingReady(file.getSize());
         StagedUpload staged = stageUpload(file, root, effectiveLimit);
-        Path destination = null;
         try {
-            FileContentInspector.Inspection inspection = FileContentInspector.inspect(
-                    staged.path(), originalFilename, file.getContentType(), maxImagePixels);
-            if (imageOnly && !inspection.image()) {
-                throw new IllegalArgumentException("头像必须是有效图片文件");
-            }
-
-            // Only a complete, signature-validated upload is accepted as proof that
-            // the caller owns duplicate bytes. Hash probing alone never grants access.
-            FileMetadata existing = getByHash(staged.sha256());
-            if (existing != null) {
-                fileAccessGrantMapper.grant(existing.getId(), userId, "UPLOAD_PROOF");
-                FileUploadVO vo = buildVOFromMetadata(existing);
-                vo.setOriginalName(originalFilename);
-                vo.setInstantUpload(true);
-                return vo;
-            }
-
-            String suffix = "." + inspection.extension();
-            String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
-            destination = resolveStoredFile(newFileName).toPath();
-            moveAtomically(staged.path(), destination);
-            deleteOnTransactionRollback(
-                    destination,
-                    inspection.image() ? resolveStoredFile("thumb_" + newFileName).toPath() : null
-            );
-
-            FileMetadata metadata = new FileMetadata();
-            metadata.setFileHash(staged.sha256());
-            metadata.setFileName(originalFilename);
-            metadata.setFilePath(newFileName);
-            metadata.setFileSize(staged.size());
-            metadata.setFileType(inspection.mediaType());
-            metadata.setFileSuffix(suffix);
-            metadata.setUploadUserId(userId);
-            metadata.setCreateTime(LocalDateTime.now());
-            fileMetadataMapper.insert(metadata);
-            fileAccessGrantMapper.grant(metadata.getId(), userId, "UPLOADER");
-
-            FileUploadVO vo = new FileUploadVO();
-            vo.setUrl(getFileUrl(newFileName));
-            vo.setOriginalName(originalFilename);
-            vo.setFileName(newFileName);
-            vo.setFileSize(staged.size());
-            vo.setFileType(inspection.mediaType());
-            vo.setFileHash(staged.sha256());
-            vo.setInstantUpload(false);
-
-            if (inspection.image()) vo.setThumbnailUrl(generateThumbnail(newFileName));
-            return vo;
-        } catch (RuntimeException exception) {
-            if (destination != null) deleteQuietly(destination);
-            throw exception;
+            return storeStagedFile(staged.path(), originalFilename, file.getContentType(),
+                    staged.size(), staged.sha256(), userId, imageOnly);
         } finally {
             deleteQuietly(staged.path());
         }
+    }
+
+    @Override
+    @Transactional
+    public FileUploadVO storeStagedFile(Path stagedFile,
+                                        String originalFilename,
+                                        String declaredContentType,
+                                        long expectedSize,
+                                        String expectedSha256,
+                                        Long userId,
+                                        boolean imageOnly) {
+        if (userId == null || stagedFile == null || !Files.isRegularFile(stagedFile)) {
+            throw new IllegalArgumentException("上传文件无效");
+        }
+        String safeName = sanitizeOriginalFilename(originalFilename);
+        if (!isAllowedType(safeName)) throw new IllegalArgumentException("不支持的文件类型");
+        long effectiveLimit = imageOnly ? Math.min(maxFileSize, maxAvatarSize) : maxFileSize;
+        long actualSize;
+        try {
+            actualSize = Files.size(stagedFile);
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("文件内容无法读取");
+        }
+        if (actualSize <= 0 || actualSize != expectedSize || actualSize > effectiveLimit) {
+            throw new IllegalArgumentException("文件大小校验失败");
+        }
+
+        String actualSha256 = sha256(stagedFile);
+        if (expectedSha256 == null
+                || !expectedSha256.matches("(?i)^[0-9a-f]{64}$")
+                || !MessageDigest.isEqual(actualSha256.getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+                        expectedSha256.toLowerCase(Locale.ROOT)
+                                .getBytes(java.nio.charset.StandardCharsets.US_ASCII))) {
+            throw new IllegalArgumentException("文件哈希校验失败");
+        }
+
+        FileContentInspector.Inspection inspection = FileContentInspector.inspect(
+                stagedFile, safeName, declaredContentType, maxImagePixels);
+        if (imageOnly && !inspection.image()) {
+            throw new IllegalArgumentException("头像必须是有效图片文件");
+        }
+
+        // Full bytes were received and verified, therefore duplicate ownership can
+        // now be granted without allowing hash-only probing.
+        FileMetadata existing = getByHash(actualSha256);
+        if (existing != null) {
+            fileAccessGrantMapper.grant(existing.getId(), userId, "UPLOAD_PROOF");
+            FileUploadVO vo = buildVOFromMetadata(existing);
+            vo.setOriginalName(safeName);
+            vo.setInstantUpload(true);
+            return vo;
+        }
+
+        String suffix = "." + inspection.extension();
+        String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
+        FileObjectStorage storage = activeStorage();
+        storage.put(newFileName, stagedFile, inspection.mediaType());
+        deleteObjectOnTransactionRollback(storage, newFileName,
+                inspection.image() ? "thumb_" + newFileName : null);
+
+        FileMetadata metadata = new FileMetadata();
+        metadata.setFileHash(actualSha256);
+        metadata.setFileName(safeName);
+        metadata.setFilePath(newFileName);
+        metadata.setFileSize(actualSize);
+        metadata.setFileType(inspection.mediaType());
+        metadata.setFileSuffix(suffix);
+        metadata.setStorageType(storage.type());
+        metadata.setUploadUserId(userId);
+        metadata.setCreateTime(LocalDateTime.now());
+        try {
+            fileMetadataMapper.insert(metadata);
+        } catch (DuplicateKeyException duplicate) {
+            enqueueCleanup(storage, newFileName, "DUPLICATE_UPLOAD");
+            FileMetadata raced = getByHash(actualSha256);
+            if (raced == null) throw duplicate;
+            fileAccessGrantMapper.grant(raced.getId(), userId, "UPLOAD_PROOF");
+            FileUploadVO vo = buildVOFromMetadata(raced);
+            vo.setOriginalName(safeName);
+            vo.setInstantUpload(true);
+            return vo;
+        }
+        fileAccessGrantMapper.grant(metadata.getId(), userId, "UPLOADER");
+
+        FileUploadVO vo = buildVOFromMetadata(metadata);
+        vo.setOriginalName(safeName);
+        vo.setInstantUpload(false);
+        if (inspection.image()) vo.setThumbnailUrl(generateThumbnail(newFileName));
+        return vo;
     }
 
     @Override
@@ -355,11 +406,18 @@ public class FileServiceImpl implements FileService {
      */
     @Override
     public String generateThumbnail(String fileName) {
+        Path temporary = null;
         try {
-            File sourceFile = resolveStoredFile(fileName);
-            if (!sourceFile.exists()) return null;
+            FileMetadata metadata = getByStoredName(fileName);
+            if (metadata == null) return null;
+            FileObjectStorage storage = storageFor(metadata);
+            String normalized = normalizeStoredName(fileName);
+            if (normalized == null || !storage.exists(normalized)) return null;
 
-            BufferedImage sourceImage = ImageIO.read(sourceFile);
+            BufferedImage sourceImage;
+            try (InputStream input = storage.open(normalized)) {
+                sourceImage = ImageIO.read(input);
+            }
             if (sourceImage == null) return null;
 
             // 等比缩放到 300x300 以内
@@ -384,20 +442,44 @@ public class FileServiceImpl implements FileService {
             // 保存缩略图
             String suffix = fileName.substring(fileName.lastIndexOf(".") + 1);
             String thumbName = "thumb_" + fileName;
-            File thumbnailFile = resolveStoredFile(thumbName);
-            if (!ImageIO.write(thumbnail, suffix, thumbnailFile)) {
+            temporary = Files.createTempFile(ensureStagingReady(0), ".thumbnail-", ".tmp");
+            if (!ImageIO.write(thumbnail, suffix, temporary.toFile())) {
                 // Some safe upload readers (notably WebP) intentionally have no
                 // matching ImageIO writer. In that case the original image stays
                 // available and no broken thumbnail URL is returned.
-                deleteQuietly(thumbnailFile.toPath());
                 return null;
             }
+            storage.put(thumbName, temporary, metadata.getFileType());
 
             return getFileUrl(thumbName);
         } catch (IOException e) {
             log.warn("生成缩略图失败: {}", e.getMessage());
             return null;
+        } finally {
+            deleteQuietly(temporary);
         }
+    }
+
+    @Override
+    public StoredFileContent openContent(String fileName) {
+        String normalized = normalizeStoredName(fileName);
+        FileMetadata metadata = normalized == null ? null : getByStoredName(normalized);
+        if (metadata == null) return null;
+        FileObjectStorage storage = storageFor(metadata);
+        if (!storage.exists(normalized)) return null;
+        return new StoredFileContent(
+                new InputStreamResource(storage.open(normalized)),
+                storage.size(normalized),
+                metadata.getFileType(),
+                metadata.getFileName());
+    }
+
+    @Override
+    public void deleteStoredObjects(FileMetadata metadata) {
+        if (metadata == null || normalizeStoredName(metadata.getFilePath()) == null) return;
+        FileObjectStorage storage = storageFor(metadata);
+        enqueueCleanup(storage, metadata.getFilePath(), "FILE_METADATA_REMOVED");
+        enqueueCleanup(storage, "thumb_" + metadata.getFilePath(), "FILE_METADATA_REMOVED");
     }
 
     /**
@@ -425,8 +507,8 @@ public class FileServiceImpl implements FileService {
         String suffix = metadata.getFileSuffix() != null ? metadata.getFileSuffix().replace(".", "").toLowerCase() : "";
         if (IMAGE_SUFFIXES.contains(suffix)) {
             String thumbName = "thumb_" + metadata.getFilePath();
-            File thumbFile = resolveStoredFile(thumbName);
-            if (thumbFile.exists()) {
+            FileObjectStorage storage = storageFor(metadata);
+            if (storage.exists(thumbName)) {
                 vo.setThumbnailUrl(getFileUrl(thumbName));
             } else {
                 vo.setThumbnailUrl(generateThumbnail(metadata.getFilePath()));
@@ -440,17 +522,6 @@ public class FileServiceImpl implements FileService {
         return Paths.get(filePath).toAbsolutePath().normalize();
     }
 
-    private File resolveStoredFile(String fileName) {
-        String normalized = normalizeStoredName(fileName);
-        if (normalized == null) throw new IllegalArgumentException("文件名无效");
-        Path root = getStorageRoot();
-        Path resolved = root.resolve(normalized).normalize();
-        if (!resolved.getParent().equals(root)) {
-            throw new IllegalArgumentException("文件名无效");
-        }
-        return resolved.toFile();
-    }
-
     private String normalizeStoredName(String fileName) {
         if (fileName == null) return null;
         String value = fileName.trim();
@@ -458,8 +529,8 @@ public class FileServiceImpl implements FileService {
         return value;
     }
 
-    private Path ensureStorageReady(long incomingSize) {
-        Path root = getStorageRoot();
+    private Path ensureStagingReady(long incomingSize) {
+        Path root = getStagingRoot();
         Path workingDirectory = Paths.get("").toAbsolutePath().normalize();
         Path sourceStatic = workingDirectory.resolve("src/main/resources/static").normalize();
         Path compiledStatic = workingDirectory.resolve("target/classes/static").normalize();
@@ -481,6 +552,69 @@ public class FileServiceImpl implements FileService {
             throw exception;
         } catch (IOException exception) {
             throw new IllegalStateException("文件存储目录不可用");
+        }
+    }
+
+    private Path getStagingRoot() {
+        if (StringUtils.hasText(stagingPath)) {
+            return Paths.get(stagingPath).toAbsolutePath().normalize();
+        }
+        if (storageRegistry == null || "LOCAL".equals(storageRegistry.activeType())) {
+            return getStorageRoot();
+        }
+        return Paths.get(System.getProperty("java.io.tmpdir"), "lanchat-upload-staging")
+                .toAbsolutePath().normalize();
+    }
+
+    private FileObjectStorage activeStorage() {
+        return storageRegistry == null
+                ? new LocalFileObjectStorage(getStorageRoot())
+                : storageRegistry.active();
+    }
+
+    private FileObjectStorage storageFor(FileMetadata metadata) {
+        String type = metadata == null ? "LOCAL" : metadata.getStorageType();
+        if (storageRegistry == null) return new LocalFileObjectStorage(getStorageRoot());
+        return storageRegistry.forType(type);
+    }
+
+    private String sha256(Path path) {
+        try (InputStream input = Files.newInputStream(path)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read > 0) digest.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (IOException | NoSuchAlgorithmException exception) {
+            throw new IllegalArgumentException("文件内容无法读取");
+        }
+    }
+
+    private void deleteObjectOnTransactionRollback(FileObjectStorage storage, String... keys) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == TransactionSynchronization.STATUS_COMMITTED) return;
+                for (String key : keys) enqueueDetachedCleanup(storage, key, "UPLOAD_ROLLBACK");
+            }
+        });
+    }
+
+    private void enqueueDetachedCleanup(FileObjectStorage storage, String key, String reason) {
+        if (storage == null || key == null || objectCleanupService == null) return;
+        objectCleanupService.enqueueDetached(storage.type(), key, reason);
+    }
+
+    private void enqueueCleanup(FileObjectStorage storage, String key, String reason) {
+        if (storage == null || key == null) return;
+        if (objectCleanupService != null) {
+            objectCleanupService.enqueue(storage.type(), key, reason);
+        } else {
+            // Never bypass the durable outbox with an early physical delete.
+            log.error("文件对象清理服务不可用，未执行非持久化删除: {}", key);
         }
     }
 
@@ -514,18 +648,6 @@ public class FileServiceImpl implements FileService {
         }
     }
 
-    private void moveAtomically(Path source, Path destination) {
-        try {
-            try {
-                Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException ignored) {
-                Files.move(source, destination);
-            }
-        } catch (IOException exception) {
-            throw new IllegalStateException("文件上传写入失败");
-        }
-    }
-
     private void deleteQuietly(Path path) {
         if (path == null) return;
         try {
@@ -533,17 +655,6 @@ public class FileServiceImpl implements FileService {
         } catch (IOException exception) {
             log.warn("临时文件清理失败: {}", path.getFileName());
         }
-    }
-
-    private void deleteOnTransactionRollback(Path... paths) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCompletion(int status) {
-                if (status == TransactionSynchronization.STATUS_COMMITTED) return;
-                for (Path path : paths) deleteQuietly(path);
-            }
-        });
     }
 
     private String sanitizeOriginalFilename(String originalFilename) {

@@ -27,6 +27,8 @@ public class User {
     private Integer online;
     private LocalDateTime lastLoginAt;
     private Integer status;
+    /** 是否允许发布应急广播：0-否，1-是；系统管理员始终允许。 */
+    private Integer canSendBroadcast;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 

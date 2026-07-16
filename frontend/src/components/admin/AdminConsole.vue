@@ -25,6 +25,7 @@ const emit = defineEmits<{
   create: [payload: { username: string; password: string; nickname: string }]
   status: [payload: { userId: number; status: 0 | 1 }]
   mute: [payload: { userId: number; muteStart: string; muteEnd: string }]
+  broadcastPermission: [payload: { userId: number; enabled: boolean }]
   resetPassword: [user: AdminUser]
   changeOwnPassword: []
   delete: [userId: number]
@@ -52,6 +53,15 @@ function saveMute(user: AdminUser): void {
   const muteEnd = muteEnds[user.id] || ''
   if (!muteStart || !muteEnd) return
   emit('mute', { userId: user.id, muteStart, muteEnd })
+}
+
+function requestBroadcastPermission(user: AdminUser, event: Event): void {
+  const input = event.currentTarget as HTMLInputElement
+  const enabled = input.checked
+  // The server remains authoritative. Keep the controlled checkbox on the
+  // current prop until the refreshed account list confirms the mutation.
+  input.checked = user.canSendBroadcast === 1
+  emit('broadcastPermission', { userId: user.id, enabled })
 }
 
 function confirmDelete(user: AdminUser): void {
@@ -126,6 +136,7 @@ watch(() => props.createdUsername, (createdUsername) => {
         :user="user"
         :busy="busyUserId === user.id"
         @save-mute="saveMute(user)"
+        @broadcast-permission="emit('broadcastPermission', { userId: user.id, enabled: $event })"
         @reset-password="emit('resetPassword', user)"
         @toggle-status="emit('status', { userId: user.id, status: user.status === 0 ? 1 : 0 })"
         @delete="confirmDelete(user)"
@@ -139,16 +150,17 @@ watch(() => props.createdUsername, (createdUsername) => {
           <tr>
             <th>用户</th>
             <th>状态</th>
+            <th>广播权限</th>
             <th>禁言时段</th>
             <th>账号操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading && users.length === 0">
-            <td colspan="4" class="empty-cell">正在加载账号数据…</td>
+            <td colspan="5" class="empty-cell">正在加载账号数据…</td>
           </tr>
           <tr v-else-if="users.length === 0">
-            <td colspan="4" class="empty-cell">暂无用户数据</td>
+            <td colspan="5" class="empty-cell">暂无用户数据</td>
           </tr>
           <tr v-for="user in users" :key="user.id">
             <td>
@@ -161,6 +173,18 @@ watch(() => props.createdUsername, (createdUsername) => {
               <span class="status-badge" :class="{ banned: user.status === 0 }">
                 {{ user.status === 0 ? '已封禁' : '正常' }}
               </span>
+            </td>
+            <td>
+              <label v-if="user.username !== 'admin'" class="permission-switch">
+                <input
+                  type="checkbox"
+                  :checked="user.canSendBroadcast === 1"
+                  :disabled="busyUserId === user.id"
+                  @change="requestBroadcastPermission(user, $event)"
+                />
+                <span>{{ user.canSendBroadcast === 1 ? '允许发布' : '禁止发布' }}</span>
+              </label>
+              <span v-else class="protected-copy">始终允许</span>
             </td>
             <td>
               <div v-if="user.username !== 'admin'" class="mute-fields">
@@ -231,6 +255,9 @@ watch(() => props.createdUsername, (createdUsername) => {
 .user-cell small { color: var(--ink-faint); font-size: 9px; }
 .status-badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: var(--green); font-size: 10px; font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
 .status-badge.banned { color: var(--coral); background: color-mix(in srgb, var(--coral) 10%, transparent); }
+.permission-switch { display: inline-flex; min-width: 92px; align-items: center; gap: 7px; color: var(--ink-soft); font-size: 10px; font-weight: 650; cursor: pointer; }
+.permission-switch input { width: 16px; height: 16px; margin: 0; accent-color: var(--blue); cursor: inherit; }
+.permission-switch:has(input:disabled) { cursor: wait; opacity: .55; }
 .mute-fields { display: flex; min-width: 260px; align-items: center; gap: 6px; }
 .mute-fields input { width: 92px; height: 34px; padding: 0 8px; border: 1px solid var(--separator); border-radius: 9px; color: var(--ink); font: inherit; background: var(--surface); }
 .mute-fields span { color: var(--ink-faint); font-size: 10px; }

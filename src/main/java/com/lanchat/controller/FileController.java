@@ -5,10 +5,15 @@ import com.lanchat.common.RequestIdFilter;
 import com.lanchat.dto.FileCheckDTO;
 import com.lanchat.dto.FilePreviewGrant;
 import com.lanchat.dto.FileUploadVO;
+import com.lanchat.dto.ResumableUploadInitDTO;
+import com.lanchat.dto.ResumableUploadVO;
+import com.lanchat.dto.StoredFileContent;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.FileService;
 import com.lanchat.service.ConversationService;
+import com.lanchat.service.ResumableUploadService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -37,6 +42,9 @@ public class FileController {
     @Autowired
     private ConversationService conversationService;
 
+    @Autowired
+    private ResumableUploadService resumableUploadService;
+
     @Value("${file.path}")
     private String filePath;
 
@@ -62,6 +70,49 @@ public class FileController {
             return Result.forbidden("无权在该会话发送文件");
         }
         return Result.success(fileService.uploadFile(file, userId));
+    }
+
+    /** Initializes or resumes a persistent chunk upload for the current user. */
+    @PostMapping("/uploads")
+    public Result<ResumableUploadVO> initializeUpload(@RequestBody ResumableUploadInitDTO request) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) return Result.unauthorized("请先登录");
+        return Result.success(resumableUploadService.initialize(request, userId));
+    }
+
+    @GetMapping("/uploads/{uploadId}")
+    public Result<ResumableUploadVO> getUpload(@PathVariable String uploadId) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) return Result.unauthorized("请先登录");
+        return Result.success(resumableUploadService.status(uploadId, userId));
+    }
+
+    @PutMapping(value = "/uploads/{uploadId}/parts/{partNumber}",
+            consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public Result<ResumableUploadVO> uploadPart(@PathVariable String uploadId,
+                                                @PathVariable int partNumber,
+                                                @RequestParam String sha256,
+                                                HttpServletRequest request) throws java.io.IOException {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) return Result.unauthorized("请先登录");
+        return Result.success(resumableUploadService.uploadPart(
+                uploadId, partNumber, sha256, request.getContentLengthLong(),
+                request.getInputStream(), userId));
+    }
+
+    @PostMapping("/uploads/{uploadId}/complete")
+    public Result<FileUploadVO> completeUpload(@PathVariable String uploadId) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) return Result.unauthorized("请先登录");
+        return Result.success(resumableUploadService.complete(uploadId, userId));
+    }
+
+    @DeleteMapping("/uploads/{uploadId}")
+    public Result<Void> cancelUpload(@PathVariable String uploadId) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) return Result.unauthorized("请先登录");
+        resumableUploadService.cancel(uploadId, userId);
+        return Result.success();
     }
 
     /** 头像使用独立入口，避免聊天附件绕过会话发送权限。 */
@@ -154,29 +205,39 @@ public class FileController {
         FileMetadata metadata = fileService.getByStoredName(fileName);
         if (metadata == null) return ResponseEntity.notFound().build();
 
-        Path root = Paths.get(filePath).toAbsolutePath().normalize();
-        Path resolved = root.resolve(fileName).normalize();
-        if (!resolved.startsWith(root) || !Files.isRegularFile(resolved)) {
-            return ResponseEntity.notFound().build();
+        StoredFileContent stored = fileService.openContent(fileName);
+        Resource resource;
+        long contentLength;
+        String detectedType;
+        if (stored != null) {
+            resource = stored.resource();
+            contentLength = stored.contentLength();
+            detectedType = stored.mediaType();
+        } else {
+            // Test/backward-compatible fallback for a legacy FileService
+            // implementation. The production service always supplies openContent.
+            Path root = Paths.get(filePath).toAbsolutePath().normalize();
+            Path resolved = root.resolve(fileName).normalize();
+            if (!resolved.startsWith(root) || !Files.isRegularFile(resolved)) {
+                return ResponseEntity.notFound().build();
+            }
+            resource = new FileSystemResource(resolved);
+            try {
+                contentLength = Files.size(resolved);
+                detectedType = Files.probeContentType(resolved);
+            } catch (Exception ignored) {
+                return ResponseEntity.notFound().build();
+            }
         }
 
         MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
         try {
             String detected = metadata.getFileType();
-            if (detected == null || detected.isBlank()) detected = Files.probeContentType(resolved);
+            if (detected == null || detected.isBlank()) detected = detectedType;
             if (detected != null) mediaType = MediaType.parseMediaType(detected);
         } catch (Exception ignored) {
             // 未识别类型时按二进制流返回。
         }
-
-        long contentLength;
-        try {
-            contentLength = Files.size(resolved);
-        } catch (Exception ignored) {
-            return ResponseEntity.notFound().build();
-        }
-
-        FileSystemResource resource = new FileSystemResource(resolved);
         boolean inlineAllowed = !download && isSafeInlineType(mediaType);
         if (!inlineAllowed) mediaType = MediaType.APPLICATION_OCTET_STREAM;
         ContentDisposition disposition = (inlineAllowed ? ContentDisposition.inline() : ContentDisposition.attachment())

@@ -1,6 +1,11 @@
 package com.lanchat.websocket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lanchat.cluster.ClusterPresenceService;
+import com.lanchat.cluster.LocalClusterPresenceService;
+import com.lanchat.cluster.LocalRealtimeDelivery;
+import com.lanchat.cluster.LocalRealtimeRouter;
+import com.lanchat.cluster.RealtimeRouter;
 import com.lanchat.common.ConversationIds;
 import com.lanchat.common.FileReferenceUtil;
 import com.lanchat.common.TemporaryRoomChangedEvent;
@@ -29,9 +34,11 @@ import com.lanchat.service.BroadcastService;
 import com.lanchat.service.GroupService;
 import com.lanchat.service.UserService;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.socket.CloseStatus;
@@ -47,9 +54,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -103,6 +112,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final FriendService friendService;
     private final FileTransferService fileTransferService;
     private final BroadcastService broadcastService;
+    private final RealtimeRouter realtimeRouter;
+    private final ClusterPresenceService clusterPresenceService;
     private final ScheduledExecutorService authTimeoutExecutor;
 
     public ChatWebSocketHandler(ObjectMapper objectMapper,
@@ -115,6 +126,24 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 FriendService friendService,
                                 FileTransferService fileTransferService,
                                 BroadcastService broadcastService) {
+        this(objectMapper, jwtUtil, chatMessageService, conversationService, fileService,
+                userService, groupService, friendService, fileTransferService, broadcastService,
+                new LocalRealtimeRouter(), new LocalClusterPresenceService());
+    }
+
+    @Autowired
+    public ChatWebSocketHandler(ObjectMapper objectMapper,
+                                JwtUtil jwtUtil,
+                                ChatMessageService chatMessageService,
+                                ConversationService conversationService,
+                                FileService fileService,
+                                UserService userService,
+                                GroupService groupService,
+                                FriendService friendService,
+                                FileTransferService fileTransferService,
+                                BroadcastService broadcastService,
+                                RealtimeRouter realtimeRouter,
+                                ClusterPresenceService clusterPresenceService) {
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.chatMessageService = chatMessageService;
@@ -125,6 +154,30 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.friendService = friendService;
         this.fileTransferService = fileTransferService;
         this.broadcastService = broadcastService;
+        this.realtimeRouter = realtimeRouter;
+        this.clusterPresenceService = clusterPresenceService;
+        this.realtimeRouter.bind(new LocalRealtimeDelivery() {
+            @Override
+            public void sendToUser(Long userId, WebSocketEnvelope event) {
+                sendToUserLocal(userId, event);
+            }
+
+            @Override
+            public int sendToUserWithReceipt(Long userId, WebSocketEnvelope event) {
+                return sendToUserLocalWithReceipt(userId, event);
+            }
+
+            @Override
+            public void sendToDevice(Long userId, Long deviceId, WebSocketEnvelope event) {
+                sendToDeviceLocal(userId, deviceId, event);
+            }
+
+            @Override
+            public void broadcast(WebSocketEnvelope event) {
+                broadcastLocal(event);
+            }
+        });
+        this.clusterPresenceService.bindGlobalOfflineListener(this::handleExpiredGlobalPresence);
         this.authTimeoutExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "lanchat-ws-auth-timeout");
             thread.setDaemon(true);
@@ -211,6 +264,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 case "AUTH" -> sendError(session, incoming, "ALREADY_AUTHENTICATED", "连接已经认证", false);
                 default -> sendError(session, incoming, "UNKNOWN_EVENT", "未知事件：" + event, false);
             }
+        } catch (AccessDeniedException exception) {
+            sendError(session, incoming, "FORBIDDEN", exception.getMessage(), false);
         } catch (IllegalArgumentException exception) {
             sendError(session, incoming, "BUSINESS_REJECTED", exception.getMessage(), false);
         } catch (Exception exception) {
@@ -229,16 +284,27 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         if (userId == null) return;
 
         Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
-        if (sessions == null) return;
-        boolean becameOffline = sessions.remove(session) && sessions.isEmpty();
-        if (!becameOffline) return;
+        boolean removed = sessions != null && sessions.remove(session);
+        if (!removed) return;
+        boolean becameLocallyOffline = removed && sessions.isEmpty();
+        User user = ONLINE_USERS.get(userId);
+        if (becameLocallyOffline) {
+            ONLINE_SESSIONS.remove(userId, sessions);
+            user = ONLINE_USERS.remove(userId);
+        }
 
-        ONLINE_SESSIONS.remove(userId, sessions);
-        User user = ONLINE_USERS.remove(userId);
+        boolean becameGloballyOffline = clusterPresenceService.unregister(
+                userId,
+                attributeLong(session, DEVICE_ID_ATTRIBUTE),
+                session.getId(),
+                becameLocallyOffline
+        );
+        if (!becameGloballyOffline) return;
+
         userService.updateOnlineStatus(userId, 0);
         broadcastPresence("offline", userId, user == null ? "" : user.getNickname());
         sendOnlineListToAll();
-        log.info("用户 {} 下线，当前在线人数: {}", userId, ONLINE_SESSIONS.size());
+        log.info("用户 {} 全局下线，当前本实例在线人数: {}", userId, ONLINE_SESSIONS.size());
     }
 
     @Override
@@ -282,7 +348,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             boolean wasOffline = sessions.isEmpty();
             sessions.add(session);
             ONLINE_USERS.put(userId, user);
-            userService.updateOnlineStatus(userId, 1);
+            boolean becameGloballyOnline = clusterPresenceService.register(
+                    userId, device.getId(), session.getId(), wasOffline);
+            if (becameGloballyOnline) {
+                userService.updateOnlineStatus(userId, 1);
+            }
 
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("userId", userId);
@@ -291,7 +361,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             sendEvent(session, envelope("AUTH_OK", incoming.getRequestId(), null, null, payload));
             deliverPendingBroadcasts(session, userId);
 
-            if (wasOffline) {
+            if (becameGloballyOnline) {
                 broadcastPresence("online", userId, user.getNickname());
                 sendOnlineListToAll();
             } else {
@@ -314,6 +384,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         String deviceType = attributeString(session, DEVICE_TYPE_ATTRIBUTE);
         if (jwtUtil.isAccessToken(token)
                 && userService.isAccessTokenActive(token, userId, deviceType)) {
+            clusterPresenceService.refresh(
+                    userId,
+                    attributeLong(session, DEVICE_ID_ATTRIBUTE),
+                    session.getId()
+            );
             return true;
         }
 
@@ -593,9 +668,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 conversationId, readyPayload));
 
         Set<WebSocketSession> receiverSessions = ONLINE_SESSIONS.get(transfer.receiverUserId());
-        if (!"OFFERED".equals(transfer.status())
-                || receiverSessions == null
-                || receiverSessions.stream().noneMatch(WebSocketSession::isOpen)) {
+        boolean receiverLocallyOnline = receiverSessions != null
+                && receiverSessions.stream().anyMatch(WebSocketSession::isOpen);
+        boolean receiverOnline = clusterPresenceService.isUserOnline(
+                transfer.receiverUserId(), receiverLocallyOnline);
+        if (!"OFFERED".equals(transfer.status()) || !receiverOnline) {
             if ("OFFERED".equals(transfer.status())) {
                 transfer = fileTransferService.fallbackToNodeRelay(
                         transfer.transferId(), senderId, senderDeviceId, "RECEIVER_OFFLINE");
@@ -621,7 +698,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         offerPayload.put("sdp", sdp);
         WebSocketEnvelope offer = envelope("FILE_TRANSFER_OFFER", incoming.getRequestId(), null,
                 conversationId, offerPayload);
-        receiverSessions.forEach(target -> sendEvent(target, offer));
+        sendToUser(transfer.receiverUserId(), offer);
     }
 
     private void handleFileTransferAnswer(WebSocketSession session, WebSocketEnvelope incoming) {
@@ -816,16 +893,28 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         payload.put("broadcast", detail.broadcast());
         payload.put("receiver", detail.receiver());
         payload.put("confirmationOptions", detail.confirmationOptions());
-        sendEvent(session, envelope("BROADCAST", null, null, null, payload));
-        broadcastService.markDelivered(broadcastId, userId);
+        if (sendEvent(session, envelope("BROADCAST", null, null, null, payload))) {
+            broadcastService.markDelivered(broadcastId, userId);
+        }
     }
 
     /** REST 广播创建事务提交后调用，在线接收者立即收到，离线接收者登录后补推。 */
     public void publishBroadcast(Long broadcastId) {
         if (broadcastId == null) return;
-        for (Map.Entry<Long, Set<WebSocketSession>> entry : ONLINE_SESSIONS.entrySet()) {
-            Long userId = entry.getKey();
+        List<Long> receiverIds;
+        try {
+            receiverIds = broadcastService.getReceiverIds(broadcastId);
+        } catch (Exception exception) {
+            log.warn("广播接收者查询失败: broadcastId={}, error={}",
+                    broadcastId, exception.getMessage());
+            return;
+        }
+        if (receiverIds == null) return;
+        Set<Long> onlineUserIds = clusterPresenceService.getOnlineUserIds(
+                Set.copyOf(ONLINE_SESSIONS.keySet()));
+        for (Long userId : receiverIds.stream().filter(Objects::nonNull).distinct().toList()) {
             try {
+                if (!onlineUserIds.contains(userId)) continue;
                 boolean addressed = broadcastService.listPending(userId).stream()
                         .anyMatch(item -> broadcastId.equals(item.getId()));
                 if (!addressed) continue;
@@ -836,8 +925,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 payload.put("receiver", detail.receiver());
                 payload.put("confirmationOptions", detail.confirmationOptions());
                 WebSocketEnvelope event = envelope("BROADCAST", null, null, null, payload);
-                entry.getValue().forEach(session -> sendEvent(session, event));
-                broadcastService.markDelivered(broadcastId, userId);
+                realtimeRouter.sendToUserWithReceipt(
+                        userId,
+                        event,
+                        () -> broadcastService.markDelivered(broadcastId, userId));
             } catch (Exception exception) {
                 log.warn("广播实时投递失败: broadcastId={}, userId={}, error={}",
                         broadcastId, userId, exception.getMessage());
@@ -854,7 +945,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("broadcastId", broadcastId);
             payload.put("statistics", stats);
-            sendToUser(senderId, envelope("BROADCAST_UPDATED", null, null, null, payload));
+            WebSocketEnvelope event = envelope(
+                    "BROADCAST_UPDATED", null, null, null, payload);
+            sendToUser(senderId, event);
+            systemAdministratorIds().stream()
+                    .filter(adminId -> !Objects.equals(adminId, senderId))
+                    .forEach(adminId -> sendToUser(adminId, event));
         } catch (Exception exception) {
             log.warn("广播统计实时同步失败: broadcastId={}, error={}",
                     broadcastId, exception.getMessage());
@@ -1100,24 +1196,101 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void sendOnlineListToAll() {
-        ONLINE_SESSIONS.values().forEach(sessions -> sessions.forEach(this::sendOnlineList));
+        broadcast(onlineListEnvelope());
+    }
+
+    private void handleExpiredGlobalPresence(Set<Long> expiredUserIds) {
+        if (expiredUserIds == null || expiredUserIds.isEmpty()) return;
+        boolean changed = false;
+        for (Long userId : expiredUserIds) {
+            if (userId == null || userId <= 0) continue;
+            Set<WebSocketSession> localSessions = ONLINE_SESSIONS.get(userId);
+            boolean locallyOnline = localSessions != null && !localSessions.isEmpty();
+            if (locallyOnline) {
+                localSessions.forEach(session -> clusterPresenceService.refresh(
+                        userId,
+                        attributeLong(session, DEVICE_ID_ATTRIBUTE),
+                        session.getId()));
+                continue;
+            }
+            if (!clusterPresenceService.isUserDefinitelyOffline(userId, locallyOnline)) continue;
+            try {
+                userService.updateOnlineStatus(userId, 0);
+                User user = ONLINE_USERS.get(userId);
+                if (user == null) {
+                    try {
+                        user = userService.getUserInfo(userId);
+                    } catch (RuntimeException exception) {
+                        log.warn("过期在线用户资料读取失败: userId={}, error={}",
+                                userId, exception.getMessage());
+                    }
+                }
+                if (!clusterPresenceService.isUserDefinitelyOffline(userId, false)) {
+                    userService.updateOnlineStatus(userId, 1);
+                    continue;
+                }
+                String nickname = user == null || user.getNickname() == null
+                        ? "" : user.getNickname();
+                broadcastPresence("offline", userId,
+                        nickname);
+                changed = true;
+                // A fresh login can race the expired-lease callback after its first
+                // verification. Restore the durable flag and event ordering if so.
+                if (!clusterPresenceService.isUserDefinitelyOffline(userId, false)) {
+                    userService.updateOnlineStatus(userId, 1);
+                    broadcastPresence("online", userId, nickname);
+                }
+            } catch (RuntimeException exception) {
+                log.warn("过期在线状态修正失败: userId={}, error={}",
+                        userId, exception.getMessage());
+            }
+        }
+        if (changed) sendOnlineListToAll();
     }
 
     private void sendOnlineList(WebSocketSession session) {
-        List<Map<String, Object>> users = ONLINE_USERS.values().stream()
-                .map(user -> {
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("id", user.getId());
-                    item.put("nickname", user.getNickname());
-                    item.put("avatar", user.getAvatar());
-                    item.put("online", 1);
-                    return item;
-                })
+        sendEvent(session, onlineListEnvelope());
+    }
+
+    private WebSocketEnvelope onlineListEnvelope() {
+        Set<Long> onlineUserIds = clusterPresenceService.getOnlineUserIds(
+                Set.copyOf(ONLINE_SESSIONS.keySet()));
+        List<Map<String, Object>> users = onlineUserIds.stream()
+                .sorted()
+                .map(this::onlineUserInfo)
+                .filter(Objects::nonNull)
+                .filter(user -> Integer.valueOf(1).equals(user.getStatus()))
+                .map(this::onlineUserPayload)
                 .toList();
-        sendEvent(session, envelope("ONLINE_LIST", null, null, null, Map.of("users", users)));
+        return envelope("ONLINE_LIST", null, null, null, Map.of("users", users));
+    }
+
+    private User onlineUserInfo(Long userId) {
+        User local = ONLINE_USERS.get(userId);
+        if (local != null) return local;
+        try {
+            return userService.getUserInfo(userId);
+        } catch (RuntimeException exception) {
+            log.warn("在线用户资料读取失败，已跳过: userId={}, error={}",
+                    userId, exception.getMessage());
+            return null;
+        }
+    }
+
+    private Map<String, Object> onlineUserPayload(User user) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", user.getId());
+        item.put("nickname", user.getNickname());
+        item.put("avatar", user.getAvatar());
+        item.put("online", 1);
+        return item;
     }
 
     private void broadcast(WebSocketEnvelope event) {
+        realtimeRouter.broadcast(event);
+    }
+
+    private void broadcastLocal(WebSocketEnvelope event) {
         ONLINE_SESSIONS.values().forEach(sessions ->
                 sessions.forEach(session -> sendEvent(session, event)));
     }
@@ -1133,11 +1306,32 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private void sendToUser(Long userId, WebSocketEnvelope event) {
         if (userId == null) return;
+        realtimeRouter.sendToUser(userId, event);
+    }
+
+    private void sendToUserLocal(Long userId, WebSocketEnvelope event) {
+        if (userId == null) return;
         Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
         if (sessions != null) sessions.forEach(session -> sendEvent(session, event));
     }
 
+    private int sendToUserLocalWithReceipt(Long userId, WebSocketEnvelope event) {
+        if (userId == null) return 0;
+        Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
+        if (sessions == null) return 0;
+        int delivered = 0;
+        for (WebSocketSession session : sessions) {
+            if (sendEvent(session, event)) delivered++;
+        }
+        return delivered;
+    }
+
     private void sendToDevice(Long userId, Long deviceId, WebSocketEnvelope event) {
+        if (userId == null || deviceId == null) return;
+        realtimeRouter.sendToDevice(userId, deviceId, event);
+    }
+
+    private void sendToDeviceLocal(Long userId, Long deviceId, WebSocketEnvelope event) {
         if (userId == null || deviceId == null) return;
         Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
         if (sessions == null) return;
@@ -1146,17 +1340,19 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 .forEach(session -> sendEvent(session, event));
     }
 
-    private void sendEvent(WebSocketSession session, WebSocketEnvelope event) {
+    private boolean sendEvent(WebSocketSession session, WebSocketEnvelope event) {
         try {
             String json = objectMapper.writeValueAsString(event);
-            if (session.isOpen()) {
-                synchronized (session) {
-                    session.sendMessage(new TextMessage(json));
-                }
+            if (!session.isOpen()) return false;
+            synchronized (session) {
+                if (!session.isOpen()) return false;
+                session.sendMessage(new TextMessage(json));
             }
+            return true;
         } catch (IOException exception) {
             FAILURE_COUNT.increment();
             log.warn("WebSocket 发送失败: userId={}, error={}", getUserId(session), exception.getMessage());
+            return false;
         }
     }
 
@@ -1239,5 +1435,92 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             double averageProcessingMs,
             List<Map<String, Object>> recentConnections
     ) {
+    }
+
+    public void sendProfileUpdated(User user) {
+        if (user == null || user.getId() == null) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("userId", user.getId());
+        payload.put("nickname", user.getNickname());
+        payload.put("avatar", user.getAvatar());
+        WebSocketEnvelope event = envelope(
+                "PROFILE_UPDATED",
+                null,
+                null,
+                null,
+                payload
+        );
+        broadcast(event);
+    }
+
+    /** 广播撤销后只通知原接收者、创建者和在线管理员。 */
+    public void notifyBroadcastCancelled(Broadcast cancelled) {
+        if (cancelled == null || cancelled.getId() == null) return;
+
+        Set<Long> targetUserIds = new LinkedHashSet<>();
+        try {
+            targetUserIds.addAll(broadcastService.getReceiverIds(cancelled.getId()));
+        } catch (Exception exception) {
+            // The cancellation transaction has already committed. A transient notification
+            // lookup failure must not turn the successful REST operation into a false 500.
+            log.warn("广播撤销接收者通知查询失败: broadcastId={}, error={}",
+                    cancelled.getId(), exception.getMessage());
+        }
+        if (cancelled.getSenderId() != null) {
+            targetUserIds.add(cancelled.getSenderId());
+        }
+        targetUserIds.addAll(systemAdministratorIds());
+
+        WebSocketEnvelope event = envelope(
+                "BROADCAST_UPDATED",
+                null,
+                null,
+                null,
+                Map.of(
+                        "broadcastId", cancelled.getId(),
+                        "status", "CANCELLED",
+                        "message", "广播已撤销"
+                )
+        );
+        targetUserIds.forEach(userId -> sendToUser(userId, event));
+    }
+
+    private Set<Long> systemAdministratorIds() {
+        Set<Long> administratorIds = new LinkedHashSet<>();
+        ONLINE_USERS.forEach((userId, user) -> {
+            if (user != null && "admin".equals(user.getUsername())) {
+                administratorIds.add(userId);
+            }
+        });
+        try {
+            List<User> candidates = userService.searchUsers("admin");
+            if (candidates != null) {
+                candidates.stream()
+                        .filter(Objects::nonNull)
+                        .filter(user -> "admin".equals(user.getUsername()))
+                        .map(User::getId)
+                        .filter(Objects::nonNull)
+                        .forEach(administratorIds::add);
+            }
+        } catch (Exception exception) {
+            log.warn("管理员实时通知目标查询失败，保留本实例目标: {}", exception.getMessage());
+        }
+        return administratorIds;
+    }
+
+    /** 权限变更只通知目标账号，客户端收到后重新读取本人资料。 */
+    public void sendBroadcastPermissionUpdated(Long targetUserId, boolean enabled) {
+        sendToUser(
+                targetUserId,
+                envelope(
+                        "BROADCAST_PERMISSION_UPDATED",
+                        null,
+                        null,
+                        null,
+                        Map.of("enabled", enabled)
+                )
+        );
     }
 }

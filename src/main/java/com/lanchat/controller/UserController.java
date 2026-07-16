@@ -8,6 +8,7 @@ import com.lanchat.entity.User;
 import com.lanchat.security.LoginUser;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.UserService;
+import com.lanchat.websocket.ChatWebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,6 +21,9 @@ public class UserController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private ChatWebSocketHandler webSocketHandler;
 
     @GetMapping("/info")
     public Result<User> getCurrentUserInfo() {
@@ -118,8 +122,11 @@ public class UserController {
             String nickname = body.get("nickname");
             String avatar = body.get("avatar");
             userService.updateProfile(userId, nickname, avatar);
+            User updateUser = userService.getUserInfo(userId);
+            // 通知其他在线客户端刷新头像和昵称
+            webSocketHandler.sendProfileUpdated(updateUser);
             // 返回更新后的用户信息
-            return Result.success(userService.getUserInfo(userId));
+            return Result.success(updateUser);
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

@@ -5,6 +5,9 @@ import com.lanchat.config.LanChatPrivateDeploymentProperties;
 import com.lanchat.dto.AdminDiagnostics;
 import com.lanchat.dto.NodePublicInfo;
 import com.lanchat.websocket.ChatWebSocketHandler;
+import com.lanchat.service.storage.FileObjectStorage;
+import com.lanchat.service.storage.FileObjectStorageRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisCallback;
@@ -39,6 +42,9 @@ public class NodeDiagnosticsService {
     @Value("${file.path}")
     private String filePath;
 
+    @Autowired(required = false)
+    private FileObjectStorageRegistry storageRegistry;
+
     @Value("${lanchat.discovery.enabled:false}")
     private boolean discoveryEnabled;
 
@@ -68,9 +74,12 @@ public class NodeDiagnosticsService {
                         "RELIABLE_MESSAGING",
                         "OFFLINE_OUTBOX",
                         "FILE_SECURITY",
+                        "RESUMABLE_UPLOAD",
+                        "OBJECT_STORAGE",
                         "CONNECTION_DIAGNOSTICS",
                         "PRIVATE_DEPLOYMENT",
-                        "MDNS_DISCOVERY"
+                        "MDNS_DISCOVERY",
+                        "MULTI_INSTANCE_ROUTING"
                 ),
                 System.currentTimeMillis()
         );
@@ -97,7 +106,7 @@ public class NodeDiagnosticsService {
         List<String> warnings = new ArrayList<>();
         if (!"UP".equals(database.status())) warnings.add("数据库连接异常");
         if (!"UP".equals(redis.status())) warnings.add("Redis 不可用，在线状态与短期预览会降级");
-        if (!"UP".equals(storage.status())) warnings.add("文件存储目录不可用");
+        if (!"UP".equals(storage.status())) warnings.add("文件存储不可用");
         if (storage.totalBytes() > 0 && storage.usableBytes() * 100 / storage.totalBytes() < 10) {
             warnings.add("文件存储剩余空间低于 10%");
         }
@@ -149,6 +158,18 @@ public class NodeDiagnosticsService {
     }
 
     private AdminDiagnostics.StorageStatus checkStorage() {
+        if (storageRegistry != null && !"LOCAL".equals(storageRegistry.activeType())) {
+            FileObjectStorage storage = storageRegistry.active();
+            try {
+                storage.checkAvailable();
+                return new AdminDiagnostics.StorageStatus(
+                        "UP", storage.location(), 0, 0, 0, 0, null);
+            } catch (Exception exception) {
+                return new AdminDiagnostics.StorageStatus(
+                        "DOWN", storage.location(), 0, 0, 0, 0,
+                        exception.getClass().getSimpleName());
+            }
+        }
         Path storage = Paths.get(filePath).toAbsolutePath().normalize();
         try {
             if (!Files.isDirectory(storage) || !Files.isReadable(storage) || !Files.isWritable(storage)) {

@@ -20,6 +20,8 @@ public class FileMetadata {
     private Long fileSize;
     private String fileType;
     private String fileSuffix;
+    /** LOCAL for historical rows, MINIO for shared object storage. */
+    private String storageType;
     private Long uploadUserId;
     private LocalDateTime createTime;
 }

@@ -1,8 +1,14 @@
 import { computed, onBeforeUnmount, readonly, shallowRef } from 'vue'
-import { loadDirectFile, moveDirectFile, saveDirectFile } from '../services/localChatDb'
+import {
+  deleteDirectFile,
+  loadDirectFile,
+  moveDirectFile,
+  saveDirectFile,
+} from '../services/localChatDb'
 import { subscribeRealtimeEvents } from '../services/realtimeEvents'
 import type { DirectFileRecord, FileAttachmentData, WsEnvelope } from '../types'
 import { createClientMessageId } from '../utils/id'
+import { sha256Blob } from '../utils/sha256'
 
 const CHUNK_SIZE = 64 * 1024
 const BUFFER_HIGH_WATER = 4 * 1024 * 1024
@@ -55,15 +61,17 @@ export function usePeerFileTransfer(options: UsePeerFileTransferOptions) {
   const progress = shallowRef(0)
   const activePath = shallowRef<'PEER_TO_PEER' | null>(null)
   const lastFailedTransferId = shallowRef<string | null>(null)
-  const supported = computed(() => typeof RTCPeerConnection !== 'undefined'
-    && typeof crypto?.subtle?.digest === 'function')
+  const supported = computed(() => typeof RTCPeerConnection !== 'undefined')
 
   const outgoing = new Map<string, OutgoingTransfer>()
   const incoming = new Map<string, IncomingTransfer>()
+  let sendInProgress = false
+  let directAbortController: AbortController | null = null
   const unsubscribe = subscribeRealtimeEvents(handleRealtimeEvent)
 
   onBeforeUnmount(() => {
     unsubscribe()
+    directAbortController?.abort()
     outgoing.forEach((transfer) => failOutgoing(transfer, new Error('页面已关闭')))
     incoming.forEach((transfer) => transfer.peer.close())
     incoming.clear()
@@ -81,82 +89,129 @@ export function usePeerFileTransfer(options: UsePeerFileTransferOptions) {
     if (file.size <= 0 || file.size > MAX_DIRECT_FILE_SIZE) {
       throw new Error('文件大小不适合设备直传')
     }
+    if (sendInProgress) throw new Error('已有文件正在设备直传')
 
+    sendInProgress = true
+    const controller = new AbortController()
+    directAbortController = controller
     phase.value = 'HASHING'
     progress.value = 0
     activePath.value = 'PEER_TO_PEER'
     lastFailedTransferId.value = null
-    const transferId = createClientMessageId()
-    const fileHash = await sha256(file)
-    const mime = safeMime(file.type)
-    await saveDirectFile({
-      transferId,
-      name: file.name,
-      mime,
-      size: file.size,
-      fileHash,
-      blob: file,
-      savedAt: new Date().toISOString(),
-    })
-
-    const peer = createPeer()
-    const channel = peer.createDataChannel('lanchat-file', { ordered: true })
-    channel.binaryType = 'arraybuffer'
-    channel.bufferedAmountLowThreshold = BUFFER_HIGH_WATER / 2
-
-    const result = new Promise<FileAttachmentData>((resolve, reject) => {
-      const transfer: OutgoingTransfer = {
-        transferId,
-        peer,
-        channel,
-        file,
-        fileHash,
-        conversationId,
-        toUserId,
-        resolve,
-        reject,
-        sending: false,
-        serverAssigned: false,
-        timer: window.setTimeout(() => {
-          failOutgoing(transfer, new Error('设备直传协商超时'))
-        }, NEGOTIATION_TIMEOUT_MS),
-      }
-      outgoing.set(transferId, transfer)
-      channel.onopen = () => {
-        window.clearTimeout(transfer.timer)
-        transfer.timer = window.setTimeout(() => {
-          failOutgoing(transfer, new Error('设备直传超时'))
-        }, TRANSFER_TIMEOUT_MS)
-        void streamOutgoing(transfer)
-      }
-      channel.onerror = () => failOutgoing(transfer, new Error('设备直传通道异常'))
-      channel.onclose = () => {
-        if (outgoing.has(transfer.transferId) && !transfer.sending) {
-          failOutgoing(transfer, new Error('设备直传通道已关闭'))
-        }
-      }
-    })
-
+    const clientTransferId = createClientMessageId()
+    const transferRef: { current: OutgoingTransfer | null } = { current: null }
+    let peer: RTCPeerConnection | null = null
+    let channel: RTCDataChannel | null = null
+    let localFileSaved = false
+    let completed = false
     try {
-      phase.value = 'NEGOTIATING'
-      const offer = await peer.createOffer()
-      await peer.setLocalDescription(offer)
-      await waitForIceGathering(peer)
-      const sent = options.sendEvent('FILE_TRANSFER_OFFER', {
-        transferId,
-        toUserId,
+      const fileHash = await sha256Blob(file, controller.signal)
+      throwIfDirectAborted(controller.signal)
+      const mime = safeMime(file.type)
+      await saveDirectFile({
+        transferId: clientTransferId,
         name: file.name,
-        size: file.size,
         mime,
+        size: file.size,
         fileHash,
-        sdp: peer.localDescription?.sdp || offer.sdp,
-      }, { requestId: requestId(), conversationId })
-      if (!sent) throw new Error('实时连接不可用')
-      return await result
-    } catch (cause) {
-      const transfer = outgoing.get(transferId)
-      if (transfer) failOutgoing(transfer, asError(cause, '设备直传失败'))
-      throw cause
+        blob: file,
+        savedAt: new Date().toISOString(),
+      })
+      localFileSaved = true
+      throwIfDirectAborted(controller.signal)
+
+      const createdPeer = createPeer()
+      peer = createdPeer
+      const createdChannel = createdPeer.createDataChannel('lanchat-file', { ordered: true })
+      channel = createdChannel
+      createdChannel.binaryType = 'arraybuffer'
+      createdChannel.bufferedAmountLowThreshold = BUFFER_HIGH_WATER / 2
+
+      const result = new Promise<FileAttachmentData>((resolve, reject) => {
+        const createdTransfer: OutgoingTransfer = {
+          transferId: clientTransferId,
+          peer: createdPeer,
+          channel: createdChannel,
+          file,
+          fileHash,
+          conversationId,
+          toUserId,
+          resolve,
+          reject,
+          sending: false,
+          serverAssigned: false,
+          timer: 0,
+        }
+        createdTransfer.timer = window.setTimeout(() => {
+          failOutgoing(createdTransfer, new Error('设备直传协商超时'))
+        }, NEGOTIATION_TIMEOUT_MS)
+        transferRef.current = createdTransfer
+        outgoing.set(clientTransferId, createdTransfer)
+        createdChannel.onopen = () => {
+          window.clearTimeout(createdTransfer.timer)
+          createdTransfer.timer = window.setTimeout(() => {
+            failOutgoing(createdTransfer, new Error('设备直传超时'))
+          }, TRANSFER_TIMEOUT_MS)
+          void streamOutgoing(createdTransfer)
+        }
+        createdChannel.onerror = () => failOutgoing(createdTransfer, new Error('设备直传通道异常'))
+        createdChannel.onclose = () => {
+          if (outgoing.has(createdTransfer.transferId) && !createdTransfer.sending) {
+            failOutgoing(createdTransfer, new Error('设备直传通道已关闭'))
+          }
+        }
+      })
+
+      phase.value = 'NEGOTIATING'
+      try {
+        const offer = await createdPeer.createOffer()
+        await createdPeer.setLocalDescription(offer)
+        await waitForIceGathering(createdPeer)
+        throwIfDirectAborted(controller.signal)
+        const sent = options.sendEvent('FILE_TRANSFER_OFFER', {
+          transferId: clientTransferId,
+          toUserId,
+          name: file.name,
+          size: file.size,
+          mime,
+          fileHash,
+          sdp: createdPeer.localDescription?.sdp || offer.sdp,
+        }, { requestId: requestId(), conversationId })
+        if (!sent) throw new Error('实时连接不可用')
+      } catch (cause) {
+        const error = asError(cause, '设备直传失败')
+        const currentTransfer = transferRef.current
+        if (currentTransfer && outgoing.has(currentTransfer.transferId)) {
+          failOutgoing(currentTransfer, error)
+        }
+        // Consume the promise rejection because setup failed before the normal
+        // result-await path below was reached.
+        await result.catch(() => undefined)
+        throw error
+      }
+
+      const attachment = await result
+      completed = true
+      return attachment
+    } finally {
+      if (directAbortController === controller) directAbortController = null
+      if (!completed) {
+        channel?.close()
+        peer?.close()
+      }
+      if (!completed && localFileSaved) {
+        const failedIds = new Set([clientTransferId])
+        const currentTransferId = transferRef.current?.transferId
+        if (currentTransferId) failedIds.add(currentTransferId)
+        await Promise.all([...failedIds].map((transferId) =>
+          deleteDirectFile(transferId).catch(() => undefined)))
+      }
+      if (!completed && outgoing.size === 0) {
+        phase.value = 'IDLE'
+        progress.value = 0
+        activePath.value = null
+      }
+      sendInProgress = false
     }
   }
 
@@ -306,7 +361,7 @@ export function usePeerFileTransfer(options: UsePeerFileTransferOptions) {
     }
     try {
       const blob = new Blob(transfer.chunks, { type: transfer.mime })
-      const actualHash = await sha256(blob)
+      const actualHash = await sha256Blob(blob)
       if (actualHash !== transfer.fileHash) {
         rejectIncoming(transfer, 'HASH_MISMATCH')
         return
@@ -320,11 +375,16 @@ export function usePeerFileTransfer(options: UsePeerFileTransferOptions) {
         blob,
         savedAt: new Date().toISOString(),
       })
-      options.sendEvent('FILE_TRANSFER_COMPLETE', {
+      const completionSent = options.sendEvent('FILE_TRANSFER_COMPLETE', {
         transferId: transfer.transferId,
         fileHash: transfer.fileHash,
         fileSize: transfer.receivedBytes,
       }, { requestId: requestId(), conversationId: transfer.conversationId })
+      if (!completionSent) {
+        await deleteDirectFile(transfer.transferId).catch(() => undefined)
+        rejectIncoming(transfer, 'COMPLETE_SIGNAL_FAILED')
+        return
+      }
       cleanupIncoming(transfer)
     } catch {
       rejectIncoming(transfer, 'LOCAL_STORAGE_FAILED')
@@ -461,11 +521,6 @@ async function waitForBuffer(channel: RTCDataChannel): Promise<void> {
   })
 }
 
-async function sha256(data: Blob): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', await data.arrayBuffer())
-  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('')
-}
-
 function safeMime(value: string): string {
   const normalized = value.trim().toLowerCase()
   return /^[a-z0-9][a-z0-9.+-]{0,63}\/[a-z0-9][a-z0-9.+-]{0,127}$/.test(normalized)
@@ -479,4 +534,8 @@ function requestId(): string {
 
 function asError(cause: unknown, fallback: string): Error {
   return cause instanceof Error ? cause : new Error(fallback)
+}
+
+function throwIfDirectAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException('设备直传已取消', 'AbortError')
 }

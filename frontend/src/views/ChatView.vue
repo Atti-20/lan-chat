@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
 import AdminConsole from '../components/admin/AdminConsole.vue'
 import AdminPasswordResetModal from '../components/admin/AdminPasswordResetModal.vue'
 import AdminSidebar from '../components/admin/AdminSidebar.vue'
@@ -77,7 +77,6 @@ const {
   pendingCount,
   failedCount,
 } = chat
-const broadcasts = useBroadcasts()
 const temporaryRooms = useTemporaryRooms({
   onChanged: async () => { await chat.refreshLists() },
 })
@@ -127,7 +126,15 @@ const user = computed<User>(() => auth.currentUser.value || {
 const isAdminSection = computed(() => section.value === 'admin')
 const isBroadcastSection = computed(() => section.value === 'broadcasts')
 const isAdministrator = computed(() => user.value.username === 'admin')
-const canCreateBroadcast = computed(() => isAdministrator.value || groups.value.length > 0)
+const broadcasts = useBroadcasts({
+  canViewAllStatistics: () => isAdministrator.value,
+})
+const canCreateBroadcast = computed(() => (
+  isAdministrator.value || user.value.canSendBroadcast === 1
+))
+watch(canCreateBroadcast, (allowed) => {
+  if (!allowed) broadcastCreateOpen.value = false
+})
 const mobile = computed(() => viewportWidth.value <= MOBILE_BREAKPOINT)
 const sidebarMaxWidth = computed(() => sidebarMaximumForViewport(viewportWidth.value))
 const diagnostics = useDiagnostics({
@@ -407,6 +414,22 @@ async function createBroadcast(payload: BroadcastCreatePayload): Promise<void> {
   }
 }
 
+async function cancelBroadcast(): Promise<void> {
+  const current = broadcasts.selected.value?.broadcast
+  if (!current || !isAdministrator.value || current.status !== 'ACTIVE') return
+  const confirmed = window.confirm(
+    `确定撤销广播“${current.title}”吗？\n\n撤销后将停止提醒和确认，但历史记录及统计会保留。`,
+  )
+  if (!confirmed) return
+
+  try {
+    await broadcasts.cancelBroadcast(current.id)
+    toast.push('广播已撤销，历史记录已保留', 'success')
+  } catch (cause) {
+    handleError(cause, '撤销广播失败')
+  }
+}
+
 async function confirmBroadcast(status: string, broadcastId?: number): Promise<void> {
   broadcastConfirming.value = true
   try {
@@ -632,6 +655,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
           @create="admin.createUser"
           @status="admin.setUserStatus"
           @mute="admin.setMutePeriod"
+          @broadcast-permission="admin.setBroadcastPermission"
           @reset-password="passwordResetTarget = $event"
           @change-own-password="passwordOpen = true"
           @delete="admin.deleteUser"
@@ -666,7 +690,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
       </section>
 
       <section
-        v-else-if="isBroadcastSection && showWorkspace"
+        v-else-if="isBroadcastSection && broadcasts.selected.value && showWorkspace"
         class="workspace workspace--broadcast"
       >
         <BroadcastWorkspace
@@ -675,8 +699,13 @@ async function resetUserPassword(newPassword: string): Promise<void> {
           :loading="broadcasts.loading.value"
           :confirming="broadcastConfirming"
           :statistics-loading="broadcastStatisticsLoading"
+          :can-cancel="isAdministrator"
+          :cancelling="broadcasts.cancelling.value"
+          :mobile="mobile"
           @confirm="confirmBroadcast"
           @refresh-stats="refreshBroadcastStatistics"
+          @cancel="cancelBroadcast"
+          @back="broadcasts.clearSelection"
         />
       </section>
 
@@ -787,7 +816,6 @@ async function resetUserPassword(newPassword: string): Promise<void> {
     />
     <CreateBroadcastModal
       :open="broadcastCreateOpen"
-      :groups="groups"
       :friends="friends"
       :is-admin="isAdministrator"
       :saving="broadcasts.saving.value"

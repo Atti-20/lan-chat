@@ -3,8 +3,11 @@ package com.lanchat.service;
 import com.lanchat.dto.FileCheckDTO;
 import com.lanchat.dto.FilePreviewGrant;
 import com.lanchat.dto.FileUploadVO;
+import com.lanchat.dto.StoredFileContent;
 import com.lanchat.entity.FileMetadata;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.nio.file.Path;
 
 public interface FileService {
 
@@ -16,6 +19,15 @@ public interface FileService {
 
     /** 上传头像；除通用附件校验外强制要求实际内容为安全图片。 */
     FileUploadVO uploadAvatar(MultipartFile file, Long userId);
+
+    /** Finalizes an already assembled file after full content and digest validation. */
+    FileUploadVO storeStagedFile(Path stagedFile,
+                                 String originalFilename,
+                                 String declaredContentType,
+                                 long expectedSize,
+                                 String expectedSha256,
+                                 Long userId,
+                                 boolean imageOnly);
 
     /** 根据哈希获取文件元数据 */
     FileMetadata getByHash(String fileHash);
@@ -37,6 +49,12 @@ public interface FileService {
 
     /** 生成图片缩略图 */
     String generateThumbnail(String fileName);
+
+    /** Opens bytes from the provider recorded on file_metadata (legacy null means LOCAL). */
+    StoredFileContent openContent(String fileName);
+
+    /** Deletes original and thumbnail from the provider recorded on file_metadata. */
+    void deleteStoredObjects(FileMetadata metadata);
 
     /** 校验签名并恢复原始授权，无效或过期时返回 null。 */
     FilePreviewGrant resolvePreviewToken(String signToken);

@@ -12,8 +12,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,7 @@ import java.util.Locale;
 
 /** Fails closed on unsafe private-mode configuration and creates the first admin exactly once. */
 @Component
+@ConditionalOnProperty(prefix = "lanchat.private-deployment", name = "enabled", havingValue = "true")
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class PrivateDeploymentInitializer implements ApplicationRunner {
 
@@ -113,9 +116,7 @@ public class PrivateDeploymentInitializer implements ApplicationRunner {
     }
 
     private void ensureBootstrapAdministrator() {
-        LambdaQueryWrapper<User> query = new LambdaQueryWrapper<>();
-        query.eq(User::getUsername, "admin").last("LIMIT 1");
-        User existing = userMapper.selectOne(query);
+        User existing = findAdministrator();
         if (existing != null) {
             if (rotateHistoricalDemoPassword(existing)) return;
             log.info("Existing administrator account retained; bootstrap password was not reapplied");
@@ -133,11 +134,26 @@ public class PrivateDeploymentInitializer implements ApplicationRunner {
         admin.setSignature("");
         admin.setOnline(0);
         admin.setStatus(1);
+        admin.setCanSendBroadcast(1);
         admin.setCreateTime(LocalDateTime.now());
-        if (userMapper.insert(admin) != 1) {
-            throw new IllegalStateException("私有部署初始化失败：无法创建管理员账号");
+        try {
+            if (userMapper.insert(admin) != 1) {
+                throw new IllegalStateException("私有部署初始化失败：无法创建管理员账号");
+            }
+        } catch (DuplicateKeyException duplicate) {
+            User concurrentAdministrator = findAdministrator();
+            if (concurrentAdministrator == null) throw duplicate;
+            validateExistingAdministratorHash(concurrentAdministrator.getPassword());
+            log.info("Administrator account was initialized concurrently by another instance");
+            return;
         }
         log.info("Created bootstrap administrator account for a new private deployment");
+    }
+
+    private User findAdministrator() {
+        LambdaQueryWrapper<User> query = new LambdaQueryWrapper<>();
+        query.eq(User::getUsername, "admin").last("LIMIT 1");
+        return userMapper.selectOne(query);
     }
 
     private boolean rotateHistoricalDemoPassword(User admin) {

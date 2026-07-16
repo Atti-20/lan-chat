@@ -14,6 +14,7 @@ const muteStart = defineModel<string>('muteStart', { required: true })
 const muteEnd = defineModel<string>('muteEnd', { required: true })
 const emit = defineEmits<{
   saveMute: []
+  broadcastPermission: [enabled: boolean]
   resetPassword: []
   toggleStatus: []
   delete: []
@@ -22,6 +23,15 @@ const emit = defineEmits<{
 
 const isAdministrator = computed(() => props.user.username === 'admin')
 const canSaveMute = computed(() => Boolean(muteStart.value && muteEnd.value) && !props.busy)
+
+function requestBroadcastPermission(event: Event): void {
+  const input = event.currentTarget as HTMLInputElement
+  const enabled = input.checked
+  // Wait for the parent to reload the authoritative account record. This also
+  // restores the original state immediately when the request fails.
+  input.checked = props.user.canSendBroadcast === 1
+  emit('broadcastPermission', enabled)
+}
 </script>
 
 <template>
@@ -38,6 +48,19 @@ const canSaveMute = computed(() => Boolean(muteStart.value && muteEnd.value) && 
     </header>
 
     <section v-if="!isAdministrator" class="account-tools" aria-label="账号控制">
+      <label class="broadcast-permission">
+        <span>
+          <strong>广播发布权限</strong>
+          <small>允许向自己的好友发布应急广播</small>
+        </span>
+        <input
+          type="checkbox"
+          :checked="user.canSendBroadcast === 1"
+          :disabled="busy"
+          @change="requestBroadcastPermission"
+        />
+      </label>
+
       <div class="account-mute" aria-label="禁言时段">
         <strong class="account-tool-label">禁言</strong>
         <div class="account-time-fields">
@@ -109,6 +132,21 @@ const canSaveMute = computed(() => Boolean(muteStart.value && muteEnd.value) && 
   display: grid;
   gap: 8px;
 }
+.broadcast-permission {
+  display: flex;
+  min-height: 46px;
+  padding: 8px 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.broadcast-permission span { display: grid; min-width: 0; gap: 2px; }
+.broadcast-permission strong { color: var(--ink); font-size: 11px; }
+.broadcast-permission small { color: var(--ink-faint); font-size: 9px; line-height: 1.4; }
+.broadcast-permission input { width: 18px; height: 18px; margin: 0; flex: 0 0 auto; accent-color: var(--blue); }
+.broadcast-permission input:disabled { cursor: wait; opacity: .55; }
 .account-mute {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

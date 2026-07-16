@@ -17,6 +17,7 @@ import type {
   NodePublicInfo,
   RuntimeLogLevelFilter,
   RuntimeLogSnapshot,
+  ResumableUploadSession,
   EmergencyBroadcast,
   TemporaryRoom,
   TemporaryRoomCreatePayload,
@@ -87,7 +88,8 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   let response: Response
   try {
     response = await fetch(`/api/v1${path}`, { ...init, headers })
-  } catch {
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === 'AbortError') throw cause
     throw new ApiError('无法连接服务器，请检查网络', 0)
   }
 
@@ -253,6 +255,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+    cancel: (broadcastId: number) => request<EmergencyBroadcast>(
+      `/broadcast/${broadcastId}/cancel`,
+      { method: 'POST' },
+    ),
     view: (broadcastId: number) => request<BroadcastReceiver>(
       `/broadcast/${broadcastId}/view`,
       { method: 'POST' },
@@ -287,6 +293,49 @@ export const api = {
       form.append('file', file)
       return request<FileUpload>('/file/avatar', { method: 'POST', body: form })
     },
+    createUpload: (
+      payload: {
+        clientUploadId: string
+        conversationId: string
+        fileName: string
+        fileSize: number
+        fileType: string
+        fileHash: string
+      },
+      signal?: AbortSignal,
+    ) => request<ResumableUploadSession>('/file/uploads', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      signal,
+    }),
+    uploadStatus: (uploadId: string, signal?: AbortSignal) =>
+      request<ResumableUploadSession>(
+        `/file/uploads/${encodeURIComponent(uploadId)}`,
+        { signal },
+      ),
+    uploadPart: (
+      uploadId: string,
+      partNumber: number,
+      sha256: string,
+      data: Blob,
+      signal?: AbortSignal,
+    ) => request<ResumableUploadSession>(
+      `/file/uploads/${encodeURIComponent(uploadId)}/parts/${partNumber}?sha256=${encodeURIComponent(sha256)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: data,
+        signal,
+      },
+    ),
+    completeUpload: (uploadId: string, signal?: AbortSignal) => request<FileUpload>(
+      `/file/uploads/${encodeURIComponent(uploadId)}/complete`,
+      { method: 'POST', signal },
+    ),
+    cancelUpload: (uploadId: string) => request<void>(
+      `/file/uploads/${encodeURIComponent(uploadId)}`,
+      { method: 'DELETE' },
+    ),
     temporaryUrl: (rawUrl: string) => request<string>(
       `/file/preview-url?fileName=${encodeURIComponent(storedFileName(rawUrl))}`,
       { method: 'POST' },
@@ -309,6 +358,10 @@ export const api = {
     resetPassword: (userId: number, newPassword: string) => request<void>(
       `/admin/user/${userId}/password`,
       { method: 'PUT', body: JSON.stringify({ newPassword }) },
+    ),
+    setBroadcastPermission: (userId: number, enabled: boolean) => request<void>(
+      `/admin/user/${userId}/broadcast-permission?enabled=${enabled}`,
+      { method: 'PUT' },
     ),
     deleteUser: (userId: number) => request<string>(`/admin/user/${userId}`, { method: 'DELETE' }),
     diagnostics: () => request<AdminDiagnostics>('/admin/diagnostics'),

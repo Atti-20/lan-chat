@@ -3,7 +3,15 @@ package com.lanchat.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.lanchat.entity.User;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 @Mapper
 public interface UserMapper extends BaseMapper<User> {
+
+    /**
+     * Serializes per-user quota checks such as COUNT(active uploads) -> INSERT.
+     */
+    @Select("SELECT id FROM `user` WHERE id = #{userId} FOR UPDATE")
+    Long lockById(@Param("userId") Long userId);
 }

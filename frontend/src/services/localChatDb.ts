@@ -310,6 +310,14 @@ export async function moveDirectFile(oldTransferId: string, newTransferId: strin
   await transactionDone(transaction)
 }
 
+export async function deleteDirectFile(transferId: string): Promise<void> {
+  if (!transferId) return
+  const database = await openDatabase()
+  const transaction = database.transaction(DIRECT_FILE_STORE, 'readwrite')
+  transaction.objectStore(DIRECT_FILE_STORE).delete(transferId)
+  await transactionDone(transaction)
+}
+
 export async function clearLocalChatDatabase(): Promise<void> {
   const database = await openDatabase()
   const transaction = database.transaction(

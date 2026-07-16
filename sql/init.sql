@@ -1,5 +1,5 @@
 -- ============================================
--- 网络聊天室 - 数据库初始化脚本 V1.0
+-- LanChat V2.3.0 - 新环境完整数据库初始化脚本
 -- ============================================
 
 CREATE DATABASE IF NOT EXISTS lan_chat DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
@@ -22,6 +22,7 @@ CREATE TABLE `user` (
     `online`        TINYINT      DEFAULT 0 COMMENT '在线状态：0-离线 1-在线',
     `last_login_at` DATETIME     DEFAULT NULL COMMENT '最后登录时间',
     `status`        TINYINT      DEFAULT 1 COMMENT '账号状态：0-锁定 1-正常',
+    `can_send_broadcast` TINYINT NOT NULL DEFAULT 0 COMMENT '是否允许发布广播：0-否 1-是',
     `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `mute_start`    VARCHAR(5)   DEFAULT NULL COMMENT '全局免打扰开始时段（如22:00）',
@@ -196,11 +197,74 @@ CREATE TABLE `file_metadata` (
     `file_size`     BIGINT       NOT NULL COMMENT '文件大小（字节）',
     `file_type`     VARCHAR(255) DEFAULT '' COMMENT '文件MIME类型',
     `file_suffix`   VARCHAR(20)  DEFAULT '' COMMENT '文件后缀',
+    `storage_type`  VARCHAR(16)  NOT NULL DEFAULT 'LOCAL' COMMENT '对象存储提供者：LOCAL/MINIO',
     `upload_user_id` BIGINT      NOT NULL COMMENT '上传者ID',
     `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_file_hash` (`file_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件元数据表';
+
+-- ----------------------------
+-- 可恢复分片上传会话
+-- ----------------------------
+DROP TABLE IF EXISTS `file_upload_part`;
+DROP TABLE IF EXISTS `file_upload_session`;
+DROP TABLE IF EXISTS `file_object_cleanup_task`;
+CREATE TABLE `file_upload_session` (
+    `id`                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `upload_id`         VARCHAR(32)  NOT NULL COMMENT '服务端上传会话ID',
+    `client_upload_id`  VARCHAR(80)  NOT NULL COMMENT '客户端稳定幂等ID',
+    `user_id`           BIGINT       NOT NULL COMMENT '上传用户ID',
+    `conversation_id`   VARCHAR(64)  NOT NULL COMMENT '目标会话ID',
+    `file_name`         VARCHAR(255) NOT NULL COMMENT '原始文件名',
+    `file_size`         BIGINT       NOT NULL COMMENT '完整文件大小',
+    `file_type`         VARCHAR(255) NOT NULL DEFAULT 'application/octet-stream' COMMENT '浏览器声明MIME',
+    `file_hash`         CHAR(64)     NOT NULL COMMENT '完整文件SHA-256',
+    `chunk_size`        BIGINT       NOT NULL COMMENT '服务端分片大小',
+    `total_parts`       INT          NOT NULL COMMENT '总分片数',
+    `status`            VARCHAR(20)  NOT NULL COMMENT 'UPLOADING/COMPLETED/CANCELLED/EXPIRED',
+    `storage_type`      VARCHAR(16)  NOT NULL DEFAULT 'LOCAL' COMMENT '分片存储提供者',
+    `completed_file_id` BIGINT       DEFAULT NULL COMMENT '完成后的文件元数据ID',
+    `expires_at`        DATETIME     NOT NULL COMMENT '会话过期时间',
+    `create_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_file_upload_id` (`upload_id`),
+    UNIQUE KEY `uk_file_upload_user_client` (`user_id`, `client_upload_id`),
+    KEY `idx_file_upload_expiry` (`status`, `expires_at`),
+    KEY `idx_file_upload_conversation` (`conversation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='可恢复分片上传会话';
+
+CREATE TABLE `file_upload_part` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `upload_id`    VARCHAR(32)  NOT NULL COMMENT '服务端上传会话ID',
+    `part_number`  INT          NOT NULL COMMENT '从1开始的分片序号',
+    `part_size`    BIGINT       NOT NULL COMMENT '分片字节数',
+    `part_hash`    CHAR(64)     NOT NULL COMMENT '分片SHA-256',
+    `storage_path` VARCHAR(500) NOT NULL COMMENT '私有对象存储键',
+    `create_time`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_file_upload_part` (`upload_id`, `part_number`),
+    KEY `idx_file_upload_part_upload` (`upload_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='可恢复上传分片';
+
+CREATE TABLE `file_object_cleanup_task` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `storage_type`  VARCHAR(16)  NOT NULL COMMENT '对象存储提供者：LOCAL/MINIO',
+    `object_key`    VARCHAR(500) NOT NULL COMMENT '待删除的私有对象键',
+    `reason`        VARCHAR(80)  NOT NULL COMMENT '清理原因',
+    `task_type`     VARCHAR(32)  NOT NULL DEFAULT 'DELETE' COMMENT 'DELETE/RECONCILE_UPLOAD_PART',
+    `upload_id`     VARCHAR(32)  DEFAULT NULL COMMENT '待核对的上传会话ID',
+    `part_number`   INT          DEFAULT NULL COMMENT '待核对的分片序号',
+    `attempts`      INT          NOT NULL DEFAULT 0 COMMENT '已尝试次数',
+    `next_retry_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下次重试时间',
+    `last_error`    VARCHAR(240) DEFAULT NULL COMMENT '最近一次失败摘要',
+    `create_time`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_file_cleanup_object` (`storage_type`, `object_key`),
+    KEY `idx_file_cleanup_retry` (`next_retry_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件对象持久化清理任务';
 
 -- ----------------------------
 -- 文件对象访问授权（哈希存在不等于有权引用）
@@ -331,8 +395,8 @@ CREATE TABLE `broadcast` (
     `title`                 VARCHAR(100)  NOT NULL COMMENT '广播标题',
     `content`               TEXT          NOT NULL COMMENT '广播正文',
     `priority`              VARCHAR(20)   NOT NULL DEFAULT 'NORMAL' COMMENT 'NORMAL/IMPORTANT/EMERGENCY',
-    `scope_type`            VARCHAR(20)   NOT NULL COMMENT 'ALL/GROUP/USERS',
-    `scope_group_id`        BIGINT        DEFAULT NULL COMMENT 'GROUP范围对应群ID',
+    `scope_type`            VARCHAR(20)   NOT NULL COMMENT 'ALL/USERS；GROUP为历史保留值',
+    `scope_group_id`        BIGINT        DEFAULT NULL COMMENT '历史GROUP范围保留字段；V2.3创建流程不写入',
     `confirmation_required` TINYINT       NOT NULL DEFAULT 0 COMMENT '是否要求确认',
     `confirmation_options`  VARCHAR(1000) NOT NULL DEFAULT '[]' COMMENT '允许的确认值JSON数组',
     `deadline_at`           DATETIME      DEFAULT NULL COMMENT '确认截止时间',

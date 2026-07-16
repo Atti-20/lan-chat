@@ -7,6 +7,7 @@ export interface User {
   signature?: string
   online?: number
   status?: number
+  canSendBroadcast?: number
   lastLoginAt?: string
 }
 
@@ -170,6 +171,22 @@ export interface FileUpload {
   fileType?: string
   fileHash?: string
   instantUpload?: boolean
+}
+
+export type ResumableUploadStatus =
+  | 'UPLOADING'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'EXPIRED'
+
+export interface ResumableUploadSession {
+  uploadId: string
+  status: ResumableUploadStatus
+  chunkSize: number
+  totalParts: number
+  uploadedParts: number[]
+  expiresAt?: string
+  completedFile?: FileUpload | null
 }
 
 export type FileTransferPath = 'PEER_TO_PEER' | 'NODE_RELAY'
