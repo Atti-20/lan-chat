@@ -176,7 +176,7 @@ body .cropper-backdrop[class] {
 .primary-button {
   min-height: 46px;
   padding: 0 20px;
-  border-radius: 13px;
+  border-radius: 10px;
   color: #fff;
   font-weight: 650;
   background: var(--blue);
@@ -189,7 +189,7 @@ body .cropper-backdrop[class] {
   min-height: 42px;
   padding: 0 16px;
   border: 1px solid var(--separator);
-  border-radius: 12px;
+  border-radius: 10px;
   color: var(--ink);
   font-weight: 600;
   background: var(--surface-glass);
@@ -205,7 +205,7 @@ body .cropper-backdrop[class] {
   padding: 0;
   place-items: center;
   border: 1px solid var(--separator);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-glass);
 }
 

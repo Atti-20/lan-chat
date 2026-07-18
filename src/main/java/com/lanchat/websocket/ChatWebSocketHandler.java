@@ -944,6 +944,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             BroadcastStatsDTO stats = broadcastService.getStats(broadcastId, senderId);
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("broadcastId", broadcastId);
+            payload.put("status", detail.broadcast().getStatus());
             payload.put("statistics", stats);
             WebSocketEnvelope event = envelope(
                     "BROADCAST_UPDATED", null, null, null, payload);
@@ -951,6 +952,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             systemAdministratorIds().stream()
                     .filter(adminId -> !Objects.equals(adminId, senderId))
                     .forEach(adminId -> sendToUser(adminId, event));
+            if ("COMPLETED".equals(detail.broadcast().getStatus())) {
+                broadcastService.getReceiverIds(broadcastId).forEach(userId -> sendToUser(userId, event));
+            }
         } catch (Exception exception) {
             log.warn("广播统计实时同步失败: broadcastId={}, error={}",
                     broadcastId, exception.getMessage());
@@ -1487,6 +1491,55 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         targetUserIds.forEach(userId -> sendToUser(userId, event));
     }
 
+    /** Broadcast deletion is terminal: clear any open list/detail on every former viewer. */
+    public void notifyBroadcastDeleted(Broadcast deleted, List<Long> receiverIds) {
+        if (deleted == null || deleted.getId() == null) return;
+        Set<Long> targetUserIds = new LinkedHashSet<>();
+        if (receiverIds != null) targetUserIds.addAll(receiverIds);
+        if (deleted.getSenderId() != null) targetUserIds.add(deleted.getSenderId());
+        targetUserIds.addAll(systemAdministratorIds());
+        WebSocketEnvelope event = envelope("BROADCAST_UPDATED", null, null, null, Map.of(
+                "broadcastId", deleted.getId(),
+                "status", "DELETED",
+                "message", "广播已删除"));
+        targetUserIds.forEach(userId -> sendToUser(userId, event));
+    }
+
+    /** Notify only newly added users and removed users whose local view must disappear. */
+    public void notifyBroadcastTargetsUpdated(Long broadcastId,
+                                              List<Long> addedUserIds,
+                                              List<Long> removedUserIds) {
+        Set<Long> targetUserIds = new LinkedHashSet<>();
+        if (addedUserIds != null) targetUserIds.addAll(addedUserIds);
+        if (removedUserIds != null) targetUserIds.addAll(removedUserIds);
+        targetUserIds.addAll(systemAdministratorIds());
+        if (targetUserIds.isEmpty()) return;
+        WebSocketEnvelope event = envelope("BROADCAST_UPDATED", null, null, null,
+                Map.of("broadcastId", broadcastId, "status", "TARGETS_UPDATED"));
+        targetUserIds.forEach(userId -> sendToUser(userId, event));
+        if (addedUserIds != null) {
+            addedUserIds.forEach(userId -> {
+                try {
+                    sendBroadcastToOnlineUser(broadcastId, userId);
+                } catch (Exception exception) {
+                    log.warn("新增广播目标实时通知失败: broadcastId={}, userId={}, error={}",
+                            broadcastId, userId, exception.getMessage());
+                }
+            });
+        }
+    }
+
+    private void sendBroadcastToOnlineUser(Long broadcastId, Long userId) {
+        if (broadcastId == null || userId == null) return;
+        BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, userId);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("broadcastId", broadcastId);
+        payload.put("broadcast", detail.broadcast());
+        payload.put("receiver", detail.receiver());
+        payload.put("confirmationOptions", detail.confirmationOptions());
+        sendToUser(userId, envelope("BROADCAST", null, null, null, payload));
+    }
+
     private Set<Long> systemAdministratorIds() {
         Set<Long> administratorIds = new LinkedHashSet<>();
         ONLINE_USERS.forEach((userId, user) -> {
@@ -1520,6 +1573,24 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                         null,
                         null,
                         Map.of("enabled", enabled)
+                )
+        );
+    }
+
+    public void notifyBroadcastReminder(Long broadcastId, Long receiverUserId, Long operatorId) {
+        BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, receiverUserId);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("broadcastId", broadcastId);
+        payload.put("title", detail.broadcast().getTitle());
+        payload.put("operatorId", operatorId);
+        payload.put("message", "广播创建者提醒你尽快完成");
+        sendToUser(receiverUserId,
+                envelope(
+                        "BROADCAST_REMINDER",
+                        null,
+                        null,
+                        null,
+                        payload
                 )
         );
     }

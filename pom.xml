@@ -124,6 +124,13 @@
             <version>5.8.38</version>
         </dependency>
 
+        <!-- Broadcast receiver-detail exports. -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.4.1</version>
+        </dependency>
+
         <!-- devtools: hot reload -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

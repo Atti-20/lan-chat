@@ -3,6 +3,7 @@ import { api } from '../services/api'
 import { subscribeRealtimeEvents } from '../services/realtimeEvents'
 import type {
   BroadcastCreatePayload,
+  BroadcastCompletePayload,
   BroadcastDetail,
   BroadcastStatistics,
   EmergencyBroadcast,
@@ -24,6 +25,7 @@ export function useBroadcasts(options: UseBroadcastsOptions = {}) {
   const detailLoading = shallowRef(false)
   const saving = shallowRef(false)
   const cancelling = shallowRef(false)
+  const deleting = shallowRef(false)
   let selectionVersion = 0
   const loading = computed(() => listLoading.value || detailLoading.value)
 
@@ -183,6 +185,29 @@ export function useBroadcasts(options: UseBroadcastsOptions = {}) {
     }
   }
 
+  async function deleteBroadcast(broadcastId = selected.value?.broadcast.id): Promise<void> {
+    if (!broadcastId) return
+    deleting.value = true
+    try {
+      await api.broadcasts.remove(broadcastId)
+      if (emergencyAlert.value?.broadcast.id === broadcastId) emergencyAlert.value = null
+      if (selected.value?.broadcast.id === broadcastId) clearSelection()
+      await refreshListsOnly()
+    } finally {
+      deleting.value = false
+    }
+  }
+
+  async function complete(payload: BroadcastCompletePayload,
+                          broadcastId = selected.value?.broadcast.id): Promise<void> {
+    if (!broadcastId) return
+    await api.broadcasts.complete(broadcastId, payload)
+    const refreshed = await api.broadcasts.detail(broadcastId)
+    if (selected.value?.broadcast.id === broadcastId) selected.value = refreshed
+    await refreshListsOnly()
+    await refreshStatistics().catch(() => undefined)
+  }
+
   async function confirm(
     status: string,
     broadcastId = selected.value?.broadcast.id,
@@ -236,7 +261,13 @@ export function useBroadcasts(options: UseBroadcastsOptions = {}) {
     if (!Number.isSafeInteger(broadcastId) || broadcastId <= 0) return
 
     if (envelope.event === 'BROADCAST_UPDATED') {
-      if (String(envelope.payload.status || '') === 'CANCELLED'
+      const status = String(envelope.payload.status || '')
+      if (status === 'DELETED') {
+        if (emergencyAlert.value?.broadcast.id === broadcastId) emergencyAlert.value = null
+        if (selected.value?.broadcast.id === broadcastId) clearSelection()
+        return
+      }
+      if (status === 'CANCELLED'
         && emergencyAlert.value?.broadcast.id === broadcastId) {
         emergencyAlert.value = null
       }
@@ -272,11 +303,14 @@ export function useBroadcasts(options: UseBroadcastsOptions = {}) {
     loading,
     saving: readonly(saving),
     cancelling: readonly(cancelling),
+    deleting: readonly(deleting),
     load,
     selectBroadcast,
     createBroadcast,
     cancelBroadcast,
+    deleteBroadcast,
     confirm,
+    complete,
     refreshStatistics,
     clearSelection,
     closeEmergencyAlert,

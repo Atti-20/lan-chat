@@ -1,7 +1,6 @@
 package com.lanchat.dto;
 
 import lombok.Data;
-
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -19,4 +18,8 @@ public class BroadcastCreateDTO {
     private LocalDateTime deadlineAt;
     private Boolean bypassMute;
     private Boolean repeatReminder;
+    private Boolean requireImageProof;
+    private Boolean requireLocationProof;
+    private List<Long> contentImageFileIds;
+    private BroadcastLocationDTO contentLocation;
 }

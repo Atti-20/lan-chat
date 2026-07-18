@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LANChat",
+  "version": "0.1.0",
+  "identifier": "com.atti20.lanchat",
+  "build": {
+    "beforeDevCommand": "npm --prefix ../../frontend run dev:desktop",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm --prefix ../../frontend run build:desktop",
+    "frontendDist": "../../../frontend/dist-desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LANChat",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "ipc: http://ipc.localhost http: https: ws: wss:",
+        "img-src": "'self' asset: http://asset.localhost http: https: data: blob:",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "media-src": "'self' http: https: blob:"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "SocialNetworking",
+    "shortDescription": "LAN-first private collaboration client",
+    "longDescription": "LANChat provides private messaging and file collaboration for organization-controlled local networks."
+  }
+}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, shallowRef } from 'vue'
-import type { BroadcastPriority, EmergencyBroadcast } from '../../types'
+import type { BroadcastPriority, BroadcastStatus, EmergencyBroadcast } from '../../types'
 import { formatMessageTime } from '../../utils/format'
 import UiIcon from '../base/UiIcon.vue'
 
@@ -24,9 +24,17 @@ const emit = defineEmits<{
 }>()
 
 type PriorityFilter = 'ALL' | BroadcastPriority
+type StatusFilter = BroadcastStatus | 'ALL'
 
 const query = shallowRef('')
 const priorityFilter = shallowRef<PriorityFilter>('ALL')
+const statusFilter = shallowRef<StatusFilter>('ACTIVE')
+const statusFilters: readonly { value: StatusFilter; label: string }[] = [
+  { value: 'ACTIVE', label: '进行中' },
+  { value: 'COMPLETED', label: '已完成' },
+  { value: 'CANCELLED', label: '已撤销' },
+  { value: 'ALL', label: '全部' },
+]
 const filters: readonly { value: PriorityFilter; label: string }[] = [
   { value: 'ALL', label: '全部' },
   { value: 'EMERGENCY', label: '紧急' },
@@ -38,6 +46,7 @@ const pendingIds = computed(() => new Set(props.pendingBroadcastIds))
 const visibleBroadcasts = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase('zh-CN')
   return [...props.broadcasts]
+    .filter((broadcast) => statusFilter.value === 'ALL' || broadcast.status === statusFilter.value)
     .filter((broadcast) => priorityFilter.value === 'ALL' || broadcast.priority === priorityFilter.value)
     .filter((broadcast) => !needle
       || broadcast.title.toLocaleLowerCase('zh-CN').includes(needle)
@@ -47,6 +56,9 @@ const visibleBroadcasts = computed(() => {
 
 const emptyCopy = computed(() => {
   if (query.value.trim()) return '没有匹配的广播'
+  if (statusFilter.value === 'ACTIVE') return '当前没有进行中的广播'
+  if (statusFilter.value === 'COMPLETED') return '还没有已完成的广播'
+  if (statusFilter.value === 'CANCELLED') return '还没有已撤销的广播'
   if (priorityFilter.value !== 'ALL') return '当前级别还没有广播'
   return '广播发布后会出现在这里'
 })
@@ -96,6 +108,18 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
       <input v-model="query" type="search" placeholder="搜索标题或内容" />
     </label>
 
+    <div class="status-filters" role="group" aria-label="按广播状态筛选">
+      <button
+        v-for="filter in statusFilters"
+        :key="filter.value"
+        class="filter-button"
+        :class="{ 'filter-button--active': statusFilter === filter.value }"
+        type="button"
+        :aria-pressed="statusFilter === filter.value"
+        @click="statusFilter = filter.value"
+      >{{ filter.label }}</button>
+    </div>
+
     <div class="priority-filters" role="group" aria-label="按优先级筛选">
       <button
         v-for="filter in filters"
@@ -140,7 +164,8 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
             <span>{{ scopeLabel(broadcast) }}</span>
             <span v-if="broadcast.confirmationRequired">需确认</span>
             <span v-if="pendingIds.has(broadcast.id)" class="pending-badge">待处理</span>
-            <span v-else-if="broadcast.status === 'CANCELLED'">已取消</span>
+            <span v-else-if="broadcast.status === 'COMPLETED'">已完成</span>
+            <span v-else-if="broadcast.status === 'CANCELLED'">已撤销</span>
           </span>
         </span>
       </button>
@@ -188,11 +213,12 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
 }
 
 .create-button {
-  display: grid;
-  width: 36px;
-  height: 36px;
+  display: inline-flex;
+  min-width: 34px;
+  height: 34px;
   padding: 0;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 50%;
   color: var(--coral);
@@ -227,6 +253,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
 
 .sidebar-search input::placeholder { color: var(--ink-faint); }
 
+.status-filters,
 .priority-filters {
   display: grid;
   margin: 0 12px 10px;
@@ -241,7 +268,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   min-height: 30px;
   padding: 0 6px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--ink-soft);
   font-size: 11px;
   font-weight: 600;

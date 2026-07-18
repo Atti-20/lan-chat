@@ -387,6 +387,7 @@ CREATE TABLE `file_transfer` (
 -- ----------------------------
 -- 应急广播及持久接收回执
 -- ----------------------------
+DROP TABLE IF EXISTS `broadcast_evidence`;
 DROP TABLE IF EXISTS `broadcast_receiver`;
 DROP TABLE IF EXISTS `broadcast`;
 CREATE TABLE `broadcast` (
@@ -402,7 +403,10 @@ CREATE TABLE `broadcast` (
     `deadline_at`           DATETIME      DEFAULT NULL COMMENT '确认截止时间',
     `bypass_mute`           TINYINT       NOT NULL DEFAULT 0 COMMENT '是否绕过普通免打扰',
     `repeat_reminder`       TINYINT       NOT NULL DEFAULT 0 COMMENT '是否允许重复提醒',
-    `status`                VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/CANCELLED',
+    `require_image_proof`   TINYINT       NOT NULL DEFAULT 0 COMMENT '完成时是否需要图片证据',
+    `require_location_proof` TINYINT      NOT NULL DEFAULT 0 COMMENT '完成时是否需要定位证据',
+    `completed_at`          DATETIME      DEFAULT NULL COMMENT '全体目标完成时间',
+    `status`                VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/COMPLETED/CANCELLED',
     `create_time`           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
@@ -420,6 +424,12 @@ CREATE TABLE `broadcast_receiver` (
     `confirm_status`      VARCHAR(32) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/NOT_REQUIRED/确认值',
     `confirmed_at`        DATETIME    DEFAULT NULL COMMENT '确认时间',
     `confirm_device_type` VARCHAR(50) DEFAULT NULL COMMENT '确认设备类型',
+    `target_status`       VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/REMOVED',
+    `completed_at`        DATETIME DEFAULT NULL COMMENT '执行完成时间',
+    `removed_at`          DATETIME DEFAULT NULL,
+    `removed_by`          BIGINT DEFAULT NULL,
+    `remind_count`        INT NOT NULL DEFAULT 0,
+    `last_reminded_at`    DATETIME DEFAULT NULL,
     `create_time`         DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
@@ -427,6 +437,25 @@ CREATE TABLE `broadcast_receiver` (
     KEY `idx_receiver_user_pending` (`user_id`, `confirm_status`, `viewed_at`),
     KEY `idx_receiver_broadcast_status` (`broadcast_id`, `confirm_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='广播接收、查看与确认状态';
+
+CREATE TABLE `broadcast_evidence` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `broadcast_id` BIGINT NOT NULL,
+    `receiver_id` BIGINT DEFAULT NULL,
+    `user_id` BIGINT NOT NULL,
+    `evidence_type` VARCHAR(30) NOT NULL COMMENT 'CONTENT_IMAGE/CONTENT_LOCATION/COMPLETION_IMAGE/COMPLETION_LOCATION',
+    `file_id` BIGINT DEFAULT NULL,
+    `latitude` DECIMAL(10, 7) DEFAULT NULL,
+    `longitude` DECIMAL(10, 7) DEFAULT NULL,
+    `accuracy_meters` DECIMAL(10, 2) DEFAULT NULL,
+    `address_text` VARCHAR(255) DEFAULT NULL,
+    `captured_at` DATETIME DEFAULT NULL,
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_broadcast_evidence_broadcast` (`broadcast_id`),
+    KEY `idx_broadcast_evidence_receiver` (`receiver_id`),
+    KEY `idx_broadcast_evidence_file` (`file_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='广播正文附件及完成证据';
 
 -- 不在结构脚本中写入任何默认账号或口令。
 -- 私有部署由 LANCHAT_BOOTSTRAP_ADMIN_PASSWORD 首次创建 admin；

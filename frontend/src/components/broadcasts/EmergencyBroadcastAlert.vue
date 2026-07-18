@@ -168,7 +168,7 @@ function confirm(): void {
 .alert-heading { min-width: 0; flex: 1; }
 .alert-kicker { margin: 1px 0 4px; color: var(--coral); font-size: 10px; font-weight: 750; letter-spacing: 0.08em; }
 .alert-title { margin: 0; font-size: 21px; line-height: 1.25; letter-spacing: -0.035em; }
-.dismiss-button { display: grid; width: 34px; height: 34px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: var(--ink-soft); background: var(--fill); cursor: pointer; }
+.dismiss-button { display: inline-flex; min-width: 40px; height: 34px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 10px; color: var(--ink-soft); background: var(--fill); cursor: pointer; }
 .dismiss-button:hover { background: var(--button-hover); }
 
 .alert-content {

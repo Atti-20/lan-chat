@@ -2,10 +2,12 @@
 import { computed, reactive, shallowRef, watch } from 'vue'
 import type {
   BroadcastCreatePayload,
+  BroadcastLocation,
   BroadcastPriority,
   BroadcastScopeType,
   Friend,
 } from '../../types'
+import { api } from '../../services/api'
 import UiIcon from '../base/UiIcon.vue'
 import UserAvatar from '../base/UserAvatar.vue'
 
@@ -36,6 +38,10 @@ interface FormState {
   deadlineAt: string
   bypassMute: boolean
   repeatReminder: boolean
+  requireImageProof: boolean
+  requireLocationProof: boolean
+  contentImageFileIds: number[]
+  contentLocation?: BroadcastLocation
 }
 
 const priorityOptions: readonly {
@@ -48,14 +54,14 @@ const priorityOptions: readonly {
   { value: 'EMERGENCY', label: '紧急', detail: '立即要求关注' },
 ]
 const confirmationChoices: readonly { value: string; label: string }[] = [
-  { value: 'RECEIVED', label: '已收到' },
   { value: 'EXECUTED', label: '已执行' },
-  { value: 'NEED_SUPPORT', label: '需要支援' },
 ]
 
 const form = reactive<FormState>(initialForm())
 const attempted = shallowRef(false)
 const minimumDeadline = shallowRef('')
+const contentUploading = shallowRef(false)
+const contentLocating = shallowRef(false)
 
 const scopeOptions = computed<readonly { value: BroadcastScopeType; label: string; detail: string }[]>(() => {
   const users = {
@@ -117,6 +123,10 @@ function initialForm(): FormState {
     deadlineAt: '',
     bypassMute: false,
     repeatReminder: false,
+    requireImageProof: false,
+    requireLocationProof: false,
+    contentImageFileIds: [],
+    contentLocation: undefined,
   }
 }
 
@@ -141,6 +151,38 @@ function toggleConfirmationOption(option: string): void {
     : [...form.confirmationOptions, option]
 }
 
+async function uploadContentImages(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? []).slice(0, 3 - form.contentImageFileIds.length)
+  if (!files.length) return
+  contentUploading.value = true
+  try {
+    const uploads = await Promise.all(files.map((file) => api.files.uploadBroadcastImage(file)))
+    form.contentImageFileIds = [...form.contentImageFileIds, ...uploads.map((file) => file.id)]
+  } finally {
+    contentUploading.value = false
+    input.value = ''
+  }
+}
+
+function captureContentLocation(): void {
+  if (!navigator.geolocation) return
+  contentLocating.value = true
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      form.contentLocation = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracyMeters: position.coords.accuracy,
+        capturedAt: new Date(position.timestamp).toISOString(),
+      }
+      contentLocating.value = false
+    },
+    () => { contentLocating.value = false },
+    { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 },
+  )
+}
+
 function submit(): void {
   attempted.value = true
   if (validationMessage.value || props.saving) return
@@ -156,6 +198,10 @@ function submit(): void {
     deadlineAt: form.deadlineAt || undefined,
     bypassMute: form.priority === 'EMERGENCY' && form.bypassMute,
     repeatReminder: form.confirmationRequired && form.repeatReminder,
+    requireImageProof: form.requireImageProof,
+    requireLocationProof: form.requireLocationProof,
+    contentImageFileIds: form.contentImageFileIds.length ? [...form.contentImageFileIds] : undefined,
+    contentLocation: form.contentLocation,
   }
   emit('create', payload)
 }
@@ -214,6 +260,15 @@ function submit(): void {
               placeholder="说明发生了什么、成员需要做什么，以及在哪里回报。"
             />
           </label>
+          <div class="attachment-actions">
+            <label class="attachment-button">
+              {{ contentUploading ? '正在上传图片…' : `添加广播图片${form.contentImageFileIds.length ? `（${form.contentImageFileIds.length}/3）` : ''}` }}
+              <input hidden type="file" accept="image/*" multiple :disabled="contentUploading || form.contentImageFileIds.length >= 3" @change="uploadContentImages" />
+            </label>
+            <button class="attachment-button" type="button" :disabled="contentLocating" @click="captureContentLocation">
+              {{ contentLocating ? '正在获取位置…' : form.contentLocation ? '已添加广播位置' : '添加广播位置' }}
+            </button>
+          </div>
         </div>
 
         <fieldset class="form-section">
@@ -298,6 +353,22 @@ function submit(): void {
               </span>
               <input v-model="form.repeatReminder" class="toggle-input" type="checkbox" />
             </label>
+
+            <label class="setting-row compact-setting">
+              <span class="setting-copy">
+                <strong>完成时必须上传图片</strong>
+                <small>成员至少提交一张图片后才能完成</small>
+              </span>
+              <input v-model="form.requireImageProof" class="toggle-input" type="checkbox" />
+            </label>
+
+            <label class="setting-row compact-setting">
+              <span class="setting-copy">
+                <strong>完成时必须提交定位</strong>
+                <small>成员需要授权浏览器获取当前位置</small>
+              </span>
+              <input v-model="form.requireLocationProof" class="toggle-input" type="checkbox" />
+            </label>
           </div>
 
           <label v-if="form.priority === 'EMERGENCY'" class="setting-row emergency-setting">
@@ -376,13 +447,14 @@ function submit(): void {
 .header-title { margin: 0; font-size: 21px; letter-spacing: -0.035em; }
 
 .close-button {
-  display: grid;
-  width: 36px;
+  display: inline-flex;
+  min-width: 40px;
   height: 36px;
   padding: 0;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   border: 0;
-  border-radius: 50%;
+  border-radius: 10px;
   color: var(--ink-soft);
   background: var(--fill);
   cursor: pointer;
@@ -465,6 +537,9 @@ function submit(): void {
 .priority-option--selected[data-priority="EMERGENCY"] { border-color: color-mix(in srgb, var(--coral) 48%, transparent); background: color-mix(in srgb, var(--coral) 9%, transparent); }
 
 .message-fields { display: grid; gap: 14px; }
+.attachment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.attachment-button { display: inline-flex; min-height: 36px; padding: 0 12px; align-items: center; justify-content: center; border: 0; border-radius: 10px; color: var(--ink-soft); font-size: 12px; font-weight: 650; line-height: 1; white-space: nowrap; background: var(--fill); cursor: pointer; }
+.attachment-button:disabled { cursor: wait; opacity: .6; }
 .field-label { display: grid; gap: 7px; }
 .field-label > span { color: var(--ink-soft); font-size: 12px; font-weight: 650; }
 .content-field { min-height: 116px; padding-top: 12px; padding-bottom: 12px; line-height: 1.55; resize: vertical; }
@@ -530,8 +605,8 @@ function submit(): void {
 .confirmation-options { display: flex; flex-wrap: wrap; gap: 7px; }
 .confirmation-option {
   display: inline-flex;
-  min-height: 34px;
-  padding: 0 11px;
+  min-height: 36px;
+  padding: 0 12px;
   align-items: center;
   gap: 5px;
   border: 1px solid var(--separator);

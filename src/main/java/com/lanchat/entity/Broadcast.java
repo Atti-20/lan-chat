@@ -19,6 +19,13 @@ public class Broadcast {
     private String title;
     private String content;
 
+    private Boolean requireImageProof;
+    private Boolean requireLocationProof;
+    private LocalDateTime completedAt;
+
+    /** ACTIVE / COMPLETED / CANCELLED */
+    private String status;
+
     /** NORMAL / IMPORTANT / EMERGENCY */
     private String priority;
 
@@ -35,8 +42,6 @@ public class Broadcast {
     private Boolean bypassMute;
     private Boolean repeatReminder;
 
-    /** ACTIVE / CANCELLED */
-    private String status;
 
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

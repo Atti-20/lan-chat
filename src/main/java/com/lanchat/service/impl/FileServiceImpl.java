@@ -149,6 +149,12 @@ public class FileServiceImpl implements FileService {
         return uploadValidated(file, userId, true);
     }
 
+    @Override
+    @Transactional
+    public FileUploadVO uploadBroadcastImage(MultipartFile file, Long userId) {
+        return uploadValidated(file, userId, true);
+    }
+
     private FileUploadVO uploadValidated(MultipartFile file, Long userId, boolean imageOnly) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("文件不能为空");
@@ -597,6 +603,7 @@ public class FileServiceImpl implements FileService {
      */
     private FileUploadVO buildVOFromMetadata(FileMetadata metadata) {
         FileUploadVO vo = new FileUploadVO();
+        vo.setId(metadata.getId());
         vo.setUrl(getFileUrl(metadata.getFilePath()));
         vo.setOriginalName(metadata.getFileName());
         vo.setFileName(metadata.getFilePath());

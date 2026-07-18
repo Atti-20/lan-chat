@@ -20,6 +20,9 @@ public interface FileService {
     /** 上传头像；除通用附件校验外强制要求实际内容为安全图片。 */
     FileUploadVO uploadAvatar(MultipartFile file, Long userId);
 
+    /** 上传广播照片 */
+    FileUploadVO uploadBroadcastImage(MultipartFile file, Long userId);
+
     /** Finalizes an already assembled file after full content and digest validation. */
     FileUploadVO storeStagedFile(Path stagedFile,
                                  String originalFilename,

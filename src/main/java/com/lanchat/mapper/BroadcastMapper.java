@@ -27,10 +27,15 @@ public interface BroadcastMapper extends BaseMapper<Broadcast> {
             SELECT b.*
             FROM broadcast b
             WHERE b.sender_id = #{userId}
-               OR EXISTS (
+               OR (
+                    b.status = 'ACTIVE'
+                    AND EXISTS (
                     SELECT 1
                     FROM broadcast_receiver br
-                    WHERE br.broadcast_id = b.id AND br.user_id = #{userId}
+                    WHERE br.broadcast_id = b.id
+                      AND br.user_id = #{userId}
+                      AND br.target_status = 'ACTIVE'
+                    )
                )
             ORDER BY b.create_time DESC, b.id DESC
             LIMIT 200
@@ -44,6 +49,7 @@ public interface BroadcastMapper extends BaseMapper<Broadcast> {
             INNER JOIN broadcast_receiver br ON br.broadcast_id = b.id
             WHERE br.user_id = #{userId}
               AND b.status = 'ACTIVE'
+              AND br.target_status = 'ACTIVE'
               AND (b.deadline_at IS NULL OR b.deadline_at > NOW())
               AND (
                     br.viewed_at IS NULL

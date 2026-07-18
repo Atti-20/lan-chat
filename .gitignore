@@ -37,5 +37,7 @@ build/
 uploads/
 logs/
 frontend/node_modules/
+frontend/dist-desktop/
+apps/desktop/node_modules/
 output/playwright/
 .playwright-cli/

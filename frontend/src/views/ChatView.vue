@@ -33,10 +33,12 @@ import { useBroadcasts } from '../composables/useBroadcasts'
 import { useDiagnostics } from '../composables/useDiagnostics'
 import { useTemporaryRooms } from '../composables/useTemporaryRooms'
 import { useToast } from '../composables/useToast'
-import { ApiError } from '../services/api'
+import { api, ApiError } from '../services/api'
+import { nativeBridge } from "../platform/nativeBridge";
 import type {
   AdminUser,
   BroadcastCreatePayload,
+  BroadcastCompletePayload,
   ChatMessage,
   Conversation,
   EmergencyBroadcast,
@@ -387,10 +389,16 @@ async function leaveTemporaryRoom(): Promise<void> {
   const room = selectedTemporaryRoom.value
   if (!room) return
 
-  const confirmed = window.confirm(
+  const confirmed = await nativeBridge.confirm(
       `确定退出临时房间“${room.roomName}”吗？\n\n`
       + '退出后将不再接收该房间的新消息，'
       + '需要房间码才能重新加入。',
+      {
+        title: '退出临时房间',
+        kind: "warning",
+        okLabel: '退出临时房间',
+        cancelLabel: '停留临时房间'
+      }
   )
 
   if (!confirmed) return
@@ -433,8 +441,14 @@ async function createBroadcast(payload: BroadcastCreatePayload): Promise<void> {
 async function cancelBroadcast(): Promise<void> {
   const current = broadcasts.selected.value?.broadcast
   if (!current || !isAdministrator.value || current.status !== 'ACTIVE') return
-  const confirmed = window.confirm(
-    `确定撤销广播“${current.title}”吗？\n\n撤销后将停止提醒和确认，但历史记录及统计会保留。`,
+  const confirmed = await nativeBridge.confirm(
+      `确定撤销广播“${current.title}”吗？\n\n撤销后将停止提醒和确认，但历史记录及统计会保留。`,
+      {
+        title: '撤销广播',
+        kind: 'warning',
+        okLabel: '撤销广播',
+        cancelLabel: '保留广播',
+      },
   )
   if (!confirmed) return
 
@@ -444,6 +458,96 @@ async function cancelBroadcast(): Promise<void> {
   } catch (cause) {
     handleError(cause, '撤销广播失败')
   }
+}
+
+async function deleteBroadcast(): Promise<void> {
+  const current = broadcasts.selected.value?.broadcast
+  if (!current || !isAdministrator.value || current.status !== 'CANCELLED') return
+  const confirmed = await nativeBridge.confirm(
+    `确定永久删除广播“${current.title}”吗？\n\n删除后正文、接收记录和统计无法恢复。`,
+    { title: '永久删除广播', kind: 'error', okLabel: '永久删除', cancelLabel: '取消' },
+  )
+  if (!confirmed) return
+  try {
+    await broadcasts.deleteBroadcast(current.id)
+    toast.push('广播已永久删除', 'success')
+  } catch (cause) {
+    handleError(cause, '删除广播失败')
+  }
+}
+
+async function completeBroadcast(payload: BroadcastCompletePayload): Promise<void> {
+  broadcastConfirming.value = true
+  try {
+    await broadcasts.complete(payload)
+    toast.push('任务已完成', 'success')
+  } catch (cause) {
+    handleError(cause, '完成广播失败')
+  } finally {
+    broadcastConfirming.value = false
+  }
+}
+
+async function remindBroadcastRecipient(userId: number): Promise<void> {
+  const current = broadcasts.selected.value?.broadcast
+  if (!current) return
+  try {
+    await api.broadcasts.remind(current.id, userId)
+    toast.push('已发送完成提醒', 'success')
+  } catch (cause) {
+    handleError(cause, '提醒发送失败')
+  }
+}
+
+async function exportBroadcastExcel(): Promise<void> {
+  const broadcastId = broadcasts.selected.value?.broadcast.id
+  if (!broadcastId) return
+  try {
+    const { blob, fileName } = await api.broadcasts.exportExcel(broadcastId)
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = fileName
+    anchor.click()
+    URL.revokeObjectURL(url)
+  } catch (cause) {
+    handleError(cause, '导出广播明细失败')
+  }
+}
+
+function exportBroadcastImage(): void {
+  const detail = broadcasts.selected.value
+  if (!detail) return
+  const { broadcast } = detail
+  const canvas = document.createElement('canvas')
+  canvas.width = 1200
+  canvas.height = 720
+  const context = canvas.getContext('2d')
+  if (!context) return
+  context.fillStyle = '#f8fafc'
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.fillStyle = '#0f172a'
+  context.font = '700 42px system-ui, sans-serif'
+  context.fillText(broadcast.title, 70, 100)
+  context.fillStyle = '#64748b'
+  context.font = '24px system-ui, sans-serif'
+  context.fillText(`广播 · ${broadcast.status === 'COMPLETED' ? '已完成' : broadcast.status === 'CANCELLED' ? '已撤销' : '进行中'}`, 70, 146)
+  context.fillStyle = '#1e293b'
+  context.font = '28px system-ui, sans-serif'
+  const words = broadcast.content.match(/.{1,34}/g) ?? ['']
+  words.slice(0, 12).forEach((line, index) => context.fillText(line, 70, 215 + index * 42))
+  const stats = broadcasts.statistics.value
+  if (stats) {
+    context.fillStyle = '#eff6ff'
+    context.fillRect(70, 585, 1060, 80)
+    context.fillStyle = '#1d4ed8'
+    context.font = '600 24px system-ui, sans-serif'
+    context.fillText(`目标 ${stats.targetCount}   已送达 ${stats.deliveredCount}   已查看 ${stats.viewedCount}   已执行 ${stats.executedCount}`, 95, 635)
+  }
+  const anchor = document.createElement('a')
+  anchor.href = canvas.toDataURL('image/png')
+  anchor.download = `broadcast-${broadcast.id}.png`
+  anchor.click()
 }
 
 async function confirmBroadcast(status: string, broadcastId?: number): Promise<void> {
@@ -668,6 +772,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
           :created-username="adminCreatedUsername"
           :busy-user-id="adminBusyUserId"
           :mobile="mobile"
+          :friends="friends"
           @refresh="admin.loadUsers"
           @create="admin.createUser"
           @status="admin.setUserStatus"
@@ -718,10 +823,18 @@ async function resetUserPassword(newPassword: string): Promise<void> {
           :statistics-loading="broadcastStatisticsLoading"
           :can-cancel="isAdministrator"
           :cancelling="broadcasts.cancelling.value"
+          :can-delete="isAdministrator"
+          :deleting="broadcasts.deleting.value"
           :mobile="mobile"
+          :friends="friends"
           @confirm="confirmBroadcast"
           @refresh-stats="refreshBroadcastStatistics"
           @cancel="cancelBroadcast"
+          @delete="deleteBroadcast"
+          @complete="completeBroadcast"
+          @remind="remindBroadcastRecipient"
+          @export-excel="exportBroadcastExcel"
+          @export-image="exportBroadcastImage"
           @back="broadcasts.clearSelection"
         />
       </section>

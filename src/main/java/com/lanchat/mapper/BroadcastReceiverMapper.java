@@ -16,9 +16,18 @@ public interface BroadcastReceiverMapper extends BaseMapper<BroadcastReceiver> {
             SELECT *
             FROM broadcast_receiver
             WHERE broadcast_id = #{broadcastId} AND user_id = #{userId}
+              AND target_status = 'ACTIVE'
             """)
     BroadcastReceiver selectReceiver(@Param("broadcastId") Long broadcastId,
                                      @Param("userId") Long userId);
+
+    @Select("""
+            SELECT *
+            FROM broadcast_receiver
+            WHERE broadcast_id = #{broadcastId} AND user_id = #{userId}
+            """)
+    BroadcastReceiver selectReceiverIncludingRemoved(@Param("broadcastId") Long broadcastId,
+                                                     @Param("userId") Long userId);
 
     @Select("""
             SELECT *
@@ -33,6 +42,7 @@ public interface BroadcastReceiverMapper extends BaseMapper<BroadcastReceiver> {
             SET delivered_at = COALESCE(delivered_at, NOW()),
                 update_time = NOW()
             WHERE broadcast_id = #{broadcastId} AND user_id = #{userId}
+              AND target_status = 'ACTIVE'
             """)
     int markDelivered(@Param("broadcastId") Long broadcastId,
                       @Param("userId") Long userId);
@@ -43,6 +53,7 @@ public interface BroadcastReceiverMapper extends BaseMapper<BroadcastReceiver> {
                 viewed_at = COALESCE(viewed_at, NOW()),
                 update_time = NOW()
             WHERE broadcast_id = #{broadcastId} AND user_id = #{userId}
+              AND target_status = 'ACTIVE'
             """)
     int markViewed(@Param("broadcastId") Long broadcastId,
                    @Param("userId") Long userId);
@@ -58,7 +69,8 @@ public interface BroadcastReceiverMapper extends BaseMapper<BroadcastReceiver> {
                 update_time = NOW()
             WHERE broadcast_id = #{broadcastId}
               AND user_id = #{userId}
-              AND confirm_status = 'PENDING'
+              AND (confirm_status = 'PENDING'
+                   OR (confirm_status = 'NEED_SUPPORT' AND #{status} = 'EXECUTED'))
             """)
     int confirmIfPending(@Param("broadcastId") Long broadcastId,
                          @Param("userId") Long userId,

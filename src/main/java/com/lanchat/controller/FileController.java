@@ -146,6 +146,13 @@ public class FileController {
         }
     }
 
+    @PostMapping("/broadcast-image")
+    public Result<FileUploadVO> uploadBroadcastImage(@RequestParam("file") MultipartFile file) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        if (userId == null) return Result.unauthorized("请先登录");
+        return Result.success(fileService.uploadBroadcastImage(file, userId));
+    }
+
     /**
      * 认证文件内容接口。文件不再通过 /file/** 作为公开静态资源暴露。
      */

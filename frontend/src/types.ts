@@ -163,6 +163,7 @@ export interface ChatMessage {
 }
 
 export interface FileUpload {
+  id: number
   url: string
   thumbnailUrl?: string
   originalName: string
@@ -224,6 +225,28 @@ export type BroadcastReceiptStatus =
   | 'NEED_SUPPORT'
   | 'EXPIRED'
 
+export type BroadcastStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
+
+export interface BroadcastLocation {
+  latitude: number
+  longitude: number
+  accuracyMeters?: number
+  addressText?: string
+  capturedAt?: string
+}
+
+export interface BroadcastSender {
+  id: number
+  username: string
+  nickname?: string
+  avatar?: string
+}
+
+export interface BroadcastContentEvidence {
+  imageUrls: readonly string[]
+  location?: BroadcastLocation
+}
+
 export interface EmergencyBroadcast {
   id: number
   title: string
@@ -237,7 +260,10 @@ export interface EmergencyBroadcast {
   deadlineAt?: string
   bypassMute: boolean
   repeatReminder: boolean
-  status: 'ACTIVE' | 'CANCELLED'
+  status: BroadcastStatus
+  requireImageProof: boolean
+  requireLocationProof: boolean
+  completedAt?: string
   createTime: string
   updateTime?: string
 }
@@ -253,11 +279,15 @@ export interface BroadcastReceiver {
   confirmDeviceType?: string
   createTime: string
   updateTime?: string
+  targetStatus?: 'ACTIVE' | 'REMOVED'
+  completedAt?: string
 }
 
 export interface BroadcastDetail {
   broadcast: EmergencyBroadcast
   receiver?: BroadcastReceiver
+  sender: BroadcastSender
+  contentEvidence?: BroadcastContentEvidence
   confirmationOptions: readonly string[]
   createdByCurrentUser: boolean
 }
@@ -274,6 +304,49 @@ export interface BroadcastCreatePayload {
   deadlineAt?: string
   bypassMute: boolean
   repeatReminder: boolean
+  requireImageProof: boolean
+  requireLocationProof: boolean
+  contentImageFileIds?: number[]
+  contentLocation?: BroadcastLocation
+}
+
+export interface BroadcastCompletePayload {
+  imageFileIds: number[]
+  location?: BroadcastLocation
+}
+
+export interface BroadcastRecipientDetail {
+  receiverId: number
+  userId: number
+  username: string
+  nickname: string
+  avatar?: string
+  targetStatus: 'ACTIVE' | 'REMOVED'
+  confirmStatus: BroadcastReceiptStatus | 'NOT_REQUIRED'
+  deliveredAt?: string
+  viewedAt?: string
+  completedAt?: string
+  imageUrls: readonly string[]
+  location?: BroadcastLocation
+  remindCount: number
+  lastRemindedAt?: string
+}
+
+export interface BroadcastTargetUpdatePayload {
+  addUserIds: number[]
+  removeUserIds: number[]
+}
+
+export interface BroadcastTargetCandidate {
+  userId: number
+  username: string
+  nickname: string
+  avatar?: string
+}
+
+export interface BroadcastTargetUpdateResult {
+  addedUserIds: number[]
+  removedUserIds: number[]
 }
 
 export interface BroadcastStatistics {
@@ -283,6 +356,9 @@ export interface BroadcastStatistics {
   viewedCount: number
   confirmedCount: number
   unconfirmedCount: number
+  executedCount: number
+  needSupportCount: number
+  removedCount: number
   unconfirmedUserIds: readonly number[]
   expiredCount: number
   expired: boolean

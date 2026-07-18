@@ -27,4 +27,14 @@ public class BroadcastReceiver {
     private String confirmDeviceType;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
+
+    /** ACTIVE / REMOVED */
+    private String targetStatus;
+
+    private LocalDateTime completedAt;
+    private LocalDateTime removedAt;
+    private Long removedBy;
+
+    private Integer remindCount;
+    private LocalDateTime lastRemindedAt;
 }

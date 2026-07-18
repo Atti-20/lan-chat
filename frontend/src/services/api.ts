@@ -4,9 +4,13 @@ import type {
   ChatGroup,
   ChatMessage,
   BroadcastCreatePayload,
+  BroadcastCompletePayload,
   BroadcastDetail,
+  BroadcastRecipientDetail,
   BroadcastReceiver,
   BroadcastStatistics,
+  BroadcastTargetUpdatePayload,
+  BroadcastTargetUpdateResult,
   DeviceLogin,
   FileUpload,
   Friend,
@@ -259,6 +263,10 @@ export const api = {
       `/broadcast/${broadcastId}/cancel`,
       { method: 'POST' },
     ),
+    remove: (broadcastId: number) => request<void>(
+      `/broadcast/${broadcastId}`,
+      { method: 'DELETE' },
+    ),
     view: (broadcastId: number) => request<BroadcastReceiver>(
       `/broadcast/${broadcastId}/view`,
       { method: 'POST' },
@@ -267,7 +275,26 @@ export const api = {
       `/broadcast/${broadcastId}/confirm`,
       { method: 'POST', body: JSON.stringify({ status }) },
     ),
+    complete: (broadcastId: number, payload: BroadcastCompletePayload) => request<BroadcastReceiver>(
+      `/broadcast/${broadcastId}/complete`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
     stats: (broadcastId: number) => request<BroadcastStatistics>(`/broadcast/${broadcastId}/stats`),
+    recipients: (broadcastId: number, bucket = 'ALL') => request<BroadcastRecipientDetail[]>(
+      `/broadcast/${broadcastId}/receivers?bucket=${encodeURIComponent(bucket)}`,
+    ),
+    remind: (broadcastId: number, userId: number) => request<void>(
+      `/broadcast/${broadcastId}/receivers/${userId}/remind`,
+      { method: 'POST' },
+    ),
+    updateTargets: (broadcastId: number, payload: BroadcastTargetUpdatePayload) => request<BroadcastTargetUpdateResult>(
+      `/broadcast/${broadcastId}/receivers`,
+      { method: 'PATCH', body: JSON.stringify(payload) },
+    ),
+    exportExcel: (broadcastId: number) => download(
+      `/broadcast/${broadcastId}/export.xlsx`,
+      `broadcast-${broadcastId}.xlsx`,
+    ),
   },
   chat: {
     history: (conversationId: string, limit = 50, beforeSequence?: number) => request<ChatMessage[]>(
@@ -292,6 +319,11 @@ export const api = {
       const form = new FormData()
       form.append('file', file)
       return request<FileUpload>('/file/avatar', { method: 'POST', body: form })
+    },
+    uploadBroadcastImage: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return request<FileUpload>('/file/broadcast-image', { method: 'POST', body: form })
     },
     createUpload: (
       payload: {

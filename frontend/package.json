@@ -8,14 +8,18 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:desktop": "vite --mode desktop --host 127.0.0.1 --port 1420 --strictPort",
     "test": "node --test tests/*.test.mjs",
     "test:sha256": "node --test tests/sha256.test.mjs",
     "test:sequence": "node --test tests/sequence.test.mjs",
     "typecheck": "vue-tsc --noEmit",
     "build": "npm run typecheck && vite build",
+    "build:desktop": "npm run typecheck && vite build --mode desktop",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "vue": "3.5.39"
   },
   "devDependencies": {
