@@ -5,11 +5,11 @@ import NodeDiscoveryPanel from '../components/nodes/NodeDiscoveryPanel.vue'
 import { ApiError, api } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
+import { navigateToApp } from '../platform/appNavigation'
 import { readLastUsername } from '../utils/storage'
 
 const auth = useAuth()
 const toast = useToast()
-const base = import.meta.env.BASE_URL.replace(/\/$/, '')
 const mode = shallowRef<'login' | 'register'>('login')
 const username = shallowRef('')
 const password = shallowRef('')
@@ -32,7 +32,7 @@ onMounted(async () => {
   try {
     const user = await auth.hydrate()
     if (user) {
-      window.location.assign(`${base}/chat`)
+      navigateToApp('/chat')
       return
     }
   } catch {
@@ -91,11 +91,11 @@ async function submit(): Promise<void> {
     if (mode.value === 'login') {
       await auth.login(cleanUsername, password.value)
       toast.push('已安全登录', 'success', 1200)
-      window.location.assign(`${base}/chat`)
+      navigateToApp('/chat')
     } else {
       await auth.register(cleanUsername, password.value, cleanNickname)
       toast.push('账号已创建', 'success', 1200)
-      window.location.assign(`${base}/welcome`)
+      navigateToApp('/welcome')
     }
   } catch (cause) {
     const message = cause instanceof ApiError || cause instanceof Error

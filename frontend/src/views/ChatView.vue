@@ -10,6 +10,7 @@ import BroadcastWorkspace from '../components/broadcasts/BroadcastWorkspace.vue'
 import CreateBroadcastModal from '../components/broadcasts/CreateBroadcastModal.vue'
 import EmergencyBroadcastAlert from '../components/broadcasts/EmergencyBroadcastAlert.vue'
 import ConnectionDiagnosticsModal from '../components/diagnostics/ConnectionDiagnosticsModal.vue'
+import DesktopSettingsModal from '../components/desktop/DesktopSettingsModal.vue'
 import AppRail from '../components/chat/AppRail.vue'
 import ChangePasswordModal from '../components/chat/ChangePasswordModal.vue'
 import ConnectionStatusBar from '../components/chat/ConnectionStatusBar.vue'
@@ -34,7 +35,19 @@ import { useDiagnostics } from '../composables/useDiagnostics'
 import { useTemporaryRooms } from '../composables/useTemporaryRooms'
 import { useToast } from '../composables/useToast'
 import { api, ApiError } from '../services/api'
-import { nativeBridge } from "../platform/nativeBridge";
+import { navigateToApp } from '../platform/appNavigation'
+import {
+  consumeDesktopNavigation,
+  DESKTOP_NAVIGATION_EVENT,
+  pendingDesktopNavigation,
+} from '../platform/desktopNavigation'
+import {
+  clearSelectedNode,
+} from '../platform/nodeContext'
+import {
+  nativeBridge,
+  type DesktopNavigationTarget,
+} from '../platform/nativeBridge'
 import type {
   AdminUser,
   BroadcastCreatePayload,
@@ -102,6 +115,7 @@ const devicesOpen = shallowRef(false)
 const passwordOpen = shallowRef(false)
 const passwordResetTarget = shallowRef<AdminUser | null>(null)
 const diagnosticsOpen = shallowRef(false)
+const desktopSettingsOpen = shallowRef(false)
 const adminModule = shallowRef<AdminModule | null>(null)
 const groupSaving = shallowRef(false)
 const profileSaving = shallowRef(false)
@@ -118,6 +132,10 @@ const viewportWidth = shallowRef(window.innerWidth)
 const sidebarWidth = shallowRef(clampSidebarWidth(320, viewportWidth.value))
 const resizingSidebar = shallowRef(false)
 let stopActiveSidebarResize: (() => void) | null = null
+const desktopNavigationListener = (event: Event) => {
+  if (!(event instanceof CustomEvent)) return
+  void openDesktopNavigation(event.detail as DesktopNavigationTarget)
+}
 
 const user = computed<User>(() => auth.currentUser.value || {
   id: auth.session.value?.userId || 0,
@@ -192,15 +210,18 @@ const connectionCopy = computed(() => reconnecting.value
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
+  window.addEventListener(DESKTOP_NAVIGATION_EVENT, desktopNavigationListener)
   // 登录响应中的用户资料可能是旧快照；进入聊天前以 /user/info 的结果为准，
   // 确保导航栏、个人资料弹窗和消息头像使用同一份头像数据。
   const hydrated = await auth.hydrate()
   if (!hydrated) {
-    window.location.replace('/')
+    navigateToApp('/', true)
     return
   }
   try {
     await Promise.all([chat.load(), broadcasts.load()])
+    const pendingTarget = pendingDesktopNavigation()
+    if (pendingTarget) await openDesktopNavigation(pendingTarget)
   } catch (cause) {
     handleError(cause, '载入聊天失败')
   }
@@ -208,8 +229,37 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener(DESKTOP_NAVIGATION_EVENT, desktopNavigationListener)
   stopActiveSidebarResize?.()
 })
+
+async function openDesktopNavigation(target: DesktopNavigationTarget): Promise<void> {
+  if (loading.value || target.kind === 'node') return
+  if (target.kind === 'conversation') {
+    changeSection('messages')
+    const conversation = chat.conversations.value.find(
+      (candidate) => candidate.conversationId === target.value,
+    )
+    if (!conversation) {
+      toast.push('深链指定的会话当前不可用', 'warning')
+      consumeDesktopNavigation()
+      return
+    }
+    await selectConversation(conversation)
+    consumeDesktopNavigation()
+    return
+  }
+  if (target.kind === 'room') {
+    await joinTemporaryRoom(target.value)
+    consumeDesktopNavigation()
+    return
+  }
+  const broadcastId = Number(target.value)
+  if (Number.isSafeInteger(broadcastId) && broadcastId > 0) {
+    await openEmergencyBroadcast(broadcastId)
+    consumeDesktopNavigation()
+  }
+}
 
 function handleResize(): void {
   viewportWidth.value = window.innerWidth
@@ -604,7 +654,28 @@ async function logout(): Promise<void> {
   try {
     await auth.logout()
   } finally {
-    window.location.assign('/')
+    navigateToApp('/')
+  }
+}
+
+async function switchDesktopNode(): Promise<void> {
+  const confirmed = await nativeBridge.confirm(
+    '切换节点会退出当前设备会话并清理本地聊天缓存。是否继续？',
+    {
+      title: '切换 LANChat 节点',
+      kind: 'warning',
+      okLabel: '退出并切换',
+      cancelLabel: '取消',
+    },
+  )
+  if (!confirmed) return
+  chat.disconnect()
+  desktopSettingsOpen.value = false
+  try {
+    await auth.logout()
+  } finally {
+    clearSelectedNode()
+    navigateToApp('/')
   }
 }
 
@@ -964,11 +1035,18 @@ async function resetUserPassword(newPassword: string): Promise<void> {
       :open="profileOpen"
       :user="user"
       :saving="profileSaving"
+      :desktop="nativeBridge.runtime() === 'tauri'"
       @close="profileOpen = false"
       @save="saveProfile"
       @logout="logout"
       @open-devices="profileOpen = false; devicesOpen = true"
       @open-password="profileOpen = false; passwordOpen = true"
+      @open-desktop-settings="profileOpen = false; desktopSettingsOpen = true"
+    />
+    <DesktopSettingsModal
+      :open="desktopSettingsOpen"
+      @close="desktopSettingsOpen = false"
+      @switch-node="switchDesktopNode"
     />
     <DeviceManagerModal
       :open="devicesOpen"

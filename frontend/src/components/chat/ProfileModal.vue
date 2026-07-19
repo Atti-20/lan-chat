@@ -11,15 +11,20 @@ interface Props {
   open: boolean
   user: User
   saving?: boolean
+  desktop?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), { saving: false })
+const props = withDefaults(defineProps<Props>(), {
+  saving: false,
+  desktop: false,
+})
 const emit = defineEmits<{
   close: []
   save: [payload: { nickname: string; avatar: string }]
   logout: []
   openDevices: []
   openPassword: []
+  openDesktopSettings: []
 }>()
 const toast = useToast()
 const { mode: themeMode, toggleWithReveal: toggleTheme } = useTheme()
@@ -385,6 +390,10 @@ function resetToTextAvatar(): void {
           <button type="button" @click="emit('openPassword')">
             <UiIcon name="lock" :size="18" />
             <span>修改密码</span>
+          </button>
+          <button v-if="desktop" type="button" @click="emit('openDesktopSettings')">
+            <UiIcon name="download" :size="18" />
+            <span>桌面端设置与更新</span>
           </button>
         </nav>
 

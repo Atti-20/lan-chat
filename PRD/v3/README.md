@@ -2,17 +2,17 @@
 
 > LAN-first 私有即时协作系统：局域网优先、断网可恢复、数据可控、网络恢复后可选同步。
 
-[![Current](https://img.shields.io/badge/current-v2.3.0-2ea44f)](https://github.com/Atti-20/lan-chat/tree/feature/v2.3)
-[![Target](https://img.shields.io/badge/target-v3.0.0-blue)](#v30-版本定位)
+[![Code](https://img.shields.io/badge/code-v3.0.0--dev-blue)](#v30-p0-当前交付)
+[![Released](https://img.shields.io/badge/released-v2.3.0-2ea44f)](https://github.com/Atti-20/lan-chat/tree/feature/v2.3)
 [![Desktop](https://img.shields.io/badge/desktop-Tauri_2-24C8D8)](https://v2.tauri.app/)
 [![Mobile](https://img.shields.io/badge/mobile-Capacitor-119EFF)](https://capacitorjs.com/)
 [![Backend](https://img.shields.io/badge/backend-Spring_Boot_3.5-6DB33F)](https://spring.io/projects/spring-boot)
 
 LANChat 面向校园、工厂、办公室、项目现场与应急环境，目标是在组织自有网络中提供可部署、可管理、可恢复的即时沟通和文件协作能力。
 
-当前代码基线是 **V2.3.0**。可靠消息、文本离线发件箱、重连补拉、文件安全、WebRTC 文件直传与中转降级、临时协作房间、应急广播、分片上传、断点续传、LOCAL/MinIO 私有存储，以及同一逻辑节点内的多实例实时路由均已实现。
+当前开发代码基线是 **V3.0.0-dev**，已继承 V2.3.0 的可靠消息、文本离线发件箱、重连补拉、文件安全、WebRTC 文件直传与中转降级、临时协作房间、应急广播、分片上传、断点续传、LOCAL/MinIO 私有存储，以及同一逻辑节点内的多实例实时路由。
 
-**V3.0 是产品化版本规划，不代表下列 V3.0 增量已经全部完成。** V3.0 不重写聊天核心，而是将现有能力升级为可安装、可发现、可更新、可测试、可观测的桌面与移动产品。
+V3.0 首轮已落地 macOS 桌面端 P0 代码和跨平台 CI/Release 定义；这不等同于已经发布 V3.0。签名安装包、公证、Updater 实际升级和 GitHub Release 仍需仓库 Secrets、Apple/Windows 证书与真实平台运行证据。P1/P2 的移动端、Server Manager、离线增强与完整可观测性尚未实现。
 
 ---
 
@@ -21,6 +21,7 @@ LANChat 面向校园、工厂、办公室、项目现场与应急环境，目标
 - [版本定位](#v30-版本定位)
 - [当前能力](#v23-已实现基线)
 - [V3.0 目标](#v30-目标能力)
+- [P0 当前交付](#v30-p0-当前交付)
 - [总体架构](#总体架构)
 - [技术选型](#技术选型)
 - [目标目录结构](#目标目录结构)
@@ -70,15 +71,34 @@ V3.0 的核心不是增加更多聊天按钮，而是完成五类产品化升级
 
 | 工作流 | V3.0 目标 | 初始优先级 | 当前状态 |
 |---|---|---:|---|
-| Desktop Client | Tauri 壳、托盘、通知、单实例、开机自启、深链 | P0 | 规划完成，待开发 |
-| Native Discovery | 客户端原生 mDNS/DNS-SD、节点缓存、健康探测、回退路径 | P0 | 规划完成，待开发 |
-| Release Pipeline | Windows/macOS/Linux 构建、签名、Release、自动更新 | P0 | 规划完成，待开发 |
-| CI/CD & E2E | 前后端检查、桌面/Android 构建、双实例/断网 E2E | P0 | 规划完成，待开发 |
+| Desktop Client | Tauri 壳、托盘、通知、单实例、开机自启、深链 | P0 | 代码已实现，待 macOS 安装包回归 |
+| Native Discovery | 客户端原生 mDNS/DNS-SD、节点缓存、健康探测、回退路径 | P0 | mDNS、握手、缓存、健康与手动地址已实现；二维码转为 P1 |
+| Release Pipeline | Windows/macOS/Linux 构建、签名、Release、自动更新 | P0 | 流水线代码已实现；真实签名、公证、Updater 与 Release 待外部凭据验证 |
+| CI/CD & E2E | 前后端检查、桌面构建、双实例/断网 E2E | P0 | 工作流与测试代码已实现，待 GitHub/Docker 完整运行证据 |
 | Server Manager | 节点、日志、健康、备份、诊断与本机部署辅助 GUI | P1 | 规划完成，待开发 |
 | Android Client | Capacitor Android 客户端、权限适配、通知与文件 | P1 | 规划完成，待开发 |
 | iOS Client | Capacitor iOS Beta、本地网络权限与 Bonjour 声明 | P2 | 预研项 |
 | Offline Enhancement | 草稿、上传任务恢复、热离线增强、安全凭证封装 | P1 | 规划完成，待开发 |
 | Observability | Actuator、Prometheus、Grafana、Micrometer Tracing | P1 | 规划完成，待开发 |
+
+## V3.0 P0 当前交付
+
+### 已落地代码
+
+- `apps/desktop/src-tauri/`：Tauri 2 壳、关闭隐藏到托盘、托盘打开/重扫/检查更新/退出、单实例、自启隐藏、通知和白名单深链。
+- Rust Native Bridge：按节点隔离的原生登录/刷新 Cookie Jar；Refresh Token 不进入 JavaScript、`localStorage` 或 IndexedDB。
+- 原生发现：浏览 `_lanchat._tcp.local.`，校验协议和节点 ID，调用 `/api/v1/node/info` 与健康端点握手，记录延迟/健康/来源并持久化最多 32 个缓存节点；支持经握手验证的手动地址。
+- 共享 Vue 客户端：REST、WebSocket 和资源地址随选中节点切换，缓存按“节点 + 用户”隔离；Web 环境继续使用同源路径。
+- Spring Boot：明确支持 `desktop` 设备类型，公开协议/路径能力，统一精确 Origin 的 CORS 与 WebSocket 白名单，并与 mDNS TXT 元数据保持一致。
+- 工程化：通用 CI、三平台无签名桌面 smoke build、桌面签名草稿 Release、服务端 GHCR/Compose 发布包、双实例消息和浏览器断网发件箱 E2E。
+
+### 尚不能标记为完成
+
+- 仓库内没有 Apple Developer ID、Windows PFX 或 Tauri Updater 私钥，也不会生成占位密钥。
+- 尚未产生经 Developer ID 签名、公证并 stapling 的 macOS `.app`/`.dmg`，也没有经真实安装验证的 Windows/Linux 产物。
+- Updater 客户端和发布流水线已接线，但必须在受保护环境注入 `TAURI_SIGNING_PRIVATE_KEY`、`TAURI_UPDATER_PUBLIC_KEY` 及平台签名 Secrets，并从旧版本执行一次真实升级才能验收。
+- GitHub Actions、真实局域网多播、自托管 mDNS runner 和完整 Docker E2E 的运行结果必须另行留存；仅存在工作流或测试文件不等于这些环境已经验证通过。
+- 二维码回退、Server Manager、Capacitor Android/iOS、上传任务跨重启恢复、Prometheus/Trace/Grafana 仍属于 P1/P2 或后续工作。
 
 ## 总体架构
 
@@ -214,15 +234,13 @@ gantt
 
 | 里程碑 | 主要交付物 | 退出条件 |
 |---|---|---|
-| M1 | Tauri 基础壳、共享前端构建、桌面端 mDNS、基础 CI | Windows 开发版可连接现有服务并自动列出节点 |
-| M2 | 托盘、通知、单实例、深链、Server Manager 初版 | 桌面体验完整，管理员可查看节点、日志和诊断 |
-| M3 | 安装包、签名、Release、Updater、E2E | Tag 可自动产生可安装与可更新产物，主链路可回归 |
+| M1 | Tauri 基础壳、共享前端构建、桌面端 mDNS、基础 CI | 核心代码已落地；待 macOS 应用内主链路回归 |
+| M2 | 托盘、通知、单实例、深链 | P0 原生体验代码已落地；Server Manager 仍为 P1 |
+| M3 | 安装包、签名、Release、Updater、E2E | 流水线与测试定义已落地；真实签名产物、升级和远端 E2E 未完成 |
 | M4 | Android 内测、iOS Beta | Android 完成登录、聊天、文件与节点连接；iOS 主链路可用 |
 | M5 | 指标、Trace、看板、告警与诊断包 | 关键问题可通过指标、日志和 Trace 定位 |
 
-## 快速启动（V2.3 基线）
-
-> 以下命令用于运行当前已有服务端与 Web 客户端，不代表 V3.0 桌面/移动壳已经可用。
+## 快速启动
 
 ### Docker Compose
 
@@ -254,12 +272,49 @@ cd ..
 ./mvnw spring-boot:run
 ```
 
+### macOS 桌面开发
+
+需要 Node.js 20.19+、Rust stable、Xcode Command Line Tools，以及 Tauri 2 的 macOS 构建依赖。
+
+```bash
+npm ci --prefix frontend
+npm ci --prefix apps/desktop
+npm --prefix apps/desktop run dev
+```
+
+本地无签名构建：
+
+```bash
+npm --prefix frontend run build:desktop
+npm --prefix apps/desktop run build:app
+npm --prefix apps/desktop run build:dmg
+```
+
+本地生成的无签名包只用于开发验收，不能替代 Developer ID 签名、公证和正式分发验证。
+
 ### 当前验证命令
 
 ```bash
-./mvnw test
-cd frontend && npm run typecheck && npm run build
+npm ci --prefix frontend
+npm ci --prefix apps/desktop
+npm ci --prefix tests/e2e
+
+./mvnw -B test
+npm test --prefix frontend
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+npm run build:desktop --prefix frontend
+
+cargo fmt --all --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+npm run typecheck --prefix tests/e2e
+docker compose -f compose.yaml -f compose.e2e.yaml config --quiet
+git diff --check
 ```
+
+具备 Docker 环境时，再启动双实例栈并执行 `npm test --prefix tests/e2e`。真实 mDNS 发现需要具有可用多播网卡的 macOS 或自托管 runner，不能由普通云端容器结果替代。
 
 ## 文档导航
 
@@ -280,7 +335,7 @@ V3.0 明确不把以下事项提前声明为已实现：
 - 端到端加密；
 - 本地 AI 助手；
 - 未经压测验证的并发量、SLA 或极限性能指标；
-- 未签名、未发布、未产生安装包的桌面和移动能力。
+- 未签名、未公证、未发布或未产生可安装产物的发布能力。
 
 ## 安全原则
 

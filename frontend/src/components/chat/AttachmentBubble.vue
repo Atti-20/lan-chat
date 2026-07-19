@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
 import { useToast } from '../../composables/useToast'
+import { currentNodeOrigin } from '../../platform/nodeContext'
 import { api } from '../../services/api'
 import { loadDirectFile } from '../../services/localChatDb'
 import type { FileAttachmentData } from '../../types'
@@ -41,12 +42,13 @@ const data = computed<FileAttachmentData>(() => {
 function restoreOriginalUrl(url: string): string {
   if (!url) return ''
   try {
-    const parsed = new URL(url, window.location.origin)
+    const origin = currentNodeOrigin()
+    const parsed = new URL(url, origin)
     parsed.pathname = parsed.pathname.replace(
         /\/thumb_([^/]+)$/,
         '/$1',
     )
-    if (parsed.origin === window.location.origin) {
+    if (parsed.origin === origin) {
       return `${parsed.pathname}${parsed.search}${parsed.hash}`
     }
     return parsed.toString()
@@ -140,7 +142,9 @@ async function download(): Promise<void> {
   loading.value = true
   try {
     const url = await api.files.temporaryUrl(source)
-    triggerDownload(`${url}?download=true`, data.value.name || 'LanChat 文件')
+    const downloadUrl = new URL(url)
+    downloadUrl.searchParams.set('download', 'true')
+    triggerDownload(downloadUrl.toString(), data.value.name || 'LanChat 文件')
   } catch {
     toast.push('文件下载失败', 'danger')
   } finally {

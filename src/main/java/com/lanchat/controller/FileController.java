@@ -33,7 +33,6 @@ import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/file")
-@CrossOrigin
 public class FileController {
 
     @Autowired

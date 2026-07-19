@@ -431,6 +431,13 @@ export interface NodePublicInfo {
   loginMethods: readonly string[]
   capabilities: readonly string[]
   serverTime: number
+  protocolVersion: number
+  apiBasePath: string
+  webSocketPath: string
+  healthPath: string
+  appPath: string
+  desktopAuthSupported: boolean
+  refreshTransport: string
 }
 
 export interface DependencyStatus {

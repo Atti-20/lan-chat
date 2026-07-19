@@ -3,6 +3,7 @@
   "bundle": {
     "targets": ["app", "dmg"],
     "macOS": {
+      "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "12.0"
     }
   }

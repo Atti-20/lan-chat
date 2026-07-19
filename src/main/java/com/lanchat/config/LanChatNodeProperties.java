@@ -20,7 +20,7 @@ public class LanChatNodeProperties {
     private String name = "LanChat Node";
     private String organizationName = "Local Organization";
     private String mode = "LAN_FIRST";
-    private String version = "2.3.0";
+    private String version = "3.0.0";
     private String advertisedHost = "";
     private int advertisedPort = 8080;
     private boolean secure;

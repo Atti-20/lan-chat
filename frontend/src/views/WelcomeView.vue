@@ -5,6 +5,7 @@ import UiIcon from '../components/base/UiIcon.vue'
 import { api, ApiError } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
+import { navigateToApp } from '../platform/appNavigation'
 
 const auth = useAuth()
 const toast = useToast()
@@ -25,7 +26,7 @@ const isCustomAvatar = computed(() => Boolean(selectedAvatar.value)
 onMounted(async () => {
   const user = auth.currentUser.value || await auth.hydrate()
   if (!user) {
-    window.location.replace('/')
+    navigateToApp('/', true)
     return
   }
   nickname.value = user.nickname
@@ -74,7 +75,7 @@ async function finish(): Promise<void> {
   try {
     await auth.updateProfile({ nickname: cleanName, avatar: selectedAvatar.value })
     toast.push('资料已保存，欢迎来到 LanChat', 'success', 1400)
-    window.location.assign(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/chat`)
+    navigateToApp('/chat')
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.message : '保存失败，请稍后重试'
   } finally {

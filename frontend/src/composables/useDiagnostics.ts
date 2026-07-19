@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, readonly, shallowRef } from 'vue'
 import type { Ref } from 'vue'
+import { currentNodeOrigin, webSocketUrl } from '../platform/nodeContext'
 import { api } from '../services/api'
 import type {
   AdminDiagnostics,
@@ -27,12 +28,12 @@ export function useDiagnostics(sources: DiagnosticsSources) {
   const refreshedAt = shallowRef<string | null>(null)
   let refreshTimer: number | null = null
 
-  const connectionPath = computed<ConnectionPath>(() => classifyConnectionPath(window.location.hostname))
-  const nodeAddress = computed(() => window.location.origin)
-  const webSocketAddress = computed(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${window.location.host}/ws/chat`
+  const nodeAddress = computed(() => currentNodeOrigin())
+  const connectionPath = computed<ConnectionPath>(() => {
+    const hostname = new URL(nodeAddress.value).hostname
+    return classifyConnectionPath(hostname)
   })
+  const webSocketAddress = computed(() => webSocketUrl())
   const browserCapabilities = Object.freeze({
     webSocket: 'WebSocket' in window,
     indexedDb: 'indexedDB' in window,

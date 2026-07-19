@@ -1,5 +1,9 @@
 import { computed, onBeforeUnmount, readonly, ref, shallowRef, watch } from 'vue'
+import { navigateToApp } from '../platform/appNavigation'
+import { nativeBridge } from '../platform/nativeBridge'
+import { selectedNode } from '../platform/nodeContext'
 import { api } from '../services/api'
+import { playNotificationSound } from '../services/notificationSound'
 import { publishRealtimeEvent } from '../services/realtimeEvents'
 import {
   cacheMessages,
@@ -37,7 +41,6 @@ import { usePeerFileTransfer } from './usePeerFileTransfer'
 import { useResumableUpload } from './useResumableUpload'
 import { useToast } from './useToast'
 import { useWebSocket } from './useWebSocket'
-import {playNotificationSound} from "../services/notificationSound";
 
 export type ChatSection = 'messages' | 'contacts' | 'groups' | 'broadcasts' | 'admin'
 
@@ -330,12 +333,12 @@ export function useChat() {
         void clearLocalChatDatabase()
           .then(() => clearCacheOwner())
           .catch(() => undefined)
-          .finally(() => window.location.replace('/'))
+          .finally(() => navigateToApp('/', true))
         return
       }
       // Refresh 过期不应销毁离线发件箱；同一用户重新登录后继续补发，
       // 若改用其他账号，prepareLocalCache 会按 owner 清理隔离数据。
-      window.location.replace('/')
+      navigateToApp('/', true)
     },
   })
   const peerFiles = usePeerFileTransfer({
@@ -685,11 +688,11 @@ export function useChat() {
     if (delivered.sequence != null && !hasSequenceGap) {
       await recordPosition(conversationId, delivered.sequence)
     }
-    if(isCurrentConversation) {
+    if (isCurrentConversation) {
       mergeCurrentMessages([delivered])
       if (isIncomingMessage) {
         startBurnCountdown(delivered)
-        if(!hasSequenceGap) {
+        if (!hasSequenceGap) {
           sendReadPosition(conversationId, [delivered])
         }
       }
@@ -704,8 +707,24 @@ export function useChat() {
             2800,
         )
         playNotificationSound()
-        }
       }
+    }
+    if (isIncomingMessage
+      && !conversation?.muted
+      && nativeBridge.runtime() === 'tauri'
+      && (document.visibilityState !== 'visible' || !document.hasFocus())) {
+      const title = conversation?.name || delivered.fromNickname || 'LANChat 新消息'
+      const preview = conversationPreview(delivered.type || delivered.contentType, delivered.content)
+      void nativeBridge.notify({
+        title,
+        body: (preview || '发来一条新消息').replace(/\s+/g, ' ').slice(0, 160),
+        target: {
+          kind: 'conversation',
+          value: conversationId,
+          nodeOrigin: selectedNode()?.origin,
+        },
+      }).catch(() => undefined)
+    }
     updateConversationPreview(delivered)
     ws.sendEvent('CHAT_DELIVER', {
       messageId: delivered.messageId,

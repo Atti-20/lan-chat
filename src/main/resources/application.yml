@@ -7,7 +7,7 @@ lanchat:
     name: ${LANCHAT_NODE_NAME:LanChat Node}
     organization-name: ${LANCHAT_ORGANIZATION_NAME:Local Organization}
     mode: ${LANCHAT_MODE:LAN_FIRST}
-    version: 2.3.0
+    version: 3.0.0
     advertised-host: ${LANCHAT_ADVERTISED_HOST:}
     advertised-port: ${LANCHAT_ADVERTISED_PORT:${server.port}}
     secure: ${LANCHAT_NODE_SECURE:false}
@@ -69,6 +69,9 @@ auth:
   refresh-cookie:
     secure: ${AUTH_COOKIE_SECURE:false}
 
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:https://chat.atti.cc.cd,http://localhost:8080,http://127.0.0.1:8080,tauri://localhost,http://tauri.localhost,https://tauri.localhost,http://127.0.0.1:1420,http://localhost:1420}
+
 # 文件存储
 file:
   storage-type: ${FILE_STORAGE_TYPE:LOCAL} # LOCAL / MINIO
@@ -126,7 +129,7 @@ logging:
 # WebSocket 浏览器来源。公网经过 HTTPS Tunnel 转发到本机 HTTP 时，
 # 必须显式允许公网 Origin，否则 Spring 默认同源校验会拒绝握手。
 websocket:
-  allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:https://chat.atti.cc.cd,http://localhost:8080,http://127.0.0.1:8080}
+  allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:https://chat.atti.cc.cd,http://localhost:8080,http://127.0.0.1:8080,tauri://localhost,http://tauri.localhost,https://tauri.localhost,http://127.0.0.1:1420,http://localhost:1420}
 
 # ==================== Cloudflare Tunnel ====================
 tunnel:

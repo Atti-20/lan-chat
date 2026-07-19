@@ -24,7 +24,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/broadcast")
-@CrossOrigin
 public class BroadcastController {
 
     private final BroadcastService broadcastService;

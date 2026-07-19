@@ -8,5 +8,12 @@
   <array>
     <string>_lanchat._tcp</string>
   </array>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+  <key>LSMultipleInstancesProhibited</key>
+  <true/>
 </dict>
 </plist>

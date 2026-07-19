@@ -11,6 +11,7 @@ const AVATAR_URL_CACHE_TTL = 5 * 60 * 1000
 </script>
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
+import { resourceUrl } from '../../platform/nodeContext'
 import { api } from '../../services/api'
 
 interface Props {
@@ -100,7 +101,9 @@ async function resolveAvatarUrl(avatar: string): Promise<string> {
   const existingRequest = avatarUrlRequestCache.get(avatar)
   if (existingRequest) return existingRequest
   const request = (async () => {
-    const url = isProtectedAvatar(avatar) ? await api.files.temporaryUrl(avatar) : avatar
+    const url = isProtectedAvatar(avatar)
+      ? await api.files.temporaryUrl(avatar)
+      : resourceUrl(avatar)
     await preloadImage(url)
     avatarUrlCache.set(avatar, {
       url,

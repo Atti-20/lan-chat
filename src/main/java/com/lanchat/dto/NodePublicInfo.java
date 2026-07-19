@@ -15,6 +15,13 @@ public record NodePublicInfo(
         boolean selfRegistrationEnabled,
         Set<String> loginMethods,
         Set<String> capabilities,
-        long serverTime
+        long serverTime,
+        int protocolVersion,
+        String apiBasePath,
+        String webSocketPath,
+        String healthPath,
+        String appPath,
+        boolean desktopAuthSupported,
+        String refreshTransport
 ) {
 }
