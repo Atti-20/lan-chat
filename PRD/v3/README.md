@@ -12,7 +12,7 @@ LANChat 面向校园、工厂、办公室、项目现场与应急环境，目标
 
 当前开发代码基线是 **V3.0.0-dev**，已继承 V2.3.0 的可靠消息、文本离线发件箱、重连补拉、文件安全、WebRTC 文件直传与中转降级、临时协作房间、应急广播、分片上传、断点续传、LOCAL/MinIO 私有存储，以及同一逻辑节点内的多实例实时路由。
 
-V3.0 首轮已落地 macOS 桌面端 P0 代码和跨平台 CI/Release 定义；这不等同于已经发布 V3.0。签名安装包、公证、Updater 实际升级和 GitHub Release 仍需仓库 Secrets、Apple/Windows 证书与真实平台运行证据。P1/P2 的移动端、Server Manager、离线增强与完整可观测性尚未实现。
+V3.0 首轮已落地 macOS 桌面端 P0，以及 Capacitor Android P1 工程与无签名构建定义；这不等同于已经发布 V3.0。签名安装包、公证、Updater 实际升级和 GitHub Release 仍需仓库 Secrets、Apple/Windows/Android 证书与真实平台运行证据。Server Manager、iOS、离线增强与完整可观测性尚未实现。
 
 ---
 
@@ -76,7 +76,7 @@ V3.0 的核心不是增加更多聊天按钮，而是完成五类产品化升级
 | Release Pipeline | Windows/macOS/Linux 构建、签名、Release、自动更新 | P0 | 流水线代码已实现；真实签名、公证、Updater 与 Release 待外部凭据验证 |
 | CI/CD & E2E | 前后端检查、桌面构建、双实例/断网 E2E | P0 | 工作流与测试代码已实现，待 GitHub/Docker 完整运行证据 |
 | Server Manager | 节点、日志、健康、备份、诊断与本机部署辅助 GUI | P1 | 规划完成，待开发 |
-| Android Client | Capacitor Android 客户端、权限适配、通知与文件 | P1 | 规划完成，待开发 |
+| Android Client | Capacitor Android 客户端、权限适配、通知与文件 | P1 | 工程与无签名 CI 已实现；待 Android SDK、真实设备、受控 LAN HTTP 和签名 AAB 回归 |
 | iOS Client | Capacitor iOS Beta、本地网络权限与 Bonjour 声明 | P2 | 预研项 |
 | Offline Enhancement | 草稿、上传任务恢复、热离线增强、安全凭证封装 | P1 | 规划完成，待开发 |
 | Observability | Actuator、Prometheus、Grafana、Micrometer Tracing | P1 | 规划完成，待开发 |
@@ -98,7 +98,7 @@ V3.0 的核心不是增加更多聊天按钮，而是完成五类产品化升级
 - 尚未产生经 Developer ID 签名、公证并 stapling 的 macOS `.app`/`.dmg`，也没有经真实安装验证的 Windows/Linux 产物。
 - Updater 客户端和发布流水线已接线，但必须在受保护环境注入 `TAURI_SIGNING_PRIVATE_KEY`、`TAURI_UPDATER_PUBLIC_KEY` 及平台签名 Secrets，并从旧版本执行一次真实升级才能验收。
 - GitHub Actions、真实局域网多播、自托管 mDNS runner 和完整 Docker E2E 的运行结果必须另行留存；仅存在工作流或测试文件不等于这些环境已经验证通过。
-- 二维码回退、Server Manager、Capacitor Android/iOS、上传任务跨重启恢复、Prometheus/Trace/Grafana 仍属于 P1/P2 或后续工作。
+- 二维码回退、Server Manager、Capacitor iOS、上传任务跨重启恢复、Prometheus/Trace/Grafana 仍属于 P1/P2 或后续工作；Android 已有工程基础，但真实设备、签名 AAB 和发布尚未验收。
 
 ## 总体架构
 

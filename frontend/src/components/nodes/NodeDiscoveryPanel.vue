@@ -15,6 +15,9 @@ const statusCopy = computed(() => {
       ? `原生扫描发现 ${discovery.peerCount.value} 个节点`
       : '正在通过 mDNS 监听局域网节点'
   }
+  if (discovery.mobile) return discovery.peerCount.value > 0
+    ? `发现 ${discovery.peerCount.value} 个可连接节点`
+    : '正在扫描局域网节点'
   if (!discovery.nodeInfo.value?.discoveryEnabled) return '当前节点未启用 mDNS 扫描'
   return discovery.peerCount.value > 0
     ? `发现 ${discovery.peerCount.value} 个可连接节点`
@@ -27,7 +30,11 @@ function selectNode(node: DesktopNode): void {
 </script>
 
 <template>
-  <section class="node-discovery" aria-labelledby="node-discovery-title">
+  <section
+    class="node-discovery apple-float-surface"
+    :class="{ 'node-discovery--mobile': discovery.mobile }"
+    aria-labelledby="node-discovery-title"
+  >
     <header>
       <div class="discovery-icon" aria-hidden="true">
         <UiIcon name="monitor" :size="18" />
@@ -47,7 +54,7 @@ function selectNode(node: DesktopNode): void {
       @select="selectNode"
     />
     <ManualNodeForm
-      v-if="discovery.desktop"
+      v-if="discovery.desktop || discovery.mobile"
       :busy="discovery.addingManual.value"
       @submit="discovery.addManualNode"
     />
@@ -66,5 +73,6 @@ function selectNode(node: DesktopNode): void {
 
 @media (max-width: 860px) {
   .node-discovery { display: none; }
+  .node-discovery--mobile { display: block; }
 }
 </style>

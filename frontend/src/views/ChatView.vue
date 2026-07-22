@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
+import { App } from '@capacitor/app'
 import AdminConsole from '../components/admin/AdminConsole.vue'
 import AdminPasswordResetModal from '../components/admin/AdminPasswordResetModal.vue'
 import AdminSidebar from '../components/admin/AdminSidebar.vue'
@@ -13,13 +14,14 @@ import ConnectionDiagnosticsModal from '../components/diagnostics/ConnectionDiag
 import DesktopSettingsModal from '../components/desktop/DesktopSettingsModal.vue'
 import AppRail from '../components/chat/AppRail.vue'
 import ChangePasswordModal from '../components/chat/ChangePasswordModal.vue'
-import ConnectionStatusBar from '../components/chat/ConnectionStatusBar.vue'
 import ContextPanel from '../components/chat/ContextPanel.vue'
 import ConversationSidebar from '../components/chat/ConversationSidebar.vue'
 import CreateGroupModal from '../components/chat/CreateGroupModal.vue'
 import DeviceManagerModal from '../components/chat/DeviceManagerModal.vue'
+import FileTransferSettingsModal from '../components/chat/FileTransferSettingsModal.vue'
 import MessageComposer from '../components/chat/MessageComposer.vue'
 import MessageThread from '../components/chat/MessageThread.vue'
+import PersonalProfileModal from '../components/chat/PersonalProfileModal.vue'
 import ProfileModal from '../components/chat/ProfileModal.vue'
 import SearchPeopleModal from '../components/chat/SearchPeopleModal.vue'
 import UserAvatar from '../components/base/UserAvatar.vue'
@@ -110,12 +112,14 @@ const roomCreateOpen = shallowRef(false)
 const roomJoinOpen = shallowRef(false)
 const broadcastCreateOpen = shallowRef(false)
 const profileOpen = shallowRef(false)
+const profileEditorOpen = shallowRef(false)
 const contextOpen = shallowRef(false)
 const devicesOpen = shallowRef(false)
 const passwordOpen = shallowRef(false)
 const passwordResetTarget = shallowRef<AdminUser | null>(null)
 const diagnosticsOpen = shallowRef(false)
 const desktopSettingsOpen = shallowRef(false)
+const fileTransferSettingsOpen = shallowRef(false)
 const adminModule = shallowRef<AdminModule | null>(null)
 const groupSaving = shallowRef(false)
 const profileSaving = shallowRef(false)
@@ -123,6 +127,8 @@ const uploading = shallowRef(false)
 const broadcastConfirming = shallowRef(false)
 const broadcastStatisticsLoading = shallowRef(false)
 const replyTo = shallowRef<ChatMessage | null>(null)
+// Keep this aligned with the 760px responsive media queries in the chat UI.
+// Desktop and Web use the same width-based layout switch; runtime is irrelevant.
 const MOBILE_BREAKPOINT = 760
 const SIDEBAR_MIN_WIDTH = 280
 const SIDEBAR_MAX_WIDTH = 520
@@ -132,6 +138,7 @@ const viewportWidth = shallowRef(window.innerWidth)
 const sidebarWidth = shallowRef(clampSidebarWidth(320, viewportWidth.value))
 const resizingSidebar = shallowRef(false)
 let stopActiveSidebarResize: (() => void) | null = null
+let removeAndroidBackListener: (() => void) | null = null
 const desktopNavigationListener = (event: Event) => {
   if (!(event instanceof CustomEvent)) return
   void openDesktopNavigation(event.detail as DesktopNavigationTarget)
@@ -141,7 +148,7 @@ const user = computed<User>(() => auth.currentUser.value || {
   id: auth.session.value?.userId || 0,
   userId: auth.session.value?.userId,
   username: auth.session.value?.username || '',
-  nickname: auth.session.value?.nickname || 'LanChat 用户',
+  nickname: auth.session.value?.nickname || 'MeshX 用户',
   avatar: auth.session.value?.avatar,
 })
 const isAdminSection = computed(() => section.value === 'admin')
@@ -207,10 +214,24 @@ const connectionCopy = computed(() => reconnecting.value
     : connected.value
       ? '实时在线'
       : '离线可用')
+const profileConnectionSummary = computed(() => {
+  const path = diagnostics.connectionPath.value === 'LOCAL'
+    ? '本机节点'
+    : diagnostics.connectionPath.value === 'LAN'
+      ? '局域网节点'
+      : '远程节点'
+  const name = diagnostics.nodeInfo.value?.nodeName || 'MeshX 节点'
+  const latency = latencyMs.value === null ? '' : ` · ${latencyMs.value} ms`
+  return `${name} · ${path} · ${connectionCopy.value}${latency}`
+})
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
   window.addEventListener(DESKTOP_NAVIGATION_EVENT, desktopNavigationListener)
+  if (nativeBridge.runtime() === 'capacitor') {
+    const listener = await App.addListener('backButton', () => { void handleAndroidBack() })
+    removeAndroidBackListener = () => listener.remove()
+  }
   // 登录响应中的用户资料可能是旧快照；进入聊天前以 /user/info 的结果为准，
   // 确保导航栏、个人资料弹窗和消息头像使用同一份头像数据。
   const hydrated = await auth.hydrate()
@@ -231,7 +252,33 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener(DESKTOP_NAVIGATION_EVENT, desktopNavigationListener)
   stopActiveSidebarResize?.()
+  removeAndroidBackListener?.()
 })
+
+async function handleAndroidBack(): Promise<void> {
+  if (broadcasts.emergencyAlert.value) {
+    broadcasts.closeEmergencyAlert()
+    return
+  }
+  if (passwordResetTarget.value) { passwordResetTarget.value = null; return }
+  if (profileEditorOpen.value) { profileEditorOpen.value = false; profileOpen.value = true; return }
+  if (contextOpen.value) { contextOpen.value = false; return }
+  if (searchOpen.value) { searchOpen.value = false; return }
+  if (groupOpen.value) { groupOpen.value = false; return }
+  if (roomCreateOpen.value) { roomCreateOpen.value = false; return }
+  if (roomJoinOpen.value) { roomJoinOpen.value = false; return }
+  if (broadcastCreateOpen.value) { broadcastCreateOpen.value = false; return }
+  if (devicesOpen.value) { devicesOpen.value = false; return }
+  if (passwordOpen.value) { passwordOpen.value = false; return }
+  if (fileTransferSettingsOpen.value) { fileTransferSettingsOpen.value = false; return }
+  if (desktopSettingsOpen.value) { desktopSettingsOpen.value = false; return }
+  if (diagnosticsOpen.value) { diagnosticsOpen.value = false; return }
+  if (profileOpen.value) { profileOpen.value = false; return }
+  if (adminModule.value) { adminModule.value = null; return }
+  if (broadcasts.selectedId.value !== null) { broadcasts.clearSelection(); return }
+  if (selected.value) { selected.value = null; return }
+  await App.exitApp()
+}
 
 async function openDesktopNavigation(target: DesktopNavigationTarget): Promise<void> {
   if (loading.value || target.kind === 'node') return
@@ -641,7 +688,8 @@ async function saveProfile(payload: { nickname: string; avatar: string }): Promi
   try {
     await auth.updateProfile(payload)
     toast.push('个人资料已更新', 'success')
-    profileOpen.value = false
+    profileEditorOpen.value = false
+    profileOpen.value = true
   } catch (cause) {
     handleError(cause, '保存个人资料失败')
   } finally {
@@ -662,7 +710,7 @@ async function switchDesktopNode(): Promise<void> {
   const confirmed = await nativeBridge.confirm(
     '切换节点会退出当前设备会话并清理本地聊天缓存。是否继续？',
     {
-      title: '切换 LANChat 节点',
+      title: '切换 MeshX 节点',
       kind: 'warning',
       okLabel: '退出并切换',
       cancelLabel: '取消',
@@ -910,7 +958,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         />
       </section>
 
-      <section v-else-if="selected && showWorkspace" class="workspace">
+      <section v-else-if="selected && showWorkspace" class="workspace apple-content-surface">
         <header class="workspace-header">
           <button v-if="mobile" class="back-button" type="button" aria-label="返回会话列表" @click="selected = null">
             <UiIcon name="back" :size="21" />
@@ -919,26 +967,9 @@ async function resetUserPassword(newPassword: string): Promise<void> {
             <UserAvatar :name="selected.name" :avatar="selected.avatar" :size="42" />
             <div class="workspace-title">
               <strong>{{ selected.name }}</strong>
-              <span><i :class="{ offline: !connected }" /> {{ connectionCopy }}</span>
             </div>
           </button>
         </header>
-
-        <div class="connection-status-slot">
-          <ConnectionStatusBar
-            :state="connectionState"
-            :pending-count="pendingCount"
-            :failed-count="failedCount"
-            :reconnect-attempts="reconnectAttempts"
-            :latency-ms="latencyMs"
-            :node-name="diagnostics.nodeInfo.value?.nodeName"
-            :connection-path="diagnostics.connectionPath.value"
-            :can-view-diagnostics="isAdministrator"
-            @details="isAdministrator && (diagnosticsOpen = true)"
-            @reconnect="chat.reconnect"
-            @retry="chat.retryOutbox"
-          />
-        </div>
 
         <MessageThread
           :conversation="selected"
@@ -971,7 +1002,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
 
       <WorkspaceWelcome
         v-else-if="showWorkspace"
-        class="workspace workspace--welcome"
+        class="workspace workspace--welcome apple-content-surface"
         :section="section"
         @primary="handleWelcomeAction"
       />
@@ -1031,17 +1062,29 @@ async function resetUserPassword(newPassword: string): Promise<void> {
       @confirm="(broadcastId, status) => confirmBroadcast(status, broadcastId)"
       @dismiss="broadcasts.closeEmergencyAlert"
     />
-    <ProfileModal
+    <PersonalProfileModal
       :open="profileOpen"
       :user="user"
-      :saving="profileSaving"
       :desktop="nativeBridge.runtime() === 'tauri'"
+      :connection-summary="profileConnectionSummary"
       @close="profileOpen = false"
-      @save="saveProfile"
+      @open-profile-editor="profileEditorOpen = true"
+      @open-devices="devicesOpen = true"
+      @open-password="passwordOpen = true"
+      @open-file-transfer-settings="fileTransferSettingsOpen = true"
+      @open-desktop-settings="desktopSettingsOpen = true"
       @logout="logout"
-      @open-devices="profileOpen = false; devicesOpen = true"
-      @open-password="profileOpen = false; passwordOpen = true"
-      @open-desktop-settings="profileOpen = false; desktopSettingsOpen = true"
+    />
+    <ProfileModal
+      :open="profileEditorOpen"
+      :user="user"
+      :saving="profileSaving"
+      @close="profileEditorOpen = false; profileOpen = true"
+      @save="saveProfile"
+    />
+    <FileTransferSettingsModal
+      :open="fileTransferSettingsOpen"
+      @close="fileTransferSettingsOpen = false"
     />
     <DesktopSettingsModal
       :open="desktopSettingsOpen"
@@ -1092,11 +1135,10 @@ async function resetUserPassword(newPassword: string): Promise<void> {
 </template>
 
 <style scoped>
-.chat-page { width: 100%; min-height: 100dvh; padding: 18px; }
-.chat-shell { display: grid; width: 100%; height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: var(--rail-width, 72px) var(--sidebar-width, 320px) minmax(0, 1fr); gap: 10px; }
-.workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr) max-content; border-radius: 18px; overflow: hidden; }
+.chat-page { width: 100%; height: 100vh; min-height: 0; padding: 18px; overflow: hidden; }
+.chat-shell { display: grid; width: 100%; height: calc(100vh - 36px); min-height: 0; margin: 0 auto; grid-template-columns: var(--rail-width, 72px) var(--sidebar-width, 320px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 10px; }
+.workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, auto) minmax(0, 1fr) max-content; border-radius: 18px; overflow: hidden; }
 .workspace--broadcast { grid-template-rows: minmax(0, 1fr); }
-.connection-status-slot { min-width: 0; min-height: 0; }
 .workspace-header { display: flex; padding: 14px 19px; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.54); background: rgba(255,255,255,.16); }
 .workspace-title { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .workspace-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1129,8 +1171,12 @@ async function resetUserPassword(newPassword: string): Promise<void> {
   --rail-width: 72px;
   position: relative;
   width: 100%;
-  height: calc(100dvh - 40px);
+  height: calc(100vh - 40px);
+  min-height: 0;
+  max-height: calc(100vh - 40px);
   grid-template-columns: var(--rail-width) var(--sidebar-width, 320px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--glass-border);
@@ -1192,7 +1238,6 @@ async function resetUserPassword(newPassword: string): Promise<void> {
 .workspace { border-radius: 0; background: var(--surface); }
 .workspace--welcome { grid-template-rows: minmax(0, 1fr); }
 .workspace--admin-module { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
-.connection-status-slot { overflow: visible; }
 .workspace > :deep(.message-thread) { min-height: 0; overflow-y: auto; }
 .workspace > :deep(.composer-wrap) { min-height: 0; }
 .workspace-header {
@@ -1210,10 +1255,25 @@ async function resetUserPassword(newPassword: string): Promise<void> {
 .workspace-title i { width: 6px; height: 6px; box-shadow: none; }
 .boot-screen { border-radius: 22px; }
 
+/* A tablet uses the desktop three-column layout, but its WebView can resize
+ * while a thread is hydrated. Keep every structural column inside the single
+ * constrained grid row so loading content cannot grow the rail or sidebar. */
+@media (min-width: 761px) {
+  .chat-shell > :deep(.app-rail),
+  .chat-shell > :deep(.conversation-sidebar),
+  .chat-shell > :deep(.broadcast-sidebar),
+  .chat-shell > :deep(.admin-sidebar) {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
+}
+
 @media (max-width: 760px) {
   .chat-page { padding: 0; }
   .chat-shell {
-    height: 100dvh;
+    height: 100vh;
     border: 0;
     border-radius: 0;
     box-shadow: none;
@@ -1240,5 +1300,19 @@ async function resetUserPassword(newPassword: string): Promise<void> {
   .mobile-module-header div { display: grid; gap: 2px; }
   .mobile-module-header span { color: var(--ink-faint); font-size: 9px; }
   .mobile-module-header strong { font-size: 13px; }
+}
+
+/* Keep the `vh` fallback as a separate feature query: the mobile optimizer
+ * otherwise folds it into `dvh`, which older Android WebViews then discard. */
+@supports (height: 100dvh) {
+  .chat-page { height: 100dvh; }
+  .chat-shell {
+    height: calc(100dvh - 40px);
+    max-height: calc(100dvh - 40px);
+  }
+
+  @media (max-width: 760px) {
+    .chat-shell { height: 100dvh; }
+  }
 }
 </style>

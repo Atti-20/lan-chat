@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, shallowRef, useTemplateRef } from 'vue'
+import BrandLogo from '../components/base/BrandLogo.vue'
 import UiIcon from '../components/base/UiIcon.vue'
 import NodeDiscoveryPanel from '../components/nodes/NodeDiscoveryPanel.vue'
 import { ApiError, api } from '../services/api'
@@ -22,7 +23,7 @@ const passwordInput = useTemplateRef<HTMLInputElement>('passwordInput')
 const heading = computed(() => mode.value === 'login' ? '回到对话' : '创建你的空间')
 const submitLabel = computed(() => {
   if (auth.loading.value) return mode.value === 'login' ? '正在连接…' : '正在创建…'
-  return mode.value === 'login' ? '登录 LanChat' : '创建并进入'
+  return mode.value === 'login' ? '登录 MeshX' : '创建并进入'
 })
 
 onMounted(async () => {
@@ -118,14 +119,14 @@ async function submit(): Promise<void> {
     </div>
   </main>
   <main v-else class="auth-page">
-    <section class="auth-story" aria-label="LanChat 简介">
+    <section class="auth-story" aria-label="MeshX 简介">
       <div class="brand-mark" aria-hidden="true">
-        <UiIcon name="brand" />
+        <BrandLogo decorative />
       </div>
 
       <div class="story-copy">
-        <p class="eyebrow">LAN / LOCAL / LIVE</p>
-        <h1>LanChat，轻快自然。</h1>
+        <p class="eyebrow">PRIVATE / LOCAL / CONNECTED</p>
+        <h1>MeshX，让连接更自然。</h1>
         <p class="story-lead">消息、文件、群组，打开即用。</p>
       </div>
 
@@ -133,9 +134,9 @@ async function submit(): Promise<void> {
 
     </section>
 
-    <section class="auth-card glass-surface">
+    <section class="auth-card glass-surface apple-float-surface">
       <div class="auth-card-top">
-        <p class="auth-kicker">LanChat</p>
+        <p class="auth-kicker">MeshX</p>
         <h2>{{ heading }}</h2>
         <p>{{ mode === 'login' ? '输入账号以继续。' : '创建账号，即刻开聊。' }}</p>
       </div>
@@ -195,21 +196,7 @@ async function submit(): Promise<void> {
 
 .auth-story { display: grid; gap: 34px; }
 
-.brand-mark {
-  position: relative;
-  display: grid;
-  width: 72px;
-  height: 72px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.86);
-  border-radius: 25px 25px 25px 12px;
-  color: var(--blue);
-  background: linear-gradient(145deg, rgba(255,255,255,.88), rgba(255,255,255,.4));
-  box-shadow: inset 0 1px 0 #fff, 0 20px 34px rgba(10, 132, 255, 0.16);
-  transform: rotate(-3deg);
-}
-
-.brand-mark .ui-icon { width: 48px; height: 48px; }
+.brand-mark { width: 116px; aspect-ratio: 1; line-height: 0; }
 .brand-glint {
   position: absolute;
   top: 9px;
@@ -338,8 +325,7 @@ async function submit(): Promise<void> {
 @media (max-width: 520px) {
   .auth-page { width: min(100% - 24px, 460px); }
   .auth-card { padding: 25px 20px; border-radius: 28px 28px 28px 15px; }
-  .brand-mark { width: 58px; height: 58px; border-radius: 20px 20px 20px 10px; }
-  .brand-mark .ui-icon { width: 39px; height: 39px; }
+  .brand-mark { width: 108px; }
 }
 
 .auth-page {
@@ -349,18 +335,7 @@ async function submit(): Promise<void> {
   gap: clamp(48px, 8vw, 96px);
 }
 .auth-story { gap: 24px; }
-.brand-mark {
-  width: 56px;
-  height: 56px;
-  border: 0;
-  border-radius: 17px;
-  color: var(--blue);
-  background: var(--surface-glass);
-  box-shadow: 0 6px 18px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
-  transform: none;
-  backdrop-filter: blur(16px) saturate(150%);
-}
-.brand-mark .ui-icon { width: 38px; height: 38px; }
+.brand-mark { width: 116px; }
 .eyebrow,
 .auth-kicker {
   margin-bottom: 10px;
@@ -420,7 +395,6 @@ async function submit(): Promise<void> {
 }
 @media (max-width: 520px) {
   .auth-card { padding: 24px 20px; border-radius: 22px; }
-  .brand-mark { width: 50px; height: 50px; border-radius: 15px; }
-  .brand-mark .ui-icon { width: 34px; height: 34px; }
+  .brand-mark { width: 104px; }
 }
 </style>

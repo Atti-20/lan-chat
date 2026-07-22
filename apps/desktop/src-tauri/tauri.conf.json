@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "LANChat",
+  "productName": "MeshX",
   "version": "3.0.0",
   "identifier": "com.atti20.lanchat",
   "build": {
@@ -13,11 +13,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "LANChat",
+        "title": "MeshX",
         "width": 1280,
         "height": 820,
-        "minWidth": 960,
-        "minHeight": 640,
+        "minWidth": 360,
+        "minHeight": 480,
         "center": true,
         "resizable": true,
         "visible": false,
@@ -46,13 +46,17 @@
       "icons/icon.ico"
     ],
     "shortDescription": "LAN-first private collaboration client",
-    "longDescription": "LANChat provides private messaging and file collaboration for organization-controlled local networks."
+    "longDescription": "MeshX provides private messaging and file collaboration for organization-controlled local networks."
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["lanchat"]
+        "schemes": ["MeshX"]
       }
+    },
+    "updater": {
+      "endpoints": [],
+      "pubkey": ""
     }
   }
 }

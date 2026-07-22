@@ -51,6 +51,20 @@ export class ApiError extends Error {
 
 let refreshPromise: Promise<boolean> | null = null
 
+function clientDeviceType(): 'web' | 'android' | 'ios' {
+  const runtime = nativeBridge.runtime()
+  if (runtime !== 'capacitor') return 'web'
+  return navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')
+    ? 'ios'
+    : 'android'
+}
+
+function clientDeviceName(): string {
+  const type = clientDeviceType()
+  if (type === 'web') return navigator.userAgent.slice(0, 100)
+  return `MeshX ${type === 'android' ? 'Android' : 'iOS'} (${navigator.userAgent})`.slice(0, 100)
+}
+
 function authHeaders(): Record<string, string> {
   const token = readSession()?.token
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -75,8 +89,8 @@ async function refreshAccessToken(): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
-          deviceType: 'web',
-          deviceName: navigator.userAgent.slice(0, 100),
+          deviceType: clientDeviceType(),
+          deviceName: clientDeviceName(),
         }),
       })
       const result = await response.json() as ApiResult<AuthSession>
@@ -207,8 +221,8 @@ export const api = {
         body: JSON.stringify({
           username,
           password,
-          deviceType: 'web',
-          deviceName: navigator.userAgent.slice(0, 100),
+          deviceType: clientDeviceType(),
+          deviceName: clientDeviceName(),
         }),
       }),
     register: (username: string, password: string, nickname: string) => request<void>('/auth/register', {

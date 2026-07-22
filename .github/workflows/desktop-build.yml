@@ -1,0 +1,93 @@
+name: Desktop Build
+
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "frontend/**"
+      - ".github/workflows/desktop-build.yml"
+  push:
+    branches:
+      - master
+      - "feature/**"
+    paths:
+      - "apps/desktop/**"
+      - "frontend/**"
+      - ".github/workflows/desktop-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: ${{ matrix.name }} unsigned smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04
+          - name: macOS
+            os: macos-14
+          - name: Windows
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            wget
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install JavaScript dependencies
+        shell: bash
+        run: |
+          npm ci --prefix frontend
+          npm ci --prefix apps/desktop
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+
+      - name: Check Rust workspace
+        run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Run Rust tests
+        run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Build desktop frontend
+        run: npm run build:desktop --prefix frontend
+
+      - name: Build unsigned desktop executable
+        run: npm --prefix apps/desktop run tauri -- build --no-bundle

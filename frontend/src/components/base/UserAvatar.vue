@@ -1,18 +1,9 @@
-<script lang="ts">
-interface AvatarUrlCacheEntry {
-  url: string
-  expiresAt: number
-}
-
-const avatarUrlCache = new Map<string, AvatarUrlCacheEntry>()
-const avatarUrlRequestCache = new Map<string, Promise<string>>()
-
-const AVATAR_URL_CACHE_TTL = 5 * 60 * 1000
-</script>
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
-import { resourceUrl } from '../../platform/nodeContext'
-import { api } from '../../services/api'
+import {
+  invalidateCachedAvatarImage,
+  resolveCachedAvatarImage,
+} from '../../services/avatarImageCache'
 
 interface Props {
   name: string
@@ -69,58 +60,6 @@ function isImageAvatar(avatar: string): boolean {
   return Boolean(avatar) && avatar !== 'text' && !avatar.startsWith('letter:') && !avatar.startsWith('emoji:') && !avatar.startsWith('svg:')
 }
 
-function isProtectedAvatar(avatar: string): boolean {
-  return avatar.startsWith('/api/v1/file/content') || avatar.startsWith('/api/v1/file/preview')
-}
-
-function getCachedAvatarUrl(avatar: string): string {
-  const cached = avatarUrlCache.get(avatar)
-  if (!cached) return ''
-  if (cached.expiresAt <= Date.now()) {
-    avatarUrlCache.delete(avatar)
-    return ''
-  }
-  return cached.url
-}
-
-function preloadImage(url: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve()
-    image.onerror = () => reject(new Error('头像加载失败'))
-    image.src = url
-    if (image.complete && image.naturalWidth > 0) {
-      resolve()
-    }
-  })
-}
-
-async function resolveAvatarUrl(avatar: string): Promise<string> {
-  const cachedUrl = getCachedAvatarUrl(avatar)
-  if (cachedUrl) return cachedUrl
-  const existingRequest = avatarUrlRequestCache.get(avatar)
-  if (existingRequest) return existingRequest
-  const request = (async () => {
-    const url = isProtectedAvatar(avatar)
-      ? await api.files.temporaryUrl(avatar)
-      : resourceUrl(avatar)
-    await preloadImage(url)
-    avatarUrlCache.set(avatar, {
-      url,
-      expiresAt: Date.now() + AVATAR_URL_CACHE_TTL
-    })
-    return url
-  })()
-
-  avatarUrlRequestCache.set(avatar, request)
-
-  try {
-    return await request
-  } finally {
-    avatarUrlRequestCache.delete(avatar)
-  }
-}
-
 watch(
   () => props.avatar,
   async (avatar, _previous, onCleanup) => {
@@ -135,15 +74,9 @@ watch(
       resolvingImage.value = false
       return
     }
-    const cachedUrl = getCachedAvatarUrl(avatar)
-    if (cachedUrl) {
-      resolvedImageUrl.value = cachedUrl
-      resolvingImage.value = false
-      return
-    }
     resolvingImage.value = true
     try {
-      const url = await resolveAvatarUrl(avatar)
+      const url = await resolveCachedAvatarImage(avatar)
       if(cancelled || requestVersion !== avatarRequestVersion || props.avatar !== avatar) return
       resolvedImageUrl.value = url
       resolvingImage.value = false
@@ -159,7 +92,7 @@ watch(
 
 function handleAvatarImageError(): void {
   const avatar = props.avatar
-  if (avatar) avatarUrlCache.delete(avatar)
+  if (avatar) void invalidateCachedAvatarImage(avatar)
   resolvedImageUrl.value = ''
   resolvingImage.value = false
 }

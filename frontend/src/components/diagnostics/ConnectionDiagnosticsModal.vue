@@ -89,13 +89,13 @@ function closeFromBackdrop(): void {
 <template>
   <div
     v-if="open"
-    :class="embedded ? 'diagnostics-workspace' : 'diagnostics-backdrop'"
+    :class="embedded ? 'diagnostics-workspace' : 'diagnostics-backdrop apple-modal-backdrop'"
     :role="embedded ? undefined : 'presentation'"
     @click.self="closeFromBackdrop"
   >
     <section
       class="diagnostics-panel"
-      :class="{ 'diagnostics-panel--embedded': embedded }"
+      :class="{ 'diagnostics-panel--embedded': embedded, 'apple-modal-surface': !embedded, 'apple-content-surface': embedded }"
       :role="embedded ? 'region' : 'dialog'"
       :aria-modal="embedded ? undefined : true"
       aria-labelledby="diagnostics-title"
@@ -104,9 +104,9 @@ function closeFromBackdrop(): void {
         <div>
           <p>CONNECTION DIAGNOSTICS</p>
           <h2 id="diagnostics-title">连接诊断</h2>
-          <span>{{ nodeInfo?.nodeName || '当前 LanChat 节点' }} · {{ modeLabel }}</span>
+          <span>{{ nodeInfo?.nodeName || '当前 MeshX 节点' }} · {{ modeLabel }}</span>
         </div>
-        <button v-if="!embedded" class="icon-button" type="button" aria-label="关闭诊断面板" @click="emit('close')">
+        <button v-if="!embedded" class="icon-button apple-modal-close" type="button" aria-label="关闭诊断面板" @click="emit('close')">
           <UiIcon name="close" :size="17" />
         </button>
       </header>

@@ -1,3 +1,4 @@
+mod attachments;
 mod deep_link;
 mod discovery;
 mod endpoint;
@@ -42,6 +43,8 @@ pub fn run() {
         .manage(LifecycleState::default())
         .manage(NativeAuthState::default())
         .setup(|app| {
+            use tauri::Manager;
+
             let discovery =
                 DiscoveryService::new(app.handle().clone()).map_err(std::io::Error::other)?;
             app.manage(Arc::clone(&discovery));
@@ -84,6 +87,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            attachments::save_attachment,
             runtime::runtime_info,
             lifecycle::desktop_show,
             lifecycle::desktop_hide,
@@ -97,6 +101,19 @@ pub fn run() {
             native_auth::desktop_refresh,
             native_auth::desktop_logout,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run LANChat desktop client");
+        .build(tauri::generate_context!())
+        .expect("failed to build MeshX desktop client")
+        .run(|app, event| {
+            // On macOS, clicking the Dock icon of an already-running app does
+            // not start a second instance. It emits Reopen instead. Our close
+            // policy hides the only window, so restore it explicitly here.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                show_main_window(app);
+            }
+        });
 }

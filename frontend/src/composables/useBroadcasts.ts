@@ -286,7 +286,7 @@ export function useBroadcasts(options: UseBroadcastsOptions = {}) {
       if (detail.broadcast.priority === 'EMERGENCY' && detail.receiver) {
         emergencyAlert.value = detail
       }
-      if (nativeBridge.runtime() === 'tauri'
+      if (nativeBridge.runtime() !== 'web'
         && (document.visibilityState !== 'visible' || !document.hasFocus())) {
         void nativeBridge.notify({
           title: detail.broadcast.priority === 'EMERGENCY'

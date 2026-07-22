@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, shallowRef, watch } from 'vue'
 import type { TemporaryRoomCreatePayload, TemporaryRoomExpiryAction } from '../../types'
+import AppleSwitch from '../base/AppleSwitch.vue'
 import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
@@ -99,13 +100,13 @@ function submit(): void {
 <template>
   <div
     v-if="open"
-    class="modal-backdrop"
+    class="modal-backdrop apple-modal-backdrop"
     role="presentation"
     @click.self="requestClose"
     @keydown.esc="requestClose"
   >
     <section
-      class="room-sheet"
+      class="room-sheet apple-modal-surface"
       role="dialog"
       aria-modal="true"
       aria-labelledby="temporary-room-title"
@@ -121,7 +122,7 @@ function submit(): void {
           <span id="temporary-room-description">设置成员范围、协作权限与到期处理方式。</span>
         </div>
         <button
-          class="close-button"
+          class="close-button apple-modal-close"
           type="button"
           aria-label="关闭"
           :disabled="saving"
@@ -200,36 +201,30 @@ function submit(): void {
             </div>
 
             <div class="policy-grid">
-              <label class="policy-option">
-                <input v-model="form.allowGuests" type="checkbox" />
-                <span class="toggle" aria-hidden="true"><i /></span>
+              <div class="policy-option">
+                <AppleSwitch v-model="form.allowGuests" aria-label="允许访客" />
                 <span class="policy-copy"><strong>允许访客</strong><small>访客账号可凭房间码加入</small></span>
-              </label>
-              <label class="policy-option">
-                <input v-model="form.allowMemberInvite" type="checkbox" />
-                <span class="toggle" aria-hidden="true"><i /></span>
+              </div>
+              <div class="policy-option">
+                <AppleSwitch v-model="form.allowMemberInvite" aria-label="成员可邀请" />
                 <span class="policy-copy"><strong>成员可邀请</strong><small>成员可以分享房间码</small></span>
-              </label>
-              <label class="policy-option">
-                <input v-model="form.allowFileUpload" type="checkbox" />
-                <span class="toggle" aria-hidden="true"><i /></span>
+              </div>
+              <div class="policy-option">
+                <AppleSwitch v-model="form.allowFileUpload" aria-label="允许上传" />
                 <span class="policy-copy"><strong>允许上传</strong><small>成员可以向房间发送附件</small></span>
-              </label>
-              <label class="policy-option">
-                <input v-model="form.allowFileDownload" type="checkbox" />
-                <span class="toggle" aria-hidden="true"><i /></span>
+              </div>
+              <div class="policy-option">
+                <AppleSwitch v-model="form.allowFileDownload" aria-label="允许下载" />
                 <span class="policy-copy"><strong>允许下载</strong><small>成员可以保存房间文件</small></span>
-              </label>
-              <label class="policy-option">
-                <input v-model="form.allowForward" type="checkbox" />
-                <span class="toggle" aria-hidden="true"><i /></span>
+              </div>
+              <div class="policy-option">
+                <AppleSwitch v-model="form.allowForward" aria-label="允许转发" />
                 <span class="policy-copy"><strong>允许转发</strong><small>内容可转发至其他会话</small></span>
-              </label>
-              <label class="policy-option">
-                <input v-model="form.allowExternalSync" type="checkbox" />
-                <span class="toggle" aria-hidden="true"><i /></span>
+              </div>
+              <div class="policy-option">
+                <AppleSwitch v-model="form.allowExternalSync" aria-label="允许外部同步" />
                 <span class="policy-copy"><strong>允许外部同步</strong><small>可同步至授权的外部节点</small></span>
-              </label>
+              </div>
             </div>
           </section>
 
@@ -402,33 +397,9 @@ function submit(): void {
   border: 1px solid var(--separator);
   border-radius: 14px;
   background: var(--surface-glass);
-  cursor: pointer;
   transition: border-color 150ms ease, background-color 150ms ease;
 }
 .policy-option:hover { border-color: var(--separator-strong); background: var(--hover); }
-.policy-option > input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.toggle {
-  position: relative;
-  width: 34px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--separator-strong);
-  transition: background-color 160ms ease;
-}
-.toggle i {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--surface);
-  box-shadow: 0 1px 4px var(--shadow-color);
-  transition: transform 180ms var(--ease-liquid);
-}
-.policy-option > input:checked + .toggle { background: var(--blue); }
-.policy-option > input:checked + .toggle i { transform: translateX(14px); }
-.policy-option > input:focus-visible + .toggle { outline: 3px solid color-mix(in srgb, var(--blue) 22%, transparent); outline-offset: 2px; }
 .policy-copy { display: grid; min-width: 0; gap: 3px; }
 .policy-copy strong { font-size: 12px; }
 .policy-copy small { color: var(--ink-soft); font-size: 10px; line-height: 1.35; }

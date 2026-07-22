@@ -50,9 +50,9 @@ watch(() => props.open, (open) => {
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="search-sheet" role="dialog" aria-modal="true" aria-labelledby="people-title">
-      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+  <div v-if="open" class="modal-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="search-sheet apple-modal-surface" role="dialog" aria-modal="true" aria-labelledby="people-title">
+      <button class="close-button apple-modal-close" type="button" aria-label="关闭" @click="emit('close')">
         <UiIcon name="close" :size="16" />
       </button>
 

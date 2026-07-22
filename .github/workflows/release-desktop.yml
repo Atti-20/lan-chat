@@ -1,0 +1,201 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v-prefixed tag to publish as a draft
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: ${{ matrix.name }} signed draft release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04
+            bundles: appimage,deb
+            targetArgs: ""
+          - name: macOS
+            os: macos-14
+            bundles: app,dmg
+            targetArgs: --target universal-apple-darwin
+          - name: Windows
+            os: windows-2022
+            bundles: nsis,msi
+            targetArgs: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+      TAURI_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      TAURI_WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+      WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve and validate release tag
+        id: release
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::Desktop releases require a semantic v-prefixed tag."
+            exit 1
+          }
+          echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${REQUESTED_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Require updater signing material
+        shell: bash
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || {
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is required for release artifacts."
+            exit 1
+          }
+          test -n "$TAURI_UPDATER_PUBLIC_KEY" || {
+            echo "::error::TAURI_UPDATER_PUBLIC_KEY is required; no placeholder key is generated."
+            exit 1
+          }
+
+      - name: Require macOS signing and notarization material
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          test -n "$APPLE_CERTIFICATE" \
+            && test -n "$APPLE_CERTIFICATE_PASSWORD" \
+            && test -n "$APPLE_SIGNING_IDENTITY" \
+            && test -n "$APPLE_TEAM_ID" \
+            && test -n "$APPLE_ID" \
+            && test -n "$APPLE_PASSWORD" || {
+              echo "::error::Apple Developer certificate, identity, team, and notarization secrets are required."
+              exit 1
+            }
+
+      - name: Require Windows code-signing material
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          test -n "$WINDOWS_CERTIFICATE_BASE64" \
+            && test -n "$WINDOWS_CERTIFICATE_PASSWORD" \
+            && test -n "$TAURI_WINDOWS_CERTIFICATE_THUMBPRINT" || {
+              echo "::error::Windows PFX, password, and certificate thumbprint secrets are required."
+              exit 1
+            }
+
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            wget
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install universal macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install JavaScript dependencies
+        shell: bash
+        run: |
+          npm ci --prefix frontend
+          npm ci --prefix apps/desktop
+
+      - name: Import Apple Developer certificate
+        if: runner.os == 'macOS'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Import Windows code-signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "lanchat-code-signing.pfx"
+          [IO.File]::WriteAllBytes(
+            $pfxPath,
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
+          )
+          $password = ConvertTo-SecureString `
+            -String $env:WINDOWS_CERTIFICATE_PASSWORD `
+            -AsPlainText `
+            -Force
+          Import-PfxCertificate `
+            -FilePath $pfxPath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $password | Out-Null
+
+      - name: Generate protected updater config overlay
+        shell: bash
+        env:
+          TAURI_RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node scripts/release/write-tauri-updater-overlay.mjs \
+            apps/desktop/src-tauri/tauri.release.generated.json
+
+      - name: Run locked Rust tests before release
+        run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Build and attach signed desktop artifacts
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ steps.release.outputs.tag }}
+          releaseName: LANChat ${{ steps.release.outputs.tag }}
+          releaseBody: |
+            Draft desktop release generated from ${{ github.sha }}.
+            Review signatures, updater metadata, installation smoke tests, and release notes before publishing.
+          releaseDraft: true
+          prerelease: ${{ contains(steps.release.outputs.tag, '-') }}
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.targetArgs }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.generated.json

@@ -36,6 +36,7 @@ import { createClientMessageId } from '../utils/id'
 import { advanceContiguousSequence } from '../utils/sequence'
 import { clearCacheOwner, clearSession } from '../utils/storage'
 import { useAuth } from './useAuth'
+import { useFileTransferSettings } from './useFileTransferSettings'
 import { useOutbox } from './useOutbox'
 import { usePeerFileTransfer } from './usePeerFileTransfer'
 import { useResumableUpload } from './useResumableUpload'
@@ -62,6 +63,7 @@ export function useChat() {
   const auth = useAuth()
   const { currentUser } = auth
   const toast = useToast()
+  const fileTransferSettings = useFileTransferSettings()
   const outbox = useOutbox()
   const friends = ref<Friend[]>([])
   const groups = ref<ChatGroup[]>([])
@@ -711,9 +713,9 @@ export function useChat() {
     }
     if (isIncomingMessage
       && !conversation?.muted
-      && nativeBridge.runtime() === 'tauri'
+      && nativeBridge.runtime() !== 'web'
       && (document.visibilityState !== 'visible' || !document.hasFocus())) {
-      const title = conversation?.name || delivered.fromNickname || 'LANChat 新消息'
+      const title = conversation?.name || delivered.fromNickname || 'MeshX 新消息'
       const preview = conversationPreview(delivered.type || delivered.contentType, delivered.content)
       void nativeBridge.notify({
         title,
@@ -905,7 +907,9 @@ export function useChat() {
     if (!ws.connected.value) throw new Error('文件需要连接节点后上传；文本消息仍可离线发送')
     const image = file.type.startsWith('image/')
     let attachment: FileAttachmentData
-    if (conversation.kind === 'private' && peerFiles.supported.value) {
+    if (conversation.kind === 'private'
+      && peerFiles.supported.value
+      && fileTransferSettings.preferDirectFileTransfer.value) {
       try {
         attachment = await peerFiles.sendDirect(file, conversation.conversationId, conversation.id)
       } catch {

@@ -2,12 +2,15 @@ import { toRaw } from 'vue'
 import type { ChatGroup, ChatMessage, DirectFileRecord, Friend, OutboxEntry, TemporaryRoom } from '../types'
 
 const DATABASE_NAME = 'lanchat_local_v2'
-const DATABASE_VERSION = 4
+const DATABASE_VERSION = 5
 const OUTBOX_STORE = 'outbox'
 const MESSAGE_STORE = 'messages'
 const POSITION_STORE = 'positions'
 const DIRECTORY_STORE = 'directory'
 const DIRECT_FILE_STORE = 'directFiles'
+const AVATAR_IMAGE_STORE = 'avatarImages'
+const MAX_AVATAR_IMAGE_COUNT = 80
+const MAX_AVATAR_IMAGE_BYTES = 40 * 1024 * 1024
 
 interface CachedMessageRecord {
   cacheKey: string
@@ -28,6 +31,18 @@ interface ConversationDirectoryRecord {
   groups: ChatGroup[]
   rooms?: TemporaryRoom[]
   savedAt: string
+}
+
+interface CachedAvatarImageRecord {
+  cacheKey: string
+  blob: Blob
+  size: number
+  savedAt: number
+}
+
+export interface CachedAvatarImage {
+  blob: Blob
+  savedAt: number
 }
 
 let databasePromise: Promise<IDBDatabase> | null = null
@@ -73,6 +88,10 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(DIRECT_FILE_STORE)) {
         const files = database.createObjectStore(DIRECT_FILE_STORE, { keyPath: 'transferId' })
         files.createIndex('bySavedAt', 'savedAt')
+      }
+      if (!database.objectStoreNames.contains(AVATAR_IMAGE_STORE)) {
+        const avatars = database.createObjectStore(AVATAR_IMAGE_STORE, { keyPath: 'cacheKey' })
+        avatars.createIndex('bySavedAt', 'savedAt')
       }
     }
     request.onsuccess = () => {
@@ -277,6 +296,60 @@ export async function loadConversationDirectory(): Promise<ConversationDirectory
   return record || null
 }
 
+export async function loadCachedAvatarImage(cacheKey: string): Promise<CachedAvatarImage | null> {
+  if (!cacheKey) return null
+  const database = await openDatabase()
+  const transaction = database.transaction(AVATAR_IMAGE_STORE, 'readonly')
+  const record = await requestResult(
+    transaction.objectStore(AVATAR_IMAGE_STORE).get(cacheKey),
+  ) as CachedAvatarImageRecord | undefined
+  await transactionDone(transaction)
+  if (!record || !(record.blob instanceof Blob)) return null
+  return {
+    blob: record.blob,
+    savedAt: record.savedAt,
+  }
+}
+
+export async function cacheAvatarImage(cacheKey: string, blob: Blob): Promise<void> {
+  if (!cacheKey || blob.size <= 0 || blob.size > MAX_AVATAR_IMAGE_BYTES) return
+  const database = await openDatabase()
+  const transaction = database.transaction(AVATAR_IMAGE_STORE, 'readwrite')
+  const store = transaction.objectStore(AVATAR_IMAGE_STORE)
+  const existing = await requestResult(store.getAll()) as CachedAvatarImageRecord[]
+  const previous = existing.find((record) => record.cacheKey === cacheKey)
+  let totalBytes = existing.reduce((total, record) => total + record.size, 0) - (previous?.size || 0)
+  const retained = existing
+    .filter((record) => record.cacheKey !== cacheKey)
+    .sort((first, second) => first.savedAt - second.savedAt)
+
+  while (
+    retained.length >= MAX_AVATAR_IMAGE_COUNT
+    || totalBytes + blob.size > MAX_AVATAR_IMAGE_BYTES
+  ) {
+    const oldest = retained.shift()
+    if (!oldest) break
+    totalBytes -= oldest.size
+    store.delete(oldest.cacheKey)
+  }
+
+  store.put({
+    cacheKey,
+    blob,
+    size: blob.size,
+    savedAt: Date.now(),
+  } satisfies CachedAvatarImageRecord)
+  await transactionDone(transaction)
+}
+
+export async function deleteCachedAvatarImage(cacheKey: string): Promise<void> {
+  if (!cacheKey) return
+  const database = await openDatabase()
+  const transaction = database.transaction(AVATAR_IMAGE_STORE, 'readwrite')
+  transaction.objectStore(AVATAR_IMAGE_STORE).delete(cacheKey)
+  await transactionDone(transaction)
+}
+
 export async function saveDirectFile(record: DirectFileRecord): Promise<void> {
   const database = await openDatabase()
   const transaction = database.transaction(DIRECT_FILE_STORE, 'readwrite')
@@ -321,7 +394,7 @@ export async function deleteDirectFile(transferId: string): Promise<void> {
 export async function clearLocalChatDatabase(): Promise<void> {
   const database = await openDatabase()
   const transaction = database.transaction(
-    [OUTBOX_STORE, MESSAGE_STORE, POSITION_STORE, DIRECTORY_STORE, DIRECT_FILE_STORE],
+    [OUTBOX_STORE, MESSAGE_STORE, POSITION_STORE, DIRECTORY_STORE, DIRECT_FILE_STORE, AVATAR_IMAGE_STORE],
     'readwrite',
   )
   transaction.objectStore(OUTBOX_STORE).clear()
@@ -329,5 +402,6 @@ export async function clearLocalChatDatabase(): Promise<void> {
   transaction.objectStore(POSITION_STORE).clear()
   transaction.objectStore(DIRECTORY_STORE).clear()
   transaction.objectStore(DIRECT_FILE_STORE).clear()
+  transaction.objectStore(AVATAR_IMAGE_STORE).clear()
   await transactionDone(transaction)
 }

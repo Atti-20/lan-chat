@@ -223,6 +223,10 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
         properties.put("version", safeText(nodeProperties.getVersion(), "unknown", 30));
         properties.put("mode", nodeProperties.normalizedMode());
         properties.put("secure", Boolean.toString(nodeProperties.isSecure()));
+        String advertisedHost = nodeProperties.getAdvertisedHost();
+        if (safeHost(advertisedHost)) {
+            properties.put("advertisedHost", advertisedHost.trim());
+        }
         properties.put("protocolVersion", Integer.toString(LanChatProtocol.PROTOCOL_VERSION));
         properties.put("apiBasePath", LanChatProtocol.API_BASE_PATH);
         properties.put("webSocketPath", LanChatProtocol.WEB_SOCKET_PATH);

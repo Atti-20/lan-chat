@@ -45,20 +45,20 @@ function submit(): void {
 <template>
   <div
     v-if="open"
-    class="modal-backdrop"
+    class="modal-backdrop apple-modal-backdrop"
     role="presentation"
     @click.self="requestClose"
     @keydown.esc="requestClose"
   >
     <section
-      class="join-sheet"
+      class="join-sheet apple-modal-surface"
       role="dialog"
       aria-modal="true"
       aria-labelledby="join-room-title"
       aria-describedby="join-room-description"
     >
       <button
-        class="close-button"
+        class="close-button apple-modal-close"
         type="button"
         aria-label="关闭"
         :disabled="saving"
@@ -228,7 +228,7 @@ function submit(): void {
   outline: none;
   background: transparent;
 }
-.code-field input::placeholder { color: var(--ink-faint); font-weight: 550; opacity: .55; }
+.code-field input::placeholder { color: color-mix(in srgb, var(--ink-faint) 86%, transparent); font-size: .92em; font-weight: 400; opacity: 1; }
 .code-hint,
 .form-error { min-height: 30px; margin: 8px 2px 0; font-size: 10px; line-height: 1.4; }
 .code-hint { color: var(--ink-faint); }

@@ -74,7 +74,7 @@ async function finish(): Promise<void> {
   error.value = ''
   try {
     await auth.updateProfile({ nickname: cleanName, avatar: selectedAvatar.value })
-    toast.push('资料已保存，欢迎来到 LanChat', 'success', 1400)
+    toast.push('资料已保存，欢迎来到 MeshX', 'success', 1400)
     navigateToApp('/chat')
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.message : '保存失败，请稍后重试'
@@ -86,7 +86,7 @@ async function finish(): Promise<void> {
 
 <template>
   <main class="welcome-page">
-    <section class="welcome-sheet glass-surface">
+    <section class="welcome-sheet glass-surface apple-float-surface">
       <header class="welcome-header">
         <div class="step-pill"><span /> 只差一步</div>
         <h1>让朋友一眼认出你。</h1>
@@ -97,7 +97,7 @@ async function finish(): Promise<void> {
         <UserAvatar :name="displayName" :avatar="selectedAvatar" :size="112" online />
         <div class="profile-caption">
           <strong>{{ displayName }}</strong>
-          <span>已连接到 LanChat</span>
+          <span>已连接到 MeshX</span>
         </div>
       </div>
 

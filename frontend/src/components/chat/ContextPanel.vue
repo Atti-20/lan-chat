@@ -85,9 +85,9 @@ function saveRemark(): void {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="context-backdrop detail-backdrop" role="presentation" @click.self="emit('close')">
-      <aside class="context-panel detail-panel" role="dialog" aria-modal="true" aria-label="详情">
-        <button class="context-close" type="button" aria-label="关闭" @click="emit('close')">
+    <div v-if="open" class="context-backdrop detail-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+      <aside class="context-panel detail-panel apple-modal-surface" role="dialog" aria-modal="true" aria-label="详情">
+        <button class="context-close apple-modal-close" type="button" aria-label="关闭" @click="emit('close')">
           <UiIcon name="close" :size="15" />
         </button>
 

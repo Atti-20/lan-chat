@@ -1,0 +1,1 @@
+import{invoke as e}from"./core-DTVHNn40.js";async function t(){await e(`plugin:process|restart`)}export{t as relaunch};

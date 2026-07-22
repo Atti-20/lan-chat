@@ -276,7 +276,7 @@ async function saveTargets(): Promise<void> {
 </script>
 
 <template>
-  <main class="broadcast-workspace" aria-live="polite">
+  <main class="broadcast-workspace apple-content-surface" aria-live="polite">
     <div v-if="loading" class="workspace-loading" aria-label="正在载入广播详情">
       <span class="loading-line loading-line--kicker" />
       <span class="loading-line loading-line--title" />

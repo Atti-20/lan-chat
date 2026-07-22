@@ -5,29 +5,21 @@ import UserAvatar from '../base/UserAvatar.vue'
 import UiIcon from '../base/UiIcon.vue'
 import { api } from '../../services/api'
 import { useToast } from '../../composables/useToast'
-import { useTheme } from '../../composables/useTheme'
 
 interface Props {
   open: boolean
   user: User
   saving?: boolean
-  desktop?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   saving: false,
-  desktop: false,
 })
 const emit = defineEmits<{
   close: []
   save: [payload: { nickname: string; avatar: string }]
-  logout: []
-  openDevices: []
-  openPassword: []
-  openDesktopSettings: []
 }>()
 const toast = useToast()
-const { mode: themeMode, toggleWithReveal: toggleTheme } = useTheme()
 const nickname = shallowRef('')
 const avatar = shallowRef('')
 const uploadingAvatar = shallowRef(false)
@@ -304,15 +296,15 @@ function resetToTextAvatar(): void {
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop detail-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="profile-sheet detail-panel" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+  <div v-if="open" class="modal-backdrop detail-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="profile-sheet detail-panel apple-modal-surface" role="dialog" aria-modal="true" aria-labelledby="profile-title">
       <header class="profile-header">
         <div>
-          <p>账号设置</p>
-          <h2 id="profile-title">个人资料</h2>
+          <p>PROFILE</p>
+          <h2 id="profile-title">修改资料</h2>
           <span>@{{ user.username }}</span>
         </div>
-        <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+        <button class="close-button apple-modal-close" type="button" aria-label="关闭" @click="emit('close')">
           <UiIcon name="close" :size="17" />
         </button>
       </header>
@@ -326,7 +318,6 @@ function resetToTextAvatar(): void {
             </button>
           </div>
           <button v-if="isImageAvatar" class="reset-avatar" type="button" @click="resetToTextAvatar">使用文字头像</button>
-          <span v-else class="avatar-help">点击头像右下角可上传照片</span>
         </div>
 
         <section v-if="!isImageAvatar" class="avatar-customizer" aria-labelledby="avatar-style-title">
@@ -377,33 +368,12 @@ function resetToTextAvatar(): void {
           :disabled="saving || uploadingAvatar || !nickname.trim()"
           @click="emit('save', { nickname: nickname.trim(), avatar })"
         >{{ saving ? '正在保存…' : '保存资料' }}</button>
-
-        <nav class="profile-links" aria-label="账号设置">
-          <button type="button" @click="toggleTheme">
-            <UiIcon :name="themeMode === 'dark' ? 'sun' : 'moon'" :size="18" />
-            <span>{{ themeMode === 'dark' ? '切换到浅色模式' : '切换到深色模式' }}</span>
-          </button>
-          <button type="button" @click="emit('openDevices')">
-            <UiIcon name="monitor" :size="18" />
-            <span>登录设备管理</span>
-          </button>
-          <button type="button" @click="emit('openPassword')">
-            <UiIcon name="lock" :size="18" />
-            <span>修改密码</span>
-          </button>
-          <button v-if="desktop" type="button" @click="emit('openDesktopSettings')">
-            <UiIcon name="download" :size="18" />
-            <span>桌面端设置与更新</span>
-          </button>
-        </nav>
-
-        <button class="logout-button" type="button" @click="emit('logout')">退出登录</button>
       </div>
     </section>
 
     <!-- 裁切器弹窗 -->
-    <div v-if="cropperVisible" class="cropper-backdrop" role="presentation" @click.self="closeCropper">
-      <div class="cropper-dialog">
+    <div v-if="cropperVisible" class="cropper-backdrop apple-modal-backdrop" role="presentation" @click.self="closeCropper">
+      <div class="cropper-dialog apple-modal-surface">
         <h3>裁切头像</h3>
         <div ref="cropContainerRef" class="cropper-area">
           <img ref="cropImgRef" :src="cropPreviewUrl" class="cropper-img" draggable="false" @load="onCropImgLoad" />
@@ -537,7 +507,6 @@ function resetToTextAvatar(): void {
   cursor: pointer;
 }
 .reset-avatar:hover { text-decoration: underline; }
-.avatar-help { color: var(--ink-faint); font-size: 10px; }
 .avatar-customizer {
   width: 100%;
   padding: 13px;
@@ -611,45 +580,6 @@ function resetToTextAvatar(): void {
 .nickname-field > span { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
 .profile-sheet .primary-button { width: 100%; margin-top: 14px; }
 
-.profile-links {
-  display: grid;
-  width: 100%;
-  margin-top: 12px;
-  gap: 2px;
-}
-.profile-links button {
-  display: flex;
-  width: 100%;
-  min-height: 44px;
-  padding: 0 14px;
-  align-items: center;
-  gap: 10px;
-  border: 0;
-  border-radius: 12px;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 500;
-  background: transparent;
-  cursor: pointer;
-  transition: background-color 150ms ease;
-}
-.profile-links button:hover { background: var(--fill); }
-.profile-links .ui-icon { width: 18px; color: var(--ink-soft); flex-shrink: 0; }
-
-.logout-button {
-  width: 100%;
-  min-height: 44px;
-  margin-top: 8px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 12px;
-  color: var(--coral);
-  font-size: 12px;
-  font-weight: 700;
-  background: color-mix(in srgb, var(--coral) 8%, transparent);
-  cursor: pointer;
-}
-.logout-button:hover { background: color-mix(in srgb, var(--coral) 13%, transparent); }
 
 @media (max-width: 430px) {
   .emoji-row { grid-template-columns: repeat(5, 1fr); }

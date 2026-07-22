@@ -38,6 +38,14 @@ uploads/
 logs/
 frontend/node_modules/
 frontend/dist-desktop/
+frontend/dist-mobile/
 apps/desktop/node_modules/
+apps/mobile/node_modules/
+apps/mobile/android/.gradle/
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/local.properties
+apps/mobile/android/*.jks
+apps/mobile/android/*.keystore
 output/playwright/
 .playwright-cli/

@@ -6,11 +6,13 @@ import {
   ref,
   shallowRef,
 } from 'vue'
+import { CapacitorHttp } from '@capacitor/core'
 import { nativeBridge, type DesktopNode } from '../platform/nativeBridge'
 import {
   selectedNode,
 } from '../platform/nodeContext'
 import { activateDesktopNode } from '../platform/desktopNodeSelection'
+import { isCapacitorRuntime, isNativeNodeRuntime } from '../platform/mobileRuntime'
 import { navigateToApp } from '../platform/appNavigation'
 import {
   consumeDesktopNavigation,
@@ -34,8 +36,85 @@ function webNode(
   }
 }
 
+interface NodeInfoResponse {
+  code: number
+  msg: string
+  data?: NodePublicInfo
+}
+
+async function verifyMobileNode(address: string): Promise<DesktopNode> {
+  const target = new URL(address.trim())
+  if (!['http:', 'https:'].includes(target.protocol)
+    || target.username
+    || target.password
+    || !target.hostname) {
+    throw new Error('节点地址必须是有效的 HTTP 或 HTTPS 地址')
+  }
+
+  const origin = target.origin
+  let result: NodeInfoResponse
+  let responseOk: boolean
+  try {
+    const requestUrl = new URL('/api/v1/node/info', origin).toString()
+    const headers = { 'X-Request-ID': `node_${crypto.randomUUID?.() || Date.now()}` }
+    if (isCapacitorRuntime()) {
+      // Probe with Android's HTTPS client. It avoids WebView's transport
+      // timeout while keeping the normal browser code path unchanged.
+      const response = await CapacitorHttp.get({
+        url: requestUrl,
+        headers,
+        readTimeout: 8_000,
+        connectTimeout: 8_000,
+        responseType: 'json',
+      })
+      result = typeof response.data === 'string'
+        ? JSON.parse(response.data) as NodeInfoResponse
+        : response.data as NodeInfoResponse
+      responseOk = response.status >= 200 && response.status < 300
+    } else {
+      const response = await fetch(requestUrl, { headers })
+      result = await response.json() as NodeInfoResponse
+      responseOk = response.ok
+    }
+  } catch {
+    throw new Error('节点返回了无法识别的握手信息')
+  }
+  if (!responseOk || result.code !== 200 || !result.data) {
+    throw new Error(result.msg || '节点握手失败')
+  }
+  const info = result.data
+  if (info.protocolVersion !== 1 || !info.nodeId || !info.apiBasePath || !info.webSocketPath) {
+    throw new Error('节点协议不兼容，无法连接')
+  }
+
+  return {
+    nodeId: info.nodeId,
+    nodeName: info.nodeName,
+    organizationName: info.organizationName,
+    version: info.version,
+    mode: info.mode,
+    appUrl: new URL(info.appPath || '/app/', origin).toString(),
+    secure: target.protocol === 'https:',
+    current: false,
+    lastSeenAt: new Date().toISOString(),
+    source: 'MANUAL',
+    health: 'HEALTHY',
+    latencyMs: null,
+    failureCount: 0,
+    pinned: false,
+    protocolVersion: info.protocolVersion,
+    apiOrigin: origin,
+    apiBasePath: info.apiBasePath,
+    webSocketPath: info.webSocketPath,
+    healthPath: info.healthPath,
+    appPath: info.appPath,
+  }
+}
+
 export function useNodeDiscovery() {
   const desktop = nativeBridge.runtime() === 'tauri'
+  const mobile = isCapacitorRuntime()
+  const native = isNativeNodeRuntime()
   const nodeInfo = shallowRef<NodePublicInfo | null>(null)
   const discoveredNodes = ref<DesktopNode[]>([])
   const loading = shallowRef(false)
@@ -50,7 +129,7 @@ export function useNodeDiscovery() {
     const currentSelection = selectedNode()
     const byId = new Map<string, DesktopNode>()
 
-    if (!desktop && nodeInfo.value) {
+    if (!native && nodeInfo.value) {
       const current = nodeInfo.value
       byId.set(current.nodeId, webNode({
         nodeId: current.nodeId,
@@ -68,7 +147,7 @@ export function useNodeDiscovery() {
     discoveredNodes.value.forEach((rawNode) => {
       const node = {
         ...rawNode,
-        current: desktop
+        current: native
           ? currentSelection?.nodeId === rawNode.nodeId
           : rawNode.current,
       }
@@ -96,7 +175,7 @@ export function useNodeDiscovery() {
     })
   })
 
-  const peerCount = computed(() => desktop
+  const peerCount = computed(() => native
     ? nodes.value.length
     : nodes.value.filter((node) => !node.current).length)
 
@@ -130,7 +209,17 @@ export function useNodeDiscovery() {
           }
         }
         discoveredNodes.value = await nativeBridge.discoveredNodes()
-      } else {
+      } else if (mobile) {
+        const origins = await nativeBridge.discoverNodeOrigins()
+        const results = await Promise.allSettled(origins.map((origin) => verifyMobileNode(origin)))
+        const verified = results.flatMap((result) => result.status === 'fulfilled'
+          ? [result.value]
+          : [])
+        discoveredNodes.value = verified
+        if (origins.length > 0 && verified.length === 0) {
+          error.value = '发现了节点，但握手失败。请确认节点启用了 HTTPS；HTTP 节点请使用 LAN 调试版。'
+        }
+      } else if (!mobile) {
         const [info, discoveries] = await Promise.all([
           api.node.info(),
           api.node.discoveries(),
@@ -173,7 +262,7 @@ export function useNodeDiscovery() {
   async function openNode(node: DesktopNode): Promise<void> {
     if (node.current || node.health === 'OFFLINE') return
 
-    if (!desktop) {
+    if (!native) {
       try {
         const target = new URL(node.appUrl)
         if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password) {
@@ -194,11 +283,13 @@ export function useNodeDiscovery() {
   }
 
   async function addManualNode(address: string): Promise<void> {
-    if (!desktop || addingManual.value) return
+    if ((!desktop && !mobile) || addingManual.value) return
     addingManual.value = true
     error.value = ''
     try {
-      const node = await nativeBridge.addManualNode(address)
+      const node = desktop
+        ? await nativeBridge.addManualNode(address)
+        : await verifyMobileNode(address)
       const remaining = discoveredNodes.value.filter((item) => item.nodeId !== node.nodeId)
       discoveredNodes.value = [node, ...remaining]
       await openNode(node)
@@ -238,6 +329,7 @@ export function useNodeDiscovery() {
 
   return {
     desktop,
+    mobile,
     nodeInfo: readonly(nodeInfo),
     nodes,
     peerCount,

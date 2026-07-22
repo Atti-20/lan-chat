@@ -8,6 +8,7 @@ import type {
   Friend,
 } from '../../types'
 import { api } from '../../services/api'
+import AppleSwitch from '../base/AppleSwitch.vue'
 import UiIcon from '../base/UiIcon.vue'
 import UserAvatar from '../base/UserAvatar.vue'
 
@@ -208,8 +209,8 @@ function submit(): void {
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="broadcast-sheet" role="dialog" aria-modal="true" aria-labelledby="broadcast-create-title">
+  <div v-if="open" class="modal-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="broadcast-sheet apple-modal-surface" role="dialog" aria-modal="true" aria-labelledby="broadcast-create-title">
       <header class="sheet-header">
         <span class="header-signal" :data-priority="form.priority" aria-hidden="true">
           <UiIcon name="bell" :size="21" />
@@ -218,7 +219,7 @@ function submit(): void {
           <p class="header-kicker">发布通知</p>
           <h2 id="broadcast-create-title" class="header-title">创建应急广播</h2>
         </div>
-        <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+        <button class="close-button apple-modal-close" type="button" aria-label="关闭" @click="emit('close')">
           <UiIcon name="close" :size="16" />
         </button>
       </header>
@@ -291,14 +292,14 @@ function submit(): void {
 
           <div v-if="form.scopeType === 'USERS'" class="recipient-picker">
             <div class="picker-heading">
-              <span>选择好友 <small>团队成员后续开放</small></span>
+              <span>选择好友</span>
               <strong>已选 {{ selectedFriendCount }} 人</strong>
             </div>
             <div class="friend-list">
               <button
                 v-for="friend in recipientFriends"
                 :key="friend.friendId"
-                class="friend-row"
+                class="friend-row apple-list-row"
                 :class="{ 'friend-row--selected': form.receiverIds.includes(friend.friendId) }"
                 type="button"
                 :aria-pressed="form.receiverIds.includes(friend.friendId)"
@@ -317,13 +318,12 @@ function submit(): void {
 
         <fieldset class="form-section response-section">
           <legend class="section-title">回执与时限</legend>
-          <label class="setting-row">
+          <div class="setting-row">
             <span class="setting-copy">
               <strong>要求成员确认</strong>
-              <small>成员需要选择一项处理结果</small>
             </span>
-            <input v-model="form.confirmationRequired" class="toggle-input" type="checkbox" />
-          </label>
+            <AppleSwitch v-model="form.confirmationRequired" aria-label="要求成员确认" />
+          </div>
 
           <div v-if="form.confirmationRequired" class="confirmation-settings">
             <div class="confirmation-options" aria-label="允许的确认选项">
@@ -346,38 +346,36 @@ function submit(): void {
               <input v-model="form.deadlineAt" class="field" type="datetime-local" :min="minimumDeadline" />
             </label>
 
-            <label class="setting-row compact-setting">
+            <div class="setting-row compact-setting">
               <span class="setting-copy">
                 <strong>重复提醒未确认成员</strong>
-                <small>由服务端提醒策略决定频率</small>
               </span>
-              <input v-model="form.repeatReminder" class="toggle-input" type="checkbox" />
-            </label>
+              <AppleSwitch v-model="form.repeatReminder" aria-label="重复提醒未确认成员" />
+            </div>
 
-            <label class="setting-row compact-setting">
+            <div class="setting-row compact-setting">
               <span class="setting-copy">
                 <strong>完成时必须上传图片</strong>
-                <small>成员至少提交一张图片后才能完成</small>
               </span>
-              <input v-model="form.requireImageProof" class="toggle-input" type="checkbox" />
-            </label>
+              <AppleSwitch v-model="form.requireImageProof" aria-label="完成时必须上传图片" />
+            </div>
 
-            <label class="setting-row compact-setting">
+            <div class="setting-row compact-setting">
               <span class="setting-copy">
                 <strong>完成时必须提交定位</strong>
                 <small>成员需要授权浏览器获取当前位置</small>
               </span>
-              <input v-model="form.requireLocationProof" class="toggle-input" type="checkbox" />
-            </label>
+              <AppleSwitch v-model="form.requireLocationProof" aria-label="完成时必须提交定位" />
+            </div>
           </div>
 
-          <label v-if="form.priority === 'EMERGENCY'" class="setting-row emergency-setting">
+          <div v-if="form.priority === 'EMERGENCY'" class="setting-row emergency-setting">
             <span class="setting-copy">
               <strong>绕过普通免打扰</strong>
               <small>仅用于确需立即触达的紧急情况</small>
             </span>
-            <input v-model="form.bypassMute" class="toggle-input" type="checkbox" />
-          </label>
+            <AppleSwitch v-model="form.bypassMute" aria-label="绕过普通免打扰" />
+          </div>
         </fieldset>
 
         <p v-if="visibleError" class="form-error" role="alert">{{ visibleError }}</p>
@@ -593,13 +591,6 @@ function submit(): void {
 .setting-copy strong { font-size: 13px; }
 .setting-copy small { color: var(--ink-soft); font-size: 10px; line-height: 1.4; }
 
-.toggle-input {
-  width: 38px;
-  height: 22px;
-  flex: 0 0 auto;
-  accent-color: var(--blue);
-  cursor: pointer;
-}
 
 .confirmation-settings { display: grid; margin-top: 10px; padding-top: 13px; gap: 15px; border-top: 1px solid var(--separator); }
 .confirmation-options { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -623,7 +614,6 @@ function submit(): void {
 .compact-setting { min-height: 42px; }
 .emergency-setting { margin-top: 11px; padding-top: 12px; border-top: 1px solid var(--separator); }
 .emergency-setting .setting-copy strong { color: var(--coral); }
-.emergency-setting .toggle-input { accent-color: var(--coral); }
 
 .form-error { margin: -7px 0 16px; color: var(--coral); font-size: 12px; line-height: 1.5; }
 .form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }

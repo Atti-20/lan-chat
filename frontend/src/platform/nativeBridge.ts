@@ -1,7 +1,9 @@
 import type { AuthSession, DiscoveredNode } from '../types'
+import { registerPlugin } from '@capacitor/core'
+import { capacitorPlatform, isCapacitorRuntime } from './mobileRuntime'
 
-export type RuntimeKind = 'web' | 'tauri'
-export type DesktopPlatform = 'web' | 'macos' | 'windows' | 'linux' | 'unknown'
+export type RuntimeKind = 'web' | 'tauri' | 'capacitor'
+export type DesktopPlatform = 'web' | 'macos' | 'windows' | 'linux' | 'android' | 'ios' | 'unknown'
 export type DesktopNodeSource = 'MDNS' | 'SERVER_FALLBACK' | 'CACHE' | 'MANUAL'
 export type DesktopNodeHealth = 'UNKNOWN' | 'PROBING' | 'HEALTHY' | 'DEGRADED' | 'OFFLINE'
 export type DesktopNavigationKind = 'node' | 'room' | 'conversation' | 'broadcast'
@@ -53,11 +55,31 @@ export interface ConfirmOptions {
   cancelLabel?: string
 }
 
+interface MeshXDiscoveryPlugin {
+  scan(): Promise<{ origins?: unknown }>
+}
+
+const meshXDiscovery = registerPlugin<MeshXDiscoveryPlugin>('MeshXDiscovery')
+
+interface MeshXFilesPlugin {
+  save(options: { url: string; name: string; mimeType?: string }): Promise<{
+    cancelled?: unknown
+    location?: unknown
+  }>
+}
+
+const meshXFiles = registerPlugin<MeshXFilesPlugin>('MeshXFiles')
+
+export interface NativeFileSaveResult {
+  location: string
+}
+
 export interface NativeBridge {
   runtime(): RuntimeKind
   runtimeInfo(): Promise<RuntimeInfo>
   confirm(message: string, options?: ConfirmOptions): Promise<boolean>
   discoveredNodes(): Promise<DesktopNode[]>
+  discoverNodeOrigins(): Promise<string[]>
   refreshDiscovery(): Promise<void>
   addManualNode(address: string): Promise<DesktopNode>
   addServerFallbackNodes(addresses: string[]): Promise<DesktopNode[]>
@@ -69,6 +91,7 @@ export interface NativeBridge {
   ): Promise<AuthSession>
   desktopRefresh(origin: string, apiBasePath: string): Promise<AuthSession | null>
   desktopLogout(origin: string, apiBasePath: string, accessToken?: string): Promise<void>
+  saveFile(url: string, name: string, mimeType?: string): Promise<NativeFileSaveResult | null>
   notify(input: NotificationInput): Promise<void>
   autostartEnabled(): Promise<boolean>
   setAutostart(enabled: boolean): Promise<void>
@@ -84,7 +107,7 @@ function isTauriRuntime(): boolean {
 
 function desktopDeviceName(): string {
   const platform = navigator.platform || 'Desktop'
-  return `LANChat Desktop (${platform})`.slice(0, 100)
+  return `MeshX Desktop (${platform})`.slice(0, 100)
 }
 
 const webBridge: NativeBridge = {
@@ -98,6 +121,7 @@ const webBridge: NativeBridge = {
 
   confirm: async (message) => window.confirm(message),
   discoveredNodes: async () => [],
+  discoverNodeOrigins: async () => [],
   refreshDiscovery: async () => undefined,
   addManualNode: async () => {
     throw new Error('网页模式不支持原生节点验证')
@@ -108,6 +132,7 @@ const webBridge: NativeBridge = {
   },
   desktopRefresh: async () => null,
   desktopLogout: async () => undefined,
+  saveFile: async () => null,
 
   notify: async ({ title, body }) => {
     if (!('Notification' in window)) return
@@ -120,6 +145,69 @@ const webBridge: NativeBridge = {
   autostartEnabled: async () => false,
   setAutostart: async () => {
     throw new Error('网页模式不支持开机自启')
+  },
+  checkForUpdate: async () => ({ status: 'UNSUPPORTED' }),
+  takePendingNavigation: async () => null,
+  listenForNodes: async () => () => undefined,
+  listenForNavigation: async () => () => undefined,
+}
+
+const capacitorBridge: NativeBridge = {
+  runtime: () => 'capacitor',
+
+  runtimeInfo: async () => ({
+    runtime: 'capacitor',
+    platform: capacitorPlatform(),
+    version: import.meta.env.VITE_APP_VERSION || 'mobile',
+  }),
+
+  confirm: async (message) => window.confirm(message),
+  discoveredNodes: async () => [],
+  discoverNodeOrigins: async () => {
+    const response = await meshXDiscovery.scan()
+    return Array.isArray(response.origins)
+      ? response.origins.filter((origin): origin is string => typeof origin === 'string')
+      : []
+  },
+  refreshDiscovery: async () => undefined,
+  addManualNode: async () => {
+    throw new Error('Android 端请通过受控节点连接流程验证地址')
+  },
+  addServerFallbackNodes: async () => [],
+  desktopLogin: async () => {
+    throw new Error('Android 端不使用桌面认证桥')
+  },
+  desktopRefresh: async () => null,
+  desktopLogout: async () => undefined,
+
+  saveFile: async (url, name, mimeType) => {
+    const result = await meshXFiles.save({ url, name, mimeType })
+    if (result.cancelled === true) return null
+    return {
+      // Android storage providers intentionally expose a display name instead
+      // of a filesystem path under scoped storage.
+      location: typeof result.location === 'string' ? result.location : '所选位置',
+    }
+  },
+
+  notify: async ({ title, body, target }) => {
+    const { LocalNotifications } = await import('@capacitor/local-notifications')
+    let permission = await LocalNotifications.checkPermissions()
+    if (permission.display === 'prompt') permission = await LocalNotifications.requestPermissions()
+    if (permission.display !== 'granted') return
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: Math.floor(Date.now() % 2_000_000_000),
+        title,
+        body,
+        extra: target ? { lanchatTarget: JSON.stringify(target) } : undefined,
+      }],
+    })
+  },
+
+  autostartEnabled: async () => false,
+  setAutostart: async () => {
+    throw new Error('Android 端不支持开机自启设置')
   },
   checkForUpdate: async () => ({ status: 'UNSUPPORTED' }),
   takePendingNavigation: async () => null,
@@ -144,6 +232,8 @@ const tauriBridge: NativeBridge = {
     const { invoke } = await import('@tauri-apps/api/core')
     return invoke<DesktopNode[]>('discovered_nodes')
   },
+
+  discoverNodeOrigins: async () => [],
 
   refreshDiscovery: async () => {
     const { invoke } = await import('@tauri-apps/api/core')
@@ -187,6 +277,15 @@ const tauriBridge: NativeBridge = {
   desktopLogout: async (origin, apiBasePath, accessToken) => {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke('desktop_logout', { origin, apiBasePath, accessToken })
+  },
+
+  saveFile: async (url, name) => {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const path = await save({ defaultPath: name })
+    if (!path) return null
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('save_attachment', { url, path })
+    return { location: path }
   },
 
   notify: async ({ title, body, target }) => {
@@ -280,4 +379,8 @@ const tauriBridge: NativeBridge = {
   },
 }
 
-export const nativeBridge: NativeBridge = isTauriRuntime() ? tauriBridge : webBridge
+export const nativeBridge: NativeBridge = isTauriRuntime()
+  ? tauriBridge
+  : isCapacitorRuntime()
+    ? capacitorBridge
+    : webBridge

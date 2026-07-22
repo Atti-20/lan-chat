@@ -85,10 +85,10 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
 </script>
 
 <template>
-  <aside class="broadcast-sidebar" aria-label="应急广播列表">
+  <aside class="broadcast-sidebar apple-structural-surface" aria-label="应急广播列表">
     <header class="sidebar-header">
       <div class="header-copy">
-        <p class="header-kicker">应急协作</p>
+        <p class="header-kicker">BROADCAST</p>
         <h1 class="header-title">广播</h1>
       </div>
       <button
@@ -142,7 +142,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
       <button
         v-for="broadcast in visibleBroadcasts"
         :key="broadcast.id"
-        class="broadcast-item"
+        class="broadcast-item apple-list-row"
         :class="{
           'broadcast-item--active': selectedId === broadcast.id,
           'broadcast-item--pending': pendingIds.has(broadcast.id),

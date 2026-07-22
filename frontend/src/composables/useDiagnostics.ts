@@ -88,7 +88,7 @@ export function useDiagnostics(sources: DiagnosticsSources) {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `lanchat-diagnostics-${Date.now()}.json`
+    anchor.download = `meshx-diagnostics-${Date.now()}.json`
     anchor.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 0)
   }

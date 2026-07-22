@@ -1,0 +1,25 @@
+{
+  "name": "lanchat-mobile",
+  "private": true,
+  "version": "3.0.0",
+  "type": "module",
+  "scripts": {
+    "build:web": "npm run build:mobile --prefix ../../frontend",
+    "sync": "npm run build:web && cap sync android",
+    "open:android": "cap open android",
+    "run:android": "npm run sync && cap run android",
+    "build:apk:debug": "npm run sync && cd android && ./gradlew assembleSecureDebug",
+    "build:aab:release": "npm run sync && cd android && ./gradlew bundleSecureRelease",
+    "build:apk:lan-debug": "npm run sync && cd android && ./gradlew assembleLanDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.4.2",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/core": "8.4.2",
+    "@capacitor/local-notifications": "8.2.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "typescript": "~5.9.3"
+  }
+}

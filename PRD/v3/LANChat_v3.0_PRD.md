@@ -163,7 +163,7 @@ lan-chat/
 | 原生 mDNS、握手、健康、缓存、手动地址 | 代码已实现，待真实局域网多播回归 |
 | 通用 CI、三平台桌面 build、双实例/断网 E2E | 工作流和测试代码已实现，待远端环境运行证据 |
 | 签名、macOS 公证、Updater、正式 Release | 流水线已接线；缺少外部 Secrets/证书和实际产物，不能标记完成 |
-| Server Manager、Android/iOS、离线增强、完整可观测性 | P1/P2，尚未实现 |
+| Server Manager、iOS、离线增强、完整可观测性 | P1/P2，尚未实现；Android 已有 Capacitor 工程与无签名构建定义，待设备、签名与发布验收 |
 
 正式发布必须由受保护环境提供 Tauri Updater 私钥、Apple Developer ID/公证凭据和 Windows 代码签名证书。仓库只保存公用配置与流水线，不保存或生成占位私钥。准确证据和验证命令见 [实施状态-V3.0.md](docs/v3/实施状态-V3.0.md)。
 

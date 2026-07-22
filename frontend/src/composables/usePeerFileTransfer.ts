@@ -12,7 +12,7 @@ import { sha256Blob } from '../utils/sha256'
 
 const CHUNK_SIZE = 64 * 1024
 const BUFFER_HIGH_WATER = 4 * 1024 * 1024
-const NEGOTIATION_TIMEOUT_MS = 12_000
+const NEGOTIATION_TIMEOUT_MS = 2_000
 const TRANSFER_TIMEOUT_MS = 10 * 60_000
 const ICE_GATHERING_TIMEOUT_MS = 2_500
 const MAX_DIRECT_FILE_SIZE = 100 * 1024 * 1024
@@ -143,6 +143,7 @@ export function usePeerFileTransfer(options: UsePeerFileTransferOptions) {
           timer: 0,
         }
         createdTransfer.timer = window.setTimeout(() => {
+          controller.abort()
           failOutgoing(createdTransfer, new Error('设备直传协商超时'))
         }, NEGOTIATION_TIMEOUT_MS)
         transferRef.current = createdTransfer
@@ -150,6 +151,7 @@ export function usePeerFileTransfer(options: UsePeerFileTransferOptions) {
         createdChannel.onopen = () => {
           window.clearTimeout(createdTransfer.timer)
           createdTransfer.timer = window.setTimeout(() => {
+            controller.abort()
             failOutgoing(createdTransfer, new Error('设备直传超时'))
           }, TRANSFER_TIMEOUT_MS)
           void streamOutgoing(createdTransfer)
@@ -166,7 +168,7 @@ export function usePeerFileTransfer(options: UsePeerFileTransferOptions) {
       try {
         const offer = await createdPeer.createOffer()
         await createdPeer.setLocalDescription(offer)
-        await waitForIceGathering(createdPeer)
+        await waitForIceGathering(createdPeer, controller.signal)
         throwIfDirectAborted(controller.signal)
         const sent = options.sendEvent('FILE_TRANSFER_OFFER', {
           transferId: clientTransferId,
@@ -483,14 +485,16 @@ function createPeer(): RTCPeerConnection {
   return new RTCPeerConnection({ iceServers: [] })
 }
 
-async function waitForIceGathering(peer: RTCPeerConnection): Promise<void> {
+async function waitForIceGathering(peer: RTCPeerConnection, signal?: AbortSignal): Promise<void> {
   if (peer.iceGatheringState === 'complete') return
+  throwIfDirectAborted(signal)
   await new Promise<void>((resolve) => {
     let settled = false
     const finish = () => {
       if (settled) return
       settled = true
       peer.removeEventListener('icegatheringstatechange', onChange)
+      signal?.removeEventListener('abort', finish)
       window.clearTimeout(timer)
       resolve()
     }
@@ -499,7 +503,9 @@ async function waitForIceGathering(peer: RTCPeerConnection): Promise<void> {
     }
     const timer = window.setTimeout(finish, ICE_GATHERING_TIMEOUT_MS)
     peer.addEventListener('icegatheringstatechange', onChange)
+    signal?.addEventListener('abort', finish, { once: true })
   })
+  throwIfDirectAborted(signal)
 }
 
 async function waitForBuffer(channel: RTCDataChannel): Promise<void> {
@@ -536,6 +542,6 @@ function asError(cause: unknown, fallback: string): Error {
   return cause instanceof Error ? cause : new Error(fallback)
 }
 
-function throwIfDirectAborted(signal: AbortSignal): void {
-  if (signal.aborted) throw new DOMException('设备直传已取消', 'AbortError')
+function throwIfDirectAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException('设备直传已取消', 'AbortError')
 }

@@ -18,7 +18,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 mdns-sd = "0.20"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "cookies", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["cookies", "json", "rustls-tls", "stream"] }
 tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-deep-link = "2"
@@ -28,3 +28,4 @@ tauri-plugin-process = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-updater = "2"
 url = "2"
+tokio = { version = "1", features = ["fs", "io-util"] }

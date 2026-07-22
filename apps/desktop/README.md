@@ -40,7 +40,7 @@ rustup toolchain install stable
 
 ## 本地构建
 
-以下命令可生成未签名的本地产物，用于开发验证：
+以下命令可生成使用 ad-hoc Bundle 签名的本地产物，用于开发验证：
 
 ```bash
 npm --prefix apps/desktop run build
@@ -55,14 +55,15 @@ npm --prefix apps/desktop run build:dmg
 `tauri.linux.conf.json` 配置。
 
 仓库已从主图标生成 macOS `.icns`、Windows `.ico` 和桌面 PNG 尺寸，避免只提供
-1024×1024 PNG 时 Tauri 无法选择平台图标。本轮已在 Apple Silicon macOS 上实际生成
-未签名的 `LANChat.app`；当前受管开发环境不允许 `hdiutil` 配置镜像设备，因此 `.dmg`
-仍需在普通 macOS 终端或 GitHub macOS runner 复验。
+1024×1024 PNG 时 Tauri 无法选择平台图标。本轮已在 Apple Silicon macOS 上实际生成、
+安装并启动 ad-hoc 签名的 `LANChat.app`，也完成了 `.dmg` 创建、只读挂载和校验。
+无交互构建环境可设置 `CI=true`，跳过 Finder 图标位置排版。
 
 ## 正式发布边界
 
-仓库基础配置不包含假的 Updater 公钥、发布端点或签名凭据。本地 unsigned 构建不依赖
-这些 secrets；正式发布流水线必须在外部安全注入对应平台的代码签名材料：
+仓库基础配置只保留空的 Updater 本地配置，不包含假的公钥、发布端点或发布签名凭据。
+本地 ad-hoc 构建不依赖这些 secrets；正式发布流水线必须在外部安全注入对应平台的
+代码签名材料：
 
 - macOS Developer ID、签名与 Apple 公证凭据；
 - Windows 代码签名证书；

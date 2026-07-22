@@ -31,7 +31,7 @@ const welcomeBySection: Record<ChatSection, WelcomeContent> = {
   contacts: {
     kicker: '好友通讯录',
     title: '选择一位好友',
-    description: '左侧展示好友与待处理申请；选择好友后即可查看聊天记录。',
+    description: '添加好友，开始聊天。',
     action: '添加好友',
     icon: 'contacts',
   },
@@ -60,7 +60,7 @@ const content = computed(() => welcomeBySection[props.section])
 
 <template>
   <section class="workspace-welcome" :data-section="section" aria-live="polite">
-    <div class="welcome-panel">
+    <div class="welcome-panel apple-float-surface">
       <div class="welcome-signal" aria-hidden="true">
         <span class="signal-orbit" />
         <span class="signal-core"><UiIcon :name="content.icon" :size="29" /></span>
@@ -69,9 +69,11 @@ const content = computed(() => welcomeBySection[props.section])
       <p>{{ content.kicker }}</p>
       <h2>{{ content.title }}</h2>
       <span>{{ content.description }}</span>
-      <button v-if="content.action" class="secondary-button" type="button" @click="emit('primary', section)">
-        {{ content.action }}
-      </button>
+      <div class="welcome-action-slot">
+        <button v-if="content.action" class="secondary-button" type="button" @click="emit('primary', section)">
+          {{ content.action }}
+        </button>
+      </div>
     </div>
   </section>
 </template>
@@ -93,8 +95,11 @@ const content = computed(() => welcomeBySection[props.section])
 }
 .welcome-panel {
   display: grid;
-  width: min(100%, 390px);
+  width: 420px;
+  max-width: 100%;
+  height: 360px;
   padding: 28px 32px 30px;
+  grid-template-rows: 105px auto auto minmax(58px, 1fr) 46px;
   place-items: center;
   border: 1px solid var(--separator);
   border-radius: 26px;
@@ -110,7 +115,9 @@ const content = computed(() => welcomeBySection[props.section])
 .welcome-signal i:nth-of-type(3) { right: 3px; bottom: 25px; background: var(--violet); }
 .welcome-panel > p { margin: 0 0 6px; color: var(--blue); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
 .welcome-panel > h2 { margin: 0; font-size: 21px; letter-spacing: -.04em; }
-.welcome-panel > span { max-width: 320px; margin: 8px 0 15px; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.welcome-panel > span { max-width: 320px; margin: 8px 0 15px; align-self: start; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.welcome-action-slot { display: grid; width: 100%; height: 46px; place-items: center; }
+.welcome-action-slot .secondary-button { min-width: 132px; }
 .workspace-welcome[data-section="contacts"] .signal-core { color: var(--violet); }
 .workspace-welcome[data-section="groups"] .signal-core { color: var(--green); }
 .workspace-welcome[data-section="broadcasts"] .signal-core { color: var(--coral); }
@@ -123,6 +130,6 @@ const content = computed(() => welcomeBySection[props.section])
 }
 @media (max-width: 760px) {
   .workspace-welcome { padding: 26px 22px; }
-  .welcome-panel { padding: 24px 24px 26px; border-radius: 22px; }
+  .welcome-panel { width: 420px; max-width: 100%; height: 350px; padding: 24px 24px 26px; border-radius: 22px; }
 }
 </style>

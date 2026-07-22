@@ -78,9 +78,9 @@ function confirm(): void {
 </script>
 
 <template>
-  <div v-if="visible && broadcast" class="alert-backdrop" role="presentation">
+  <div v-if="visible && broadcast" class="alert-backdrop apple-modal-backdrop" role="presentation">
     <section
-      class="emergency-alert"
+      class="emergency-alert apple-modal-surface"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="emergency-alert-title"
@@ -95,7 +95,7 @@ function confirm(): void {
         </div>
         <button
           v-if="!broadcast.confirmationRequired || expired"
-          class="dismiss-button"
+          class="dismiss-button apple-modal-close"
           type="button"
           aria-label="关闭紧急广播提醒"
           @click="emit('dismiss', broadcast.id)"
