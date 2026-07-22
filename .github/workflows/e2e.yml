@@ -55,9 +55,29 @@ jobs:
       - name: Install Playwright Chromium
         run: npm exec --prefix tests/e2e playwright -- install --with-deps chromium
 
-      - name: Start isolated dual-instance stack
+      - name: Create diagnostics directory
+        run: mkdir -p output/playwright
+
+      - name: Validate E2E Compose configuration
         run: |
-          docker compose -f compose.yaml -f compose.e2e.yaml up --build -d
+          set -o pipefail
+          docker compose -f compose.yaml -f compose.e2e.yaml config \
+            | tee output/playwright/compose-config.yaml >/dev/null
+
+      - name: Build E2E images
+        run: |
+          set -o pipefail
+          docker compose -f compose.yaml -f compose.e2e.yaml build --progress=plain \
+            2>&1 | tee output/playwright/compose-build.log
+
+      - name: Start isolated dual-instance stack
+        run: docker compose -f compose.yaml -f compose.e2e.yaml up -d
+
+      - name: Show initial container state
+        run: docker compose -f compose.yaml -f compose.e2e.yaml ps --all
+
+      - name: Wait for all application instances
+        run: |
           scripts/ci/wait-for-http.sh "$E2E_BASE_URL/api/v1/node/health" 300
           scripts/ci/wait-for-http.sh "$E2E_INSTANCE_A_URL/api/v1/node/health" 120
           scripts/ci/wait-for-http.sh "$E2E_INSTANCE_B_URL/api/v1/node/health" 120
@@ -81,6 +101,13 @@ jobs:
       - name: Stop isolated stack
         if: always()
         run: docker compose -f compose.yaml -f compose.e2e.yaml down --volumes --remove-orphans
+
+      - name: Record real mDNS coverage boundary
+        if: ${{ always() && vars.LANCHAT_MDNS_E2E_ENABLED != 'true' }}
+        run: |
+          echo "::notice title=mDNS E2E skipped::LANCHAT_MDNS_E2E_ENABLED is not true; ordinary hosted CI does not verify real multicast discovery."
+          echo "### mDNS E2E: SKIPPED / UNCONFIGURED" >> "$GITHUB_STEP_SUMMARY"
+          echo "A self-hosted runner labelled lanchat-mdns is required for real multicast validation." >> "$GITHUB_STEP_SUMMARY"
 
   mdns-runner-prerequisites:
     name: External mDNS runner prerequisite gate

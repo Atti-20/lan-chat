@@ -9,11 +9,24 @@ docker compose -f compose.yaml -f compose.e2e.yaml ps --all \
 docker compose -f compose.yaml -f compose.e2e.yaml logs \
   --no-color --timestamps >"$output_dir/compose.log" 2>&1 || true
 
-mapfile -t application_containers < <(
-  docker compose -f compose.yaml -f compose.e2e.yaml \
-    ps -q lanchat lanchat-2 2>/dev/null
+docker compose -f compose.yaml -f compose.e2e.yaml config \
+  >"$output_dir/compose-config-final.yaml" 2>&1 || true
+
+mapfile -t failed_containers < <(
+  docker compose -f compose.yaml -f compose.e2e.yaml ps -aq 2>/dev/null \
+    | while IFS= read -r container_id; do
+        [[ -n "$container_id" ]] || continue
+        state="$(docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' \
+          "$container_id" 2>/dev/null || true)"
+        if [[ "$state" =~ ^(created|exited|dead|restarting|removing)($|[[:space:]]) ]] \
+          || [[ "$state" == *" unhealthy" ]]; then
+          echo "$container_id"
+        fi
+      done
 )
-if (( ${#application_containers[@]} > 0 )); then
-  docker inspect "${application_containers[@]}" \
-    >"$output_dir/application-inspect.json" 2>&1 || true
+if (( ${#failed_containers[@]} > 0 )); then
+  docker inspect "${failed_containers[@]}" \
+    >"$output_dir/failed-container-inspect.json" 2>&1 || true
+else
+  printf '[]\n' >"$output_dir/failed-container-inspect.json"
 fi
