@@ -39,9 +39,9 @@ function submit(): void {
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="group-sheet" role="dialog" aria-modal="true" aria-labelledby="group-title">
-      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+  <div v-if="open" class="modal-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="group-sheet apple-modal-surface" role="dialog" aria-modal="true" aria-labelledby="group-title">
+      <button class="close-button apple-modal-close" type="button" aria-label="关闭" @click="emit('close')">
         <UiIcon name="close" :size="16" />
       </button>
 
@@ -61,7 +61,7 @@ function submit(): void {
         <div
           v-for="friend in friends"
           :key="friend.friendId"
-          class="friend-row"
+          class="friend-row apple-list-row"
           :class="{ 'friend-row--selected': selectedIds.includes(friend.friendId) }"
           role="checkbox"
           :aria-checked="selectedIds.includes(friend.friendId)"

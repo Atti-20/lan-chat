@@ -18,7 +18,6 @@ import java.time.Duration;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-@CrossOrigin
 public class AuthController {
 
     private static final String REFRESH_COOKIE_NAME = "lanchat_refresh";

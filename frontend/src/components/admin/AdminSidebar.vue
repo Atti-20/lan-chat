@@ -20,7 +20,6 @@ const emit = defineEmits<{
 interface ModuleItem {
   id: AdminModule
   title: string
-  description: string
   icon: IconName
 }
 
@@ -28,19 +27,16 @@ const modules: ModuleItem[] = [
   {
     id: 'accounts',
     title: '账号管理',
-    description: '创建账号、重置密码、封禁与删除',
     icon: 'users',
   },
   {
     id: 'diagnostics',
     title: '连接诊断',
-    description: '节点依赖、连接与运行状态',
     icon: 'activity',
   },
   {
     id: 'logs',
     title: '运行日志',
-    description: '启动输出、运行警告与错误追踪',
     icon: 'terminal',
   },
 ]
@@ -58,7 +54,7 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
 </script>
 
 <template>
-  <aside class="admin-sidebar" aria-label="管理模块">
+  <aside class="admin-sidebar apple-structural-surface" aria-label="管理模块">
     <header class="admin-sidebar-header">
       <p>节点控制台</p>
       <h1>管理</h1>
@@ -68,7 +64,7 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
       <button
         v-for="item in modules"
         :key="item.id"
-        class="module-item"
+        class="module-item apple-list-row"
         :class="{ 'module-item--active': selected === item.id }"
         type="button"
         :aria-current="selected === item.id ? 'page' : undefined"
@@ -77,7 +73,6 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
         <span class="module-icon"><UiIcon :name="item.icon" :size="20" /></span>
         <span class="module-copy">
           <strong>{{ item.title }}</strong>
-          <small>{{ item.description }}</small>
         </span>
         <span v-if="item.id === 'accounts'" class="module-meta">
           {{ accountCount == null ? '待载入' : `${accountCount} 个` }}
@@ -113,7 +108,7 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
 .module-item {
   display: grid;
   width: 100%;
-  min-height: 78px;
+  min-height: 60px;
   padding: 11px 10px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -130,9 +125,8 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
 .module-item--active { background: var(--active); }
 .module-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; color: var(--blue); background: var(--fill); }
 .module-item--active .module-icon { color: white; background: var(--blue); }
-.module-copy { display: grid; min-width: 0; gap: 5px; }
+.module-copy { display: grid; min-width: 0; }
 .module-copy strong { font-size: 13px; }
-.module-copy small { overflow: hidden; color: var(--ink-faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .module-meta { align-self: start; padding-top: 3px; color: var(--ink-faint); font-size: 9px; white-space: nowrap; }
 .module-health { display: inline-flex; align-items: center; gap: 5px; color: var(--coral); }
 .module-health i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }

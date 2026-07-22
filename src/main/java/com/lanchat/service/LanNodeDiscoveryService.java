@@ -1,6 +1,7 @@
 package com.lanchat.service;
 
 import com.lanchat.config.LanChatNodeProperties;
+import com.lanchat.config.LanChatProtocol;
 import com.lanchat.dto.DiscoveredNode;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -129,15 +130,7 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
         try {
             responder.addServiceListener(SERVICE_TYPE, new NodeServiceListener(responder));
 
-            Map<String, Object> properties = new LinkedHashMap<>();
-            properties.put("nodeId", nodeId);
-            properties.put("nodeName", safeText(nodeProperties.getName(), "LanChat Node", 80));
-            properties.put("organization", safeText(nodeProperties.getOrganizationName(), "Local Organization", 80));
-            properties.put("version", safeText(nodeProperties.getVersion(), "unknown", 30));
-            properties.put("mode", nodeProperties.normalizedMode());
-            properties.put("secure", Boolean.toString(nodeProperties.isSecure()));
-            properties.put("protocol", "1");
-            properties.put("path", "/app/");
+            Map<String, Object> properties = buildTxtProperties(nodeId);
 
             ServiceInfo serviceInfo = ServiceInfo.create(
                     SERVICE_TYPE,
@@ -194,6 +187,7 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
     private void remember(ServiceInfo info, InetAddress fallbackAddress, boolean current) {
         String nodeId = safeNodeId(info.getPropertyString("nodeId"));
         if (nodeId == null) return;
+        if (!compatibleProtocol(info)) return;
         InetAddress address = firstIpv4(info, fallbackAddress);
         if (address == null) return;
 
@@ -203,7 +197,8 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
                 : address.getHostAddress();
         if (!safeHost(host)) host = address.getHostAddress();
         int port = info.getPort() > 0 ? info.getPort() : nodeProperties.getAdvertisedPort();
-        String appUrl = (secure ? "https" : "http") + "://" + host + ":" + port + "/app/";
+        String appUrl = (secure ? "https" : "http") + "://" + host + ":" + port
+                + LanChatProtocol.APP_PATH;
 
         DiscoveredNode node = new DiscoveredNode(
                 nodeId,
@@ -217,6 +212,41 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
                 Instant.now()
         );
         discovered.put(nodeId + "@" + appUrl, node);
+    }
+
+    Map<String, Object> buildTxtProperties(String nodeId) {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("nodeId", nodeId);
+        properties.put("nodeName", safeText(nodeProperties.getName(), "LanChat Node", 80));
+        properties.put("organization", safeText(
+                nodeProperties.getOrganizationName(), "Local Organization", 80));
+        properties.put("version", safeText(nodeProperties.getVersion(), "unknown", 30));
+        properties.put("mode", nodeProperties.normalizedMode());
+        properties.put("secure", Boolean.toString(nodeProperties.isSecure()));
+        String advertisedHost = nodeProperties.getAdvertisedHost();
+        if (safeHost(advertisedHost)) {
+            properties.put("advertisedHost", advertisedHost.trim());
+        }
+        properties.put("protocolVersion", Integer.toString(LanChatProtocol.PROTOCOL_VERSION));
+        properties.put("apiBasePath", LanChatProtocol.API_BASE_PATH);
+        properties.put("webSocketPath", LanChatProtocol.WEB_SOCKET_PATH);
+        properties.put("healthPath", LanChatProtocol.HEALTH_PATH);
+        properties.put("appPath", LanChatProtocol.APP_PATH);
+        properties.put("desktopAuthSupported",
+                Boolean.toString(LanChatProtocol.DESKTOP_AUTH_SUPPORTED));
+        properties.put("refreshTransport", LanChatProtocol.REFRESH_TRANSPORT);
+        // Retain the V2.1 TXT keys for older discovery clients.
+        properties.put("protocol", Integer.toString(LanChatProtocol.PROTOCOL_VERSION));
+        properties.put("path", LanChatProtocol.APP_PATH);
+        return properties;
+    }
+
+    private boolean compatibleProtocol(ServiceInfo info) {
+        String advertised = info.getPropertyString("protocolVersion");
+        if (!StringUtils.hasText(advertised)) {
+            advertised = info.getPropertyString("protocol");
+        }
+        return Integer.toString(LanChatProtocol.PROTOCOL_VERSION).equals(advertised);
     }
 
     private InetAddress firstIpv4(ServiceInfo info, InetAddress fallback) {

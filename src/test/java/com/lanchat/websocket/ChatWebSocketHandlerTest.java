@@ -40,7 +40,7 @@ class ChatWebSocketHandlerTest {
     }
 
     @Test
-    void authenticatesAfterHandshakeAndReturnsSanitizedAuthEvent() throws Exception {
+    void authenticatesDesktopDeviceAfterHandshakeAndReturnsSanitizedAuthEvent() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
         JwtUtil jwtUtil = mock(JwtUtil.class);
         UserService userService = mock(UserService.class);
@@ -60,7 +60,7 @@ class ChatWebSocketHandlerTest {
         String token = "access-token-not-in-url";
         when(jwtUtil.isAccessToken(token)).thenReturn(true);
         when(jwtUtil.getUserIdFromToken(token)).thenReturn(7L);
-        when(jwtUtil.getDeviceTypeFromToken(token)).thenReturn("web");
+        when(jwtUtil.getDeviceTypeFromToken(token)).thenReturn("desktop");
 
         User user = new User();
         user.setId(7L);
@@ -71,7 +71,7 @@ class ChatWebSocketHandlerTest {
 
         DeviceLogin device = new DeviceLogin();
         device.setId(99L);
-        when(userService.getActiveDevice(token, 7L, "web")).thenReturn(device);
+        when(userService.getActiveDevice(token, 7L, "desktop")).thenReturn(device);
 
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getAttributes()).thenReturn(new HashMap<>());

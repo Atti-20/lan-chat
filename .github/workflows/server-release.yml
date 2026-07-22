@@ -1,0 +1,109 @@
+name: Release Server
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v-prefixed tag to publish as a draft
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image-and-compose:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve and validate release tag
+        id: release
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::Server releases require a semantic v-prefixed tag."
+            exit 1
+          }
+          echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve lowercase GHCR image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Run backend tests before publishing
+        run: ./mvnw -B test
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image tags and labels
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=${{ steps.release.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=sha,prefix=sha-
+
+      - name: Build and push server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Compose release bundle
+        run: |
+          scripts/release/package-compose.sh \
+            "${{ steps.image.outputs.name }}" \
+            "${{ steps.release.outputs.tag }}" \
+            dist
+
+      - name: Upload Compose bundle to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: lanchat-compose-${{ steps.release.outputs.tag }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Attach Compose bundle to draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          draft: true
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256

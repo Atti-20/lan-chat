@@ -13,7 +13,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/chat")
-@CrossOrigin
 public class ChatController {
 
     @Autowired

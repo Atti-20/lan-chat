@@ -5,6 +5,7 @@ import type { AuthSession, User } from '../types'
 import {
   clearCacheOwner,
   clearSession,
+  cacheOwnerKey,
   readCacheOwner,
   readSession,
   writeCacheOwner,
@@ -82,7 +83,7 @@ export function useAuth() {
 
   async function prepareLocalCache(userId: number): Promise<void> {
     const owner = readCacheOwner()
-    if (owner != null && owner !== userId) {
+    if (owner != null && owner !== cacheOwnerKey(userId)) {
       try {
         await clearLocalChatDatabase()
       } catch {

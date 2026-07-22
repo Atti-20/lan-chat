@@ -41,9 +41,9 @@ function submit(): void {
 </script>
 
 <template>
-  <div v-if="user" class="reset-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="reset-sheet" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
-      <button class="close-button" type="button" aria-label="关闭" :disabled="saving" @click="emit('close')">
+  <div v-if="user" class="reset-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="reset-sheet apple-modal-surface" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+      <button class="close-button apple-modal-close" type="button" aria-label="关闭" :disabled="saving" @click="emit('close')">
         <UiIcon name="close" :size="16" />
       </button>
 

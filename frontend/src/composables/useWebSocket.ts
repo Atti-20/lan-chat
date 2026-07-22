@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, readonly, shallowRef } from 'vue'
 import type { ConnectionState, WsEnvelope } from '../types'
+import { webSocketUrl } from '../platform/nodeContext'
 import { createClientMessageId } from '../utils/id'
 import { readSession } from '../utils/storage'
 
@@ -57,8 +58,14 @@ export function useWebSocket(options: UseWebSocketOptions) {
     manuallyClosed = false
     authenticated = false
     state.value = reconnectAttempts.value > 0 ? 'RECONNECTING' : 'CONNECTING'
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const nextSocket = new WebSocket(`${protocol}//${window.location.host}/ws/chat`)
+    let nextSocket: WebSocket
+    try {
+      nextSocket = new WebSocket(webSocketUrl())
+    } catch (cause) {
+      state.value = 'OFFLINE'
+      options.onError?.(cause instanceof Error ? cause.message : '实时连接地址无效')
+      return
+    }
     socket = nextSocket
 
     nextSocket.onopen = () => {

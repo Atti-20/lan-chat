@@ -33,7 +33,6 @@ import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/file")
-@CrossOrigin
 public class FileController {
 
     @Autowired
@@ -256,9 +255,13 @@ public class FileController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .header("X-Content-Type-Options", "nosniff")
-                .header("Cross-Origin-Resource-Policy", "same-origin")
-                .header("Content-Security-Policy", "sandbox; default-src 'none'")
-                .header("X-Frame-Options", "SAMEORIGIN");
+                // The Capacitor and Tauri shells are served from their own local
+                // origins (for example https://localhost). Signed preview URLs
+                // are deliberately bearer-authorized and may therefore be
+                // embedded by those shells; same-origin here made every remote
+                // image fail in the Android WebView.
+                .header("Cross-Origin-Resource-Policy", "cross-origin")
+                .header("Content-Security-Policy", "sandbox; default-src 'none'");
         if (signedPreview) {
             // A signed URL is still a bearer credential. Shared/CDN caches must not
             // retain private bytes after the token or conversation grant expires.

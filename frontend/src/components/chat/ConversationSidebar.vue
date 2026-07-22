@@ -181,7 +181,7 @@ function itemTime(item: ConversationListItem): string {
 </script>
 
 <template>
-  <aside class="conversation-sidebar">
+  <aside class="conversation-sidebar apple-structural-surface">
     <header class="sidebar-header">
       <div>
         <p>{{ kicker }}</p>
@@ -240,7 +240,7 @@ function itemTime(item: ConversationListItem): string {
         v-for="item in listItems"
         :key="item.key"
         type="button"
-        class="conversation-item"
+        class="conversation-item apple-list-row"
         :class="{ 'conversation-item--active': selectedId === item.conversation.id && selectedKind === item.conversation.kind }"
         @click="emit('select', item.conversation)"
       >

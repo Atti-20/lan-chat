@@ -1,5 +1,9 @@
 import { computed, onBeforeUnmount, readonly, ref, shallowRef, watch } from 'vue'
+import { navigateToApp } from '../platform/appNavigation'
+import { nativeBridge } from '../platform/nativeBridge'
+import { selectedNode } from '../platform/nodeContext'
 import { api } from '../services/api'
+import { playNotificationSound } from '../services/notificationSound'
 import { publishRealtimeEvent } from '../services/realtimeEvents'
 import {
   cacheMessages,
@@ -32,12 +36,12 @@ import { createClientMessageId } from '../utils/id'
 import { advanceContiguousSequence } from '../utils/sequence'
 import { clearCacheOwner, clearSession } from '../utils/storage'
 import { useAuth } from './useAuth'
+import { useFileTransferSettings } from './useFileTransferSettings'
 import { useOutbox } from './useOutbox'
 import { usePeerFileTransfer } from './usePeerFileTransfer'
 import { useResumableUpload } from './useResumableUpload'
 import { useToast } from './useToast'
 import { useWebSocket } from './useWebSocket'
-import {playNotificationSound} from "../services/notificationSound";
 
 export type ChatSection = 'messages' | 'contacts' | 'groups' | 'broadcasts' | 'admin'
 
@@ -59,6 +63,7 @@ export function useChat() {
   const auth = useAuth()
   const { currentUser } = auth
   const toast = useToast()
+  const fileTransferSettings = useFileTransferSettings()
   const outbox = useOutbox()
   const friends = ref<Friend[]>([])
   const groups = ref<ChatGroup[]>([])
@@ -330,12 +335,12 @@ export function useChat() {
         void clearLocalChatDatabase()
           .then(() => clearCacheOwner())
           .catch(() => undefined)
-          .finally(() => window.location.replace('/'))
+          .finally(() => navigateToApp('/', true))
         return
       }
       // Refresh 过期不应销毁离线发件箱；同一用户重新登录后继续补发，
       // 若改用其他账号，prepareLocalCache 会按 owner 清理隔离数据。
-      window.location.replace('/')
+      navigateToApp('/', true)
     },
   })
   const peerFiles = usePeerFileTransfer({
@@ -685,11 +690,11 @@ export function useChat() {
     if (delivered.sequence != null && !hasSequenceGap) {
       await recordPosition(conversationId, delivered.sequence)
     }
-    if(isCurrentConversation) {
+    if (isCurrentConversation) {
       mergeCurrentMessages([delivered])
       if (isIncomingMessage) {
         startBurnCountdown(delivered)
-        if(!hasSequenceGap) {
+        if (!hasSequenceGap) {
           sendReadPosition(conversationId, [delivered])
         }
       }
@@ -704,8 +709,24 @@ export function useChat() {
             2800,
         )
         playNotificationSound()
-        }
       }
+    }
+    if (isIncomingMessage
+      && !conversation?.muted
+      && nativeBridge.runtime() !== 'web'
+      && (document.visibilityState !== 'visible' || !document.hasFocus())) {
+      const title = conversation?.name || delivered.fromNickname || 'MeshX 新消息'
+      const preview = conversationPreview(delivered.type || delivered.contentType, delivered.content)
+      void nativeBridge.notify({
+        title,
+        body: (preview || '发来一条新消息').replace(/\s+/g, ' ').slice(0, 160),
+        target: {
+          kind: 'conversation',
+          value: conversationId,
+          nodeOrigin: selectedNode()?.origin,
+        },
+      }).catch(() => undefined)
+    }
     updateConversationPreview(delivered)
     ws.sendEvent('CHAT_DELIVER', {
       messageId: delivered.messageId,
@@ -886,7 +907,9 @@ export function useChat() {
     if (!ws.connected.value) throw new Error('文件需要连接节点后上传；文本消息仍可离线发送')
     const image = file.type.startsWith('image/')
     let attachment: FileAttachmentData
-    if (conversation.kind === 'private' && peerFiles.supported.value) {
+    if (conversation.kind === 'private'
+      && peerFiles.supported.value
+      && fileTransferSettings.preferDirectFileTransfer.value) {
       try {
         attachment = await peerFiles.sendDirect(file, conversation.conversationId, conversation.id)
       } catch {

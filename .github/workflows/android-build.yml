@@ -1,0 +1,79 @@
+name: Android Build
+
+on:
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - "frontend/**"
+      - "src/main/java/com/lanchat/config/**"
+      - "src/main/resources/application.yml"
+      - ".github/workflows/android-build.yml"
+  push:
+    branches:
+      - master
+      - "feature/**"
+      - "codex/**"
+    paths:
+      - "apps/mobile/**"
+      - "frontend/**"
+      - "src/main/java/com/lanchat/config/**"
+      - "src/main/resources/application.yml"
+      - ".github/workflows/android-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secure-debug:
+    name: Capacitor Android secure debug APK
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            apps/mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36 build prerequisites
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install JavaScript dependencies
+        run: |
+          npm ci --prefix frontend
+          npm ci --prefix apps/mobile
+
+      - name: Build and sync shared Vue assets
+        run: npm run sync --prefix apps/mobile
+
+      - name: Build unsigned secure APK and AAB
+        working-directory: apps/mobile/android
+        run: ./gradlew :app:assembleSecureDebug :app:bundleSecureRelease
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lanchat-android-${{ github.sha }}
+          path: |
+            apps/mobile/android/app/build/outputs/apk/secure/debug/*.apk
+            apps/mobile/android/app/build/outputs/bundle/secureRelease/*.aab
+          if-no-files-found: error
+          retention-days: 14

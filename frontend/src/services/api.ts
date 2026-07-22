@@ -27,6 +27,13 @@ import type {
   TemporaryRoomCreatePayload,
   User,
 } from '../types'
+import { nativeBridge } from '../platform/nativeBridge'
+import {
+  apiUrl,
+  currentNodeApiBasePath,
+  currentNodeOrigin,
+  resourceUrl,
+} from '../platform/nodeContext'
 import { clearSession, readSession, writeSession } from '../utils/storage'
 
 interface ApiResult<T> {
@@ -44,6 +51,20 @@ export class ApiError extends Error {
 
 let refreshPromise: Promise<boolean> | null = null
 
+function clientDeviceType(): 'web' | 'android' | 'ios' {
+  const runtime = nativeBridge.runtime()
+  if (runtime !== 'capacitor') return 'web'
+  return navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')
+    ? 'ios'
+    : 'android'
+}
+
+function clientDeviceName(): string {
+  const type = clientDeviceType()
+  if (type === 'web') return navigator.userAgent.slice(0, 100)
+  return `MeshX ${type === 'android' ? 'Android' : 'iOS'} (${navigator.userAgent})`.slice(0, 100)
+}
+
 function authHeaders(): Record<string, string> {
   const token = readSession()?.token
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -52,21 +73,29 @@ function authHeaders(): Record<string, string> {
 async function refreshAccessToken(): Promise<boolean> {
   if (refreshPromise) return refreshPromise
   refreshPromise = (async () => {
-    const session = readSession()
-
     try {
-      const response = await fetch('/api/v1/auth/refresh', {
+      if (nativeBridge.runtime() === 'tauri') {
+        const refreshed = await nativeBridge.desktopRefresh(
+          currentNodeOrigin(),
+          currentNodeApiBasePath(),
+        )
+        if (!refreshed) return false
+        writeSession(refreshed)
+        return true
+      }
+
+      const response = await fetch(apiUrl('/auth/refresh'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
-          deviceType: 'web',
-          deviceName: navigator.userAgent.slice(0, 100),
+          deviceType: clientDeviceType(),
+          deviceName: clientDeviceName(),
         }),
       })
       const result = await response.json() as ApiResult<AuthSession>
       if (!response.ok || result.code !== 200 || !result.data) return false
-      writeSession({ ...session, ...result.data })
+      writeSession(result.data)
       return true
     } catch {
       return false
@@ -91,7 +120,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 
   let response: Response
   try {
-    response = await fetch(`/api/v1${path}`, { ...init, headers })
+    response = await fetch(apiUrl(path), { ...init, headers })
   } catch (cause) {
     if (cause instanceof Error && cause.name === 'AbortError') throw cause
     throw new ApiError('无法连接服务器，请检查网络', 0)
@@ -123,7 +152,7 @@ async function download(path: string, fallbackName: string, retry = true): Promi
 
   let response: Response
   try {
-    response = await fetch(`/api/v1${path}`, { headers })
+    response = await fetch(apiUrl(path), { headers })
   } catch {
     throw new ApiError('无法连接服务器，请检查网络', 0)
   }
@@ -170,7 +199,7 @@ function responseFileName(contentDisposition: string | null, fallback: string): 
 }
 
 function storedFileName(rawUrl: string): string {
-  const pathname = new URL(rawUrl, window.location.origin).pathname
+  const pathname = new URL(rawUrl, currentNodeOrigin()).pathname
   return decodeURIComponent(pathname.split('/').pop() || '')
 }
 
@@ -180,20 +209,33 @@ export const api = {
     discoveries: () => request<DiscoveredNode[]>('/node/discoveries'),
   },
   auth: {
-    login: (username: string, password: string) => request<AuthSession>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
+    login: (username: string, password: string) => nativeBridge.runtime() === 'tauri'
+      ? nativeBridge.desktopLogin(
+        currentNodeOrigin(),
+        currentNodeApiBasePath(),
         username,
         password,
-        deviceType: 'web',
-        deviceName: navigator.userAgent.slice(0, 100),
+      )
+      : request<AuthSession>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          username,
+          password,
+          deviceType: clientDeviceType(),
+          deviceName: clientDeviceName(),
+        }),
       }),
-    }),
     register: (username: string, password: string, nickname: string) => request<void>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, password, nickname }),
     }),
-    logout: () => request<void>('/auth/logout', { method: 'POST' }),
+    logout: () => nativeBridge.runtime() === 'tauri'
+      ? nativeBridge.desktopLogout(
+        currentNodeOrigin(),
+        currentNodeApiBasePath(),
+        readSession()?.token,
+      )
+      : request<void>('/auth/logout', { method: 'POST' }),
     refreshSession: refreshAccessToken,
   },
   user: {
@@ -368,10 +410,10 @@ export const api = {
       `/file/uploads/${encodeURIComponent(uploadId)}`,
       { method: 'DELETE' },
     ),
-    temporaryUrl: (rawUrl: string) => request<string>(
+    temporaryUrl: async (rawUrl: string) => resourceUrl(await request<string>(
       `/file/preview-url?fileName=${encodeURIComponent(storedFileName(rawUrl))}`,
       { method: 'POST' },
-    ),
+    )),
   },
   admin: {
     users: () => request<AdminUser[]>('/admin/users'),

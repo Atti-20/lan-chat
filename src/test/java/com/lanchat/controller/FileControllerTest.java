@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -47,6 +48,8 @@ class FileControllerTest {
         assertTrue(response.getHeaders().getContentDisposition().isAttachment());
         assertEquals("report.xlsx", response.getHeaders().getContentDisposition().getFilename());
         assertEquals("no-store, private", response.getHeaders().getFirst("Cache-Control"));
+        assertEquals("cross-origin", response.getHeaders().getFirst("Cross-Origin-Resource-Policy"));
+        assertNull(response.getHeaders().getFirst("X-Frame-Options"));
     }
 
     @Test

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, shallowRef, watch } from 'vue'
 import type { AdminUser } from '../../types'
+import AppleSwitch from '../base/AppleSwitch.vue'
 import UserAvatar from '../base/UserAvatar.vue'
 import AdminAccountCard from './AdminAccountCard.vue'
 
@@ -55,12 +56,7 @@ function saveMute(user: AdminUser): void {
   emit('mute', { userId: user.id, muteStart, muteEnd })
 }
 
-function requestBroadcastPermission(user: AdminUser, event: Event): void {
-  const input = event.currentTarget as HTMLInputElement
-  const enabled = input.checked
-  // The server remains authoritative. Keep the controlled checkbox on the
-  // current prop until the refreshed account list confirms the mutation.
-  input.checked = user.canSendBroadcast === 1
+function requestBroadcastPermission(user: AdminUser, enabled: boolean): void {
   emit('broadcastPermission', { userId: user.id, enabled })
 }
 
@@ -100,7 +96,7 @@ watch(() => props.createdUsername, (createdUsername) => {
 </script>
 
 <template>
-  <section class="admin-console" aria-labelledby="admin-console-title">
+  <section class="admin-console apple-content-surface" aria-labelledby="admin-console-title">
     <header class="admin-header">
       <div>
         <p>ADMINISTRATION</p>
@@ -175,15 +171,15 @@ watch(() => props.createdUsername, (createdUsername) => {
               </span>
             </td>
             <td>
-              <label v-if="user.username !== 'admin'" class="permission-switch">
-                <input
-                  type="checkbox"
-                  :checked="user.canSendBroadcast === 1"
+              <div v-if="user.username !== 'admin'" class="permission-switch">
+                <AppleSwitch
+                  :model-value="user.canSendBroadcast === 1"
                   :disabled="busyUserId === user.id"
-                  @change="requestBroadcastPermission(user, $event)"
+                  :aria-label="`${user.username} 的广播发布权限`"
+                  @update:model-value="requestBroadcastPermission(user, $event)"
                 />
                 <span>{{ user.canSendBroadcast === 1 ? '允许发布' : '禁止发布' }}</span>
-              </label>
+              </div>
               <span v-else class="protected-copy">始终允许</span>
             </td>
             <td>
@@ -255,9 +251,7 @@ watch(() => props.createdUsername, (createdUsername) => {
 .user-cell small { color: var(--ink-faint); font-size: 9px; }
 .status-badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: var(--green); font-size: 10px; font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
 .status-badge.banned { color: var(--coral); background: color-mix(in srgb, var(--coral) 10%, transparent); }
-.permission-switch { display: inline-flex; min-width: 92px; align-items: center; gap: 7px; color: var(--ink-soft); font-size: 10px; font-weight: 650; cursor: pointer; }
-.permission-switch input { width: 16px; height: 16px; margin: 0; accent-color: var(--blue); cursor: inherit; }
-.permission-switch:has(input:disabled) { cursor: wait; opacity: .55; }
+.permission-switch { display: inline-flex; min-width: 138px; align-items: center; gap: 9px; color: var(--ink-soft); font-size: 10px; font-weight: 650; }
 .mute-fields { display: flex; min-width: 260px; align-items: center; gap: 6px; }
 .mute-fields input { width: 92px; height: 34px; padding: 0 8px; border: 1px solid var(--separator); border-radius: 9px; color: var(--ink); font: inherit; background: var(--surface); }
 .mute-fields span { color: var(--ink-faint); font-size: 10px; }

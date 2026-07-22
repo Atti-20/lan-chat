@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 192" fill="none">
+  <defs>
+    <linearGradient id="lockup-background" x1="24" y1="20" x2="168" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5E5CE6"/>
+      <stop offset=".52" stop-color="#356EDE"/>
+      <stop offset="1" stop-color="#0A3E9A"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="160" height="160" rx="45" fill="url(#lockup-background)"/>
+  <path d="M39 49h14l43 40 43-40h14v61l-13 11V72l-34 31-10 10-10-10-34-31v49l-13-11V49Z" fill="#fff"/>
+  <path d="M57 146v-22l39-36 39 36v22l-39-36-39 36Z" fill="#fff"/>
+  <text x="202" y="124" fill="#101A3D" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', sans-serif" font-size="76" font-weight="650" letter-spacing="-4">Mesh<tspan font-weight="800">X</tspan></text>
+</svg>

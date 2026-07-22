@@ -2,7 +2,7 @@
 
 LanChat 面向校园、工厂、办公室、项目现场和应急环境，目标是在组织自有网络中提供可控、可靠的即时沟通能力。
 
-当前版本为 **V2.3.0**。代码已经完成可靠消息、断网文本发件箱、重连补拉、统一会话模型和设备会话鉴权；V2.1 落地了文件安全、连接诊断、私有部署和服务端 mDNS 局域网节点发现，V2.2 增加了 WebRTC 文件直传与中转降级、临时协作房间和应急广播，V2.3 进一步完成了**分片上传、断点续传、LOCAL/MinIO 私有对象存储，以及共享 MySQL、Redis、MinIO 的多 Spring Boot 实例实时路由与全局在线状态**。
+当前开发版本为 **V3.0.0**，正式发布基线仍为 V2.3.0。V3.0 继承了可靠消息、断网文本发件箱、重连补拉、文件安全、WebRTC、临时房间、应急广播、分片上传、LOCAL/MinIO 私有对象存储及多实例实时路由，并在本轮加入 macOS Tauri 桌面端 P0、原生局域网发现和 CI/Release/E2E 代码。尚未生成经外部证书签名、公证并正式发布的 V3.0 安装包。
 
 V2.3 的多实例能力属于同一逻辑 LanChat 节点的横向扩展：实例共享持久化数据和对象存储，并通过 Redis 分发实时事件。它不等同于两个独立数据库节点之间的双向复制；独立节点的数据同步、冲突检测和冲突合并仍在后续路线图中。
 
@@ -19,16 +19,19 @@ V2.3 的多实例能力属于同一逻辑 LanChat 节点的横向扩展：实例
 | 管理员运行日志 | 已实现 | 控制台与滚动文件双输出、级别/关键字筛选、错误说明、堆栈查看和当前日志导出 |
 | 文件安全 | 已实现 | 扩展名、MIME、文件头三重校验，私有存储、权限复核、签名预览和访问审计 |
 | 私有部署 | 已实现 | 强配置启动校验、首次管理员引导、关闭自助注册、内网依赖隔离、容器健康检查和多实例共享依赖部署 |
-| 局域网节点自动发现 | 已实现（服务端阶段） | JmDNS/DNS-SD 广播与发现、节点握手接口、登录页节点列表与安全切换 |
-| WebRTC 文件直传与中转降级 | 已实现 | WebRTC DataChannel 优先，失败、超时或不支持时自动切换服务端中转；信令可跨应用实例路由 |
+| 局域网节点自动发现 | 已实现 | 服务端 JmDNS 广播/发现；Tauri 原生 mDNS 浏览、握手、健康探测、缓存和手动地址回退 |
+| WebRTC 文件直传与中转降级 | 已实现 | 节点中转为默认；可在本机开启 WebRTC DataChannel 直传，协商失败、超时或不支持时自动切换服务端中转；信令可跨应用实例路由 |
 | 临时协作房间 | 已实现 | 房间码、成员与角色、有效期、上传/下载/转发策略和冻结/归档/销毁生命周期 |
 | 应急广播 | 已实现 | 管理员授权发布、全体或好友复选、在线推送/离线补拉、回执统计和保留历史的撤销 |
 | 分片上传、断点续传、MinIO | 已实现 | 上传会话、分片幂等、缺片查询、恢复上传、最终哈希与内容复核；LOCAL/MinIO 可切换；对象清理持久化重试 |
 | 多实例实时路由与全局 Presence | 已实现 | 共享 MySQL、Redis、MinIO 的单逻辑节点；跨实例消息、业务通知、WebRTC 信令和在线状态 |
+| macOS 桌面端 P0 | 代码已实现，待安装回归 | Tauri 壳、托盘、通知、单实例、开机自启、受限深链、动态节点与原生 Refresh Cookie Jar |
+| Android 客户端 P1 | 工程已实现，待设备/签名回归 | Capacitor 8、共享 Vue UI、手动节点握手、前后台重连、文件选择上传、本地通知、HTTPS/WSS 默认与受控 LAN Debug HTTP 变体 |
+| CI、Release 与 E2E | 流水线代码已实现，待外部验证 | 通用 CI、三平台无签名 smoke build、签名草稿 Release、服务端镜像、双实例与断网测试 |
 | 独立节点数据同步 | 规划中 | 尚未实现独立数据库节点间双向复制、权限传播和冲突合并 |
 | 端到端加密、本地 AI | 暂缓 | 不属于当前版本 |
 
-更完整的需求到代码映射见 [实施状态-LAN-first-V2.0.md](实施状态-LAN-first-V2.0.md)。
+V2.x 的需求到代码映射见 [实施状态-LAN-first-V2.0.md](实施状态-LAN-first-V2.0.md)；V3.0 的精确完成边界、外部依赖和验收证据见 [实施状态-V3.0.md](PRD/v3/docs/v3/实施状态-V3.0.md)。
 
 ## 可靠消息主链路
 
@@ -61,6 +64,8 @@ UNIQUE (conversation_id, sequence)
 | 数据 | MySQL 8、MyBatis Plus 3.5、Redis |
 | 文件存储 | 本地私有目录或 MinIO/S3 兼容私有对象存储 |
 | Web 前端 | Vue 3.5、TypeScript 5.9、Vite 8、Composition API |
+| 桌面端 | Tauri 2、Rust、系统 WebView、`mdns-sd` |
+| Android 端 | Capacitor 8、Android WebView、API 24+ |
 | 本地离线 | IndexedDB |
 | 认证 | JWT Access Token、轮换 Refresh Token、HttpOnly Cookie |
 | 部署 | 多阶段 Dockerfile、Docker Compose |
@@ -111,13 +116,22 @@ V2.3 已在这套安全基线上增加上传会话、分片幂等、缺片查询
 
 服务端使用 `_lanchat._tcp.local.` DNS-SD 服务广播节点 ID、名称、组织、版本、运行模式、协议和 Web 地址，并在每个可用的 IPv4 多播网卡上发现同类节点。`/api/v1/node/info` 提供脱敏握手信息，`/api/v1/node/discoveries` 返回去重且会过期的节点列表；登录页可以扫描并切换到发现的节点。
 
-浏览器自身不能直接监听 mDNS，因此第一次打开 Web 客户端仍需要一个已知种子地址；访问任一节点后，页面才能展示该服务端发现的其他节点。Docker bridge 通常不会把 mDNS 多播送到物理局域网，自动发现建议使用原生 JVM 进程，或由部署环境显式提供 host 网络/多播转发。
+Tauri 桌面端可在未连接种子节点时原生浏览同一服务类型。发现结果必须通过协议版本、`nodeId`、`/api/v1/node/info` 和健康端点校验后才进入节点列表；客户端记录来源、延迟和最近成功时间，并保留最多 32 个缓存节点及经握手确认的手动地址。桌面端切换节点时 REST、WebSocket、资源地址与本地缓存属主一起切换，避免不同节点上相同用户 ID 复用缓存。
+
+浏览器自身仍不能直接监听 mDNS，因此 Web 客户端第一次打开仍需要已知种子地址。Docker bridge 通常不会把 mDNS 多播送到物理局域网；真实桌面发现应在具有多播网卡的 macOS 或自托管 runner 上验收。
+
+### V3.0 桌面认证与安全边界
+
+- 桌面登录、刷新和退出由 Rust 原生 HTTP Client 执行，Refresh Cookie 保存在按节点隔离的内存 Cookie Jar，不暴露给 JavaScript、`localStorage` 或 IndexedDB。
+- Vue 侧只保存短期 Access Token；WebSocket 仍在连接后使用 `AUTH` 事件认证，Token 不进入 URL。
+- 服务端明确识别 `desktop` 设备类型，并对 Tauri WebView 使用精确 Origin 的 CORS 与 WebSocket 白名单，不使用通配符凭据策略。
+- `lanchat://` 只接受 `node`、`room`、`conversation`、`broadcast` 白名单目标，拒绝凭据、片段、重复/未知参数和非 HTTP(S) 节点地址。
 
 ## V2.2 协作能力
 
 ### WebRTC 文件传输
 
-发送端先创建文件传输任务，通过现有 WebSocket 交换 offer、answer 与 ICE 候选，并优先尝试 WebRTC DataChannel。协商失败、超时、浏览器不支持或直传中断时，客户端会切换到受会话权限保护的服务端中转上传；完成后的附件仍需通过服务端任务校验才能进入聊天消息，不能用伪造的直传元数据绕过文件权限。
+节点中转是默认文件发送路径，因而文件可受权限保护地长期保存并在其他已登录设备上下载。用户可在“个人资料 → 文件传输方式”中按本机开启“优先尝试局域网设备直传”：仅私聊、双方在线且文件不超过 100 MB 时才会尝试 WebRTC DataChannel，协商最多等待 2 秒；协商失败、超时、浏览器不支持或直传中断时会立即切换到受会话权限保护的服务端中转上传。直传文件只保存在完成传输的两台设备上；完成后的附件仍需通过服务端任务校验才能进入聊天消息，不能用伪造的直传元数据绕过文件权限。
 
 ### 临时协作房间
 
@@ -166,6 +180,12 @@ frontend/                              Vue 3 Web 客户端
   src/composables/useRuntimeLogs.ts    管理员运行日志查询与导出状态
   src/composables/useNodeDiscovery.ts  节点扫描、去重和切换
   src/services/localChatDb.ts          IndexedDB 消息、位置和发件箱
+  src/platform/nativeBridge.ts         Web/Tauri 原生能力适配
+  src/platform/nodeContext.ts          桌面节点 REST/WS/资源地址上下文
+apps/desktop/
+  src-tauri/src/                       生命周期、托盘、深链、原生认证与 mDNS
+  src-tauri/capabilities/              Tauri 最小权限声明
+apps/mobile/                           Capacitor Android 工程、受控 LAN Debug 变体与构建脚本
 src/main/java/com/lanchat/
   cluster/                              Redis 跨实例实时路由、去重与全局 Presence
   websocket/ChatWebSocketHandler.java  V1 实时协议入口
@@ -192,6 +212,9 @@ sql/
   migration-v2.3-resumable-object-storage.sql 分片上传与对象存储升级脚本
 deploy/nginx.conf                      两个应用实例的 HTTP/WebSocket 统一网关
 compose.yaml                           MySQL、Redis、MinIO、双应用实例与网关
+compose.e2e.yaml                       隔离双实例端口与 E2E 配置覆盖
+tests/e2e/                             双实例消息和浏览器断网恢复测试
+.github/workflows/                     通用 CI、桌面构建、E2E 与草稿 Release
 ```
 
 ## 快速启动
@@ -259,6 +282,26 @@ export JWT_SECRET='replace-with-at-least-32-random-characters'
 ```
 
 Vite 构建产物写入 `src/main/resources/static/app/`，由 Spring Boot 同源托管。
+
+### macOS 桌面端开发
+
+需要 Node.js 20.19+、Rust stable、Xcode Command Line Tools 和 Tauri 2 的 macOS 构建环境：
+
+```bash
+npm ci --prefix frontend
+npm ci --prefix apps/desktop
+npm --prefix apps/desktop run dev
+```
+
+执行本地 ad-hoc 签名打包：
+
+```bash
+npm run build:desktop --prefix frontend
+npm run build:app --prefix apps/desktop
+npm run build:dmg --prefix apps/desktop
+```
+
+本地 `.app` 会使用 ad-hoc Bundle 签名，确保 Info.plist、资源和 entitlements 被完整密封，但该签名不建立发布者信任，`.app`/`.dmg` 仍仅用于开发回归。正式 macOS 分发还必须配置 Developer ID 证书和 Apple 公证凭据，并在真实 Release 中验证签名、公证、stapling、安装和 Updater 升级。仓库不会提交或生成占位私钥。
 
 ### 已有 V1 数据库升级
 
@@ -343,13 +386,28 @@ mysql -u root -p lan_chat < sql/demo-data.sql
 ## 验证
 
 ```bash
-./mvnw test
-cd frontend && npm run typecheck && npm run build
+npm ci --prefix frontend
+npm ci --prefix apps/desktop
+npm ci --prefix tests/e2e
+
+./mvnw -B test
+npm test --prefix frontend
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+npm run build:desktop --prefix frontend
+
+cargo fmt --all --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+npm run typecheck --prefix tests/e2e
+docker compose -f compose.yaml -f compose.e2e.yaml config --quiet
+git diff --check
 ```
 
 后端测试应覆盖会话 ID、消息幂等、序列分配、WebSocket 连接后认证、Refresh Cookie 轮换、文件内容识别与权限撤销、上传会话/分片幂等/缺片恢复/完整复核、LOCAL/MinIO 存储适配、跨实例去重/目标路由/全局 Presence、WebRTC 传输任务、临时房间生命周期、广播授权/好友边界/回执/撤销、私有部署、诊断、运行日志、mDNS 节点解析、控制器权限和应用上下文。最终测试数量以本次 `./mvnw test` 输出为准，不在文档中写死。
 
-Compose 配置至少执行一次带完整强密钥的解析校验；具备 Docker 环境时，还应启动共享 MySQL、Redis、MinIO 和两个应用实例，用分别连接不同实例的两个 WebSocket 客户端验证跨实例消息、Presence、WebRTC 信令以及 Redis 短暂中断后的 MySQL + `SYNC_REQUEST` 恢复。
+Compose 配置至少执行一次带完整强密钥的解析校验；具备 Docker 环境时，使用 `compose.e2e.yaml` 启动共享 MySQL、Redis、MinIO 和两个应用实例，再执行 `npm test --prefix tests/e2e`。当前自动 E2E 覆盖跨实例消息幂等与浏览器断网文本发件箱恢复；Presence、WebRTC、Redis 中断补偿、上传恢复和真实 mDNS 多播仍需补充自动化证据。
 
 ### 原生启动 mDNS 节点发现
 
@@ -375,6 +433,7 @@ export LANCHAT_ADVERTISED_PORT=8080
 | `JWT_SECRET` | 本地开发密钥 | 生产必须覆盖 |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | `lanchat-node` / `lanchat-client` | JWT 约束 |
 | `WEBSOCKET_ALLOWED_ORIGINS` | localhost、127.0.0.1 | WebSocket Origin 白名单 |
+| `CORS_ALLOWED_ORIGINS` | Web/Tauri 开发 Origin | REST 精确 Origin 白名单；不接受 `*` |
 | `AUTH_COOKIE_SECURE` | `false` | HTTPS 部署设为 `true` |
 | `FILE_STORAGE_PATH` | `./uploads/` | 私有文件目录 |
 | `FILE_STORAGE_TYPE` | 应用 `LOCAL`；Compose `MINIO` | `LOCAL` 或 `MINIO`；多实例必须使用共享 MinIO |
@@ -416,9 +475,10 @@ export LANCHAT_ADVERTISED_PORT=8080
 
 ## 文档说明
 
-- 当前发布版本为 V2.3.0。本轮代码仍以《需求分析-LAN-first-V2.0》和《功能分析-LAN-first-V2.0》作为目标基线，两份文档中的独立节点复制、冲突合并和性能目标不等于已经完成。
+- 当前正式发布基线为 V2.3.0，V3.0.0 仍是开发版本。V3.0 P0 的代码边界和未完成验收以 [V3.0 实施状态](PRD/v3/docs/v3/实施状态-V3.0.md) 为准。
+- 《需求分析-LAN-first-V2.0》和《功能分析-LAN-first-V2.0》中的独立节点复制、冲突合并和性能目标不等于已经完成。
 - 仓库内 [需求分析.md](需求分析.md) 与 [功能分析.md](功能分析.md) 是 V1.0 历史稿，仅用于版本对照。
-- 实际完成边界以本 README 和 [实施状态-LAN-first-V2.0.md](实施状态-LAN-first-V2.0.md) 为准。
+- P1/P2 的 Server Manager、iOS、离线任务增强和完整可观测性仍未实现；Android 工程和无签名 CI 构建已接线，但真实设备安装、内网 HTTP 回归、签名 AAB 与发布仍需要 Android SDK、受保护 keystore 和发布环境，不能仅凭工程或工作流文件标记完成。
 
 ## License
 

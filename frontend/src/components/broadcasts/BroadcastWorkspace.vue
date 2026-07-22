@@ -9,6 +9,7 @@ import type {
 import UiIcon from '../base/UiIcon.vue'
 import UserAvatar from '../base/UserAvatar.vue'
 import BroadcastCompletionPanel from './BroadcastCompletionPanel.vue'
+import BroadcastEvidenceImage from './BroadcastEvidenceImage.vue'
 import BroadcastTargetEditor from './BroadcastTargetEditor.vue'
 import { api } from '../../services/api'
 import type {
@@ -275,7 +276,7 @@ async function saveTargets(): Promise<void> {
 </script>
 
 <template>
-  <main class="broadcast-workspace" aria-live="polite">
+  <main class="broadcast-workspace apple-content-surface" aria-live="polite">
     <div v-if="loading" class="workspace-loading" aria-label="正在载入广播详情">
       <span class="loading-line loading-line--kicker" />
       <span class="loading-line loading-line--title" />
@@ -348,7 +349,12 @@ async function saveTargets(): Promise<void> {
       <article class="broadcast-content">
         <p>{{ broadcast.content }}</p>
         <div v-if="detail.contentEvidence?.imageUrls.length" class="content-images">
-          <img v-for="url in detail.contentEvidence.imageUrls" :key="url" :src="url" alt="广播附件" />
+          <BroadcastEvidenceImage
+            v-for="url in detail.contentEvidence.imageUrls"
+            :key="url"
+            :source="url"
+            alt="广播附件"
+          />
         </div>
         <p v-if="detail.contentEvidence?.location" class="content-location">
           已附带位置：{{ detail.contentEvidence.location.latitude.toFixed(5) }}, {{ detail.contentEvidence.location.longitude.toFixed(5) }}

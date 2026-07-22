@@ -3,10 +3,17 @@
 <plist version="1.0">
 <dict>
   <key>NSLocalNetworkUsageDescription</key>
-  <string>LANChat 需要访问本地网络，以发现并连接组织局域网内的 LANChat 节点。</string>
+  <string>MeshX 需要访问本地网络，以发现并连接组织局域网内的 MeshX 节点。</string>
   <key>NSBonjourServices</key>
   <array>
     <string>_lanchat._tcp</string>
   </array>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+  <key>LSMultipleInstancesProhibited</key>
+  <true/>
 </dict>
 </plist>

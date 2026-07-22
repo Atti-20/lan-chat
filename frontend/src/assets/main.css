@@ -42,6 +42,10 @@
   --radius-xl: 26px;
   --radius-lg: 20px;
   --radius-md: 14px;
+  --radius-control: 12px;
+  --surface-border: 1px solid var(--glass-border);
+  --surface-shadow: 0 18px 52px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
+  --press-scale: 0.985;
   --ease-liquid: cubic-bezier(0.22, 0.78, 0.24, 1);
 }
 
@@ -100,6 +104,8 @@ body {
   min-height: 100dvh;
   overflow-x: hidden;
   background: var(--body-gradient);
+  font-optical-sizing: auto;
+  line-height: 1.45;
 }
 
 button,
@@ -239,7 +245,99 @@ body .cropper-backdrop[class] {
   box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.08);
 }
 
-.field::placeholder { color: var(--ink-faint); }
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--ink-faint) 86%, transparent);
+  font-size: .92em;
+  font-weight: 400;
+  letter-spacing: 0;
+  opacity: 1;
+}
+
+.field::placeholder { color: color-mix(in srgb, var(--ink-faint) 86%, transparent); }
+
+/* Shared visual language: structural navigation is a heavier material, while
+ * content surfaces are lighter and actions answer immediately on press. */
+body .apple-structural-surface {
+  background: var(--rail-bg);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+
+body .apple-content-surface {
+  background: var(--surface-glass);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+body .apple-float-surface {
+  border: var(--surface-border);
+  background: var(--surface-raise);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+}
+
+body .apple-list-row {
+  border-radius: var(--radius-control);
+  transition: transform 140ms var(--ease-liquid), background-color 160ms ease, border-color 160ms ease;
+}
+
+body .apple-list-row:active:not(:disabled) { transform: scale(var(--press-scale)); }
+
+/* All task dialogs share one depth model. Components retain their own size and
+ * content layout, while this contract keeps materials and dismissal controls
+ * predictable across chat, rooms, broadcasts, administration and desktop. */
+body .apple-modal-backdrop[class] {
+  background: var(--backdrop) !important;
+  backdrop-filter: blur(16px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(130%) !important;
+  isolation: isolate;
+}
+
+body .apple-modal-surface[class] {
+  border: var(--surface-border) !important;
+  background: var(--surface-raise) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: blur(22px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(160%) !important;
+}
+
+body .apple-modal-close[class] {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-soft);
+  background: var(--fill);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-liquid), background-color 160ms ease;
+}
+
+body .apple-modal-close[class]:hover { background: var(--button-hover); }
+body .apple-modal-close[class]:active:not(:disabled) { transform: scale(.92); }
+body .apple-modal-close[class]:disabled { cursor: default; opacity: .45; }
+
+@media (max-width: 760px) {
+  /* A task dialog becomes a reachable bottom sheet on compact windows. Detail
+   * pages keep their own full-screen contract, so context is never lost. */
+  body .modal-backdrop.apple-modal-backdrop:not(.detail-backdrop) {
+    padding: 0;
+    place-items: end center;
+  }
+
+  body .modal-backdrop.apple-modal-backdrop:not(.detail-backdrop) .apple-modal-surface {
+    width: 100%;
+    max-height: 92dvh;
+    border-right: 0 !important;
+    border-bottom: 0 !important;
+    border-left: 0 !important;
+    border-radius: 24px 24px 0 0 !important;
+  }
+}
 
 .sr-only {
   position: absolute;
@@ -264,34 +362,37 @@ body .cropper-backdrop[class] {
   }
 }
 
-/* ── Theme reveal: new theme expands from the control that was clicked ── */
-::view-transition-group(root) {
-  animation-duration: 500ms;
-  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-::view-transition-old(root),
-::view-transition-new(root) {
-  mix-blend-mode: normal;
-  animation: none;
-}
-
-::view-transition-old(root) {
-  z-index: 1;
-}
-
-::view-transition-new(root) {
-  z-index: 2;
-  animation: theme-reveal 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-@keyframes theme-reveal {
-  from {
-    clip-path: circle(0px at var(--theme-reveal-x) var(--theme-reveal-y));
+/* Material is decorative, never required for legibility. Keep the same surface
+ * hierarchy for people who reduce transparency or increase contrast. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-surface,
+  .profile-sheet.detail-panel,
+  .context-panel.detail-panel {
+    background: var(--surface-raise);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
-  to {
-    clip-path: circle(var(--theme-reveal-radius) at var(--theme-reveal-x) var(--theme-reveal-y));
-  }
+
+  .modal-backdrop.detail-backdrop,
+  .context-backdrop.detail-backdrop,
+  .apple-modal-backdrop { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
+  .apple-structural-surface,
+  .apple-content-surface,
+  .apple-float-surface,
+  .apple-modal-surface { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+}
+
+@media (prefers-contrast: more) {
+  .glass-surface,
+  .profile-sheet.detail-panel,
+  .context-panel.detail-panel,
+  .field { border-color: var(--separator-strong); }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible { outline-color: var(--blue); }
 }
 
 @supports not (backdrop-filter: blur(1px)) {

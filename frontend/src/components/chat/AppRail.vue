@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { User } from '../../types'
 import type { ChatSection } from '../../composables/useChat'
+import BrandLogo from '../base/BrandLogo.vue'
 import UserAvatar from '../base/UserAvatar.vue'
 import UiIcon, { type IconName } from '../base/UiIcon.vue'
 
@@ -50,9 +51,9 @@ function activateItem(item: RailItem): void {
 </script>
 
 <template>
-  <nav class="app-rail" aria-label="主导航" :style="lensStyle">
-    <div class="rail-brand" role="img" aria-label="LanChat">
-      <UiIcon name="brand" :size="36" />
+  <nav class="app-rail apple-structural-surface" aria-label="主导航" :style="lensStyle">
+    <div class="rail-brand" role="img" aria-label="MeshX">
+      <BrandLogo decorative />
     </div>
 
     <div class="rail-items">
@@ -60,7 +61,7 @@ function activateItem(item: RailItem): void {
       <button
         v-for="item in navigationItems"
         :key="item.id"
-        class="rail-item"
+        class="rail-item apple-list-row"
         :class="{ 'rail-item--active': section === item.id }"
         type="button"
         :aria-current="section === item.id ? 'page' : undefined"
@@ -75,7 +76,7 @@ function activateItem(item: RailItem): void {
       </button>
     </div>
 
-    <button class="rail-item rail-profile" type="button" aria-label="打开个人资料" @click="emit('profile')">
+    <button class="rail-item rail-profile apple-list-row" type="button" aria-label="打开个人资料" @click="emit('profile')">
       <UserAvatar :name="user.nickname" :avatar="user.avatar" :size="26" :online="connected" />
       <span class="rail-label">我的</span>
     </button>
@@ -93,7 +94,7 @@ function activateItem(item: RailItem): void {
   border-radius: 28px 18px 18px 28px;
 }
 .rail-brand { display: grid; width: 52px; height: 52px; flex: 0 0 auto; place-items: center; border-radius: 19px 19px 19px 9px; color: var(--blue); background: rgba(255,255,255,.64); box-shadow: inset 0 1px 0 #fff, 0 10px 20px rgba(10,132,255,.12); }
-.rail-brand .ui-icon { width: 36px; }
+.rail-brand .brand-logo { width: 36px; height: 36px; }
 .rail-items { position: relative; display: grid; width: 100%; margin: auto 0; gap: 8px; }
 .rail-item {
   position: relative;
@@ -170,7 +171,7 @@ function activateItem(item: RailItem): void {
   background: transparent;
   box-shadow: none;
 }
-.rail-brand .ui-icon { width: 32px; }
+.rail-brand .brand-logo { width: 32px; height: 32px; }
 .rail-items { gap: 4px; }
 .rail-item {
   height: 58px;

@@ -24,7 +24,7 @@ RUN apt-get update \
     && useradd --system --gid lanchat --home-dir /app lanchat \
     && mkdir -p /app/uploads /app/logs \
     && chown -R lanchat:lanchat /app
-COPY --from=backend-build --chown=lanchat:lanchat /workspace/target/lan-chat-server-2.3.0.jar /app/lanchat.jar
+COPY --from=backend-build --chown=lanchat:lanchat /workspace/target/lan-chat-server-3.0.0.jar /app/lanchat.jar
 USER lanchat
 EXPOSE 8080
 ENV FILE_STORAGE_PATH=/app/uploads/ \

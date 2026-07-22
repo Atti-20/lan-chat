@@ -58,7 +58,7 @@ function actionLabel(userId: number): string {
       <button
         v-for="candidate in candidates"
         :key="candidate.userId"
-        class="target-row"
+        class="target-row apple-list-row"
         :class="{ 'target-row--selected': isSelected(candidate.userId) }"
         type="button"
         :disabled="saving || isLocked(candidate.userId)"

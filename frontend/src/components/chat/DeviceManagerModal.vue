@@ -71,14 +71,13 @@ function shortDeviceName(name: string): string {
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="device-sheet" role="dialog" aria-modal="true" aria-labelledby="device-title">
-      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+  <div v-if="open" class="modal-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="device-sheet apple-modal-surface" role="dialog" aria-modal="true" aria-labelledby="device-title">
+      <button class="close-button apple-modal-close" type="button" aria-label="关闭" @click="emit('close')">
         <UiIcon name="close" :size="16" />
       </button>
 
       <h2 id="device-title">登录设备</h2>
-      <p class="device-desc">管理当前登录到你账号的设备</p>
 
       <div v-if="loading" class="device-loading">
         <span class="spinner" />
@@ -159,7 +158,6 @@ function shortDeviceName(name: string): string {
 .close-button .ui-icon { width: 16px; }
 
 .device-sheet h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
-.device-desc { margin: 4px 0 14px; color: var(--ink-soft); font-size: 12px; }
 
 .device-loading {
   display: grid;
@@ -180,7 +178,7 @@ function shortDeviceName(name: string): string {
 
 .device-empty { padding: 28px 0; color: var(--ink-faint); font-size: 13px; text-align: center; }
 
-.device-list { display: grid; gap: 4px; }
+.device-list { display: grid; margin-top: 14px; gap: 4px; }
 
 .device-item {
   display: flex;

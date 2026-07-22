@@ -2,6 +2,7 @@ package com.lanchat.service;
 
 import com.lanchat.config.LanChatNodeProperties;
 import com.lanchat.config.LanChatPrivateDeploymentProperties;
+import com.lanchat.config.LanChatProtocol;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -45,6 +46,13 @@ class NodeDiagnosticsServiceTest {
         assertTrue(info.capabilities().contains("CONNECTION_DIAGNOSTICS"));
         assertTrue(info.capabilities().contains("MDNS_DISCOVERY"));
         assertTrue(info.capabilities().contains("MULTI_INSTANCE_ROUTING"));
+        assertEquals(LanChatProtocol.PROTOCOL_VERSION, info.protocolVersion());
+        assertEquals(LanChatProtocol.API_BASE_PATH, info.apiBasePath());
+        assertEquals(LanChatProtocol.WEB_SOCKET_PATH, info.webSocketPath());
+        assertEquals(LanChatProtocol.HEALTH_PATH, info.healthPath());
+        assertEquals(LanChatProtocol.APP_PATH, info.appPath());
+        assertTrue(info.desktopAuthSupported());
+        assertEquals(LanChatProtocol.REFRESH_TRANSPORT, info.refreshTransport());
         assertFalse(info.toString().contains("must-not-leak"));
     }
 }

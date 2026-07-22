@@ -45,7 +45,7 @@ import java.util.Set;
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
-    private static final Set<String> ALLOWED_DEVICE_TYPES = Set.of("web", "android", "ios");
+    private static final Set<String> ALLOWED_DEVICE_TYPES = Set.of("web", "desktop", "android", "ios");
 
     @Autowired
     private UserMapper userMapper;

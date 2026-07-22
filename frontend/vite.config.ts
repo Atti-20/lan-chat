@@ -3,15 +3,21 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig(({ mode }) => {
   const desktop = mode === 'desktop'
+  const mobile = mode === 'mobile'
+  const nativeShell = desktop || mobile
 
   return {
-    base: desktop ? './' : '/app/',
+    base: nativeShell ? './' : '/app/',
     plugins: [vue()],
     build: {
-      outDir: desktop ? 'dist-desktop' : '../src/main/resources/static/app',
+      outDir: desktop
+        ? 'dist-desktop'
+        : mobile
+          ? 'dist-mobile'
+          : '../src/main/resources/static/app',
       // Web 构建保留旧哈希资源，避免运行中的 Spring Boot 仍引用旧 index.html。
-      // Desktop 构建则每次清空独立目录，确保打包内容可重复。
-      emptyOutDir: desktop,
+      // 原生壳构建则每次清空独立目录，确保打包内容可重复。
+      emptyOutDir: nativeShell,
       sourcemap: false,
     },
     server: {

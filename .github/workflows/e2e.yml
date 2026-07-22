@@ -1,0 +1,95 @@
+name: E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 18 * * *"
+  pull_request:
+    paths:
+      - "compose.yaml"
+      - "compose.e2e.yaml"
+      - "Dockerfile"
+      - "deploy/**"
+      - "frontend/**"
+      - "src/**"
+      - "tests/e2e/**"
+      - "scripts/ci/**"
+      - ".github/workflows/e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dual-instance-and-offline:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      COMPOSE_PROJECT_NAME: lanchat-e2e
+      DB_ROOT_PASSWORD: E2eRootPassword-2026
+      DB_PASSWORD: E2eDatabasePassword-2026
+      REDIS_PASSWORD: E2eRedisPassword-2026
+      JWT_SECRET: e2e-only-jwt-secret-at-least-thirty-two-characters
+      LANCHAT_BOOTSTRAP_ADMIN_PASSWORD: E2eAdminPassword-2026
+      MINIO_ROOT_USER: e2e-minio-user
+      MINIO_ROOT_PASSWORD: E2eMinioPassword-2026
+      LANCHAT_PORT: "18080"
+      E2E_BASE_URL: http://127.0.0.1:18080
+      E2E_INSTANCE_A_URL: http://127.0.0.1:18081
+      E2E_INSTANCE_B_URL: http://127.0.0.1:18082
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+
+      - name: Install E2E dependencies
+        run: npm ci --prefix tests/e2e
+
+      - name: Install Playwright Chromium
+        run: npm exec --prefix tests/e2e playwright -- install --with-deps chromium
+
+      - name: Start isolated dual-instance stack
+        run: |
+          docker compose -f compose.yaml -f compose.e2e.yaml up --build -d
+          scripts/ci/wait-for-http.sh "$E2E_BASE_URL/api/v1/node/health" 300
+          scripts/ci/wait-for-http.sh "$E2E_INSTANCE_A_URL/api/v1/node/health" 120
+          scripts/ci/wait-for-http.sh "$E2E_INSTANCE_B_URL/api/v1/node/health" 120
+
+      - name: Run API, WebSocket, and browser E2E
+        run: npm test --prefix tests/e2e
+
+      - name: Collect stack diagnostics
+        if: always()
+        run: scripts/ci/collect-e2e-logs.sh output/playwright
+
+      - name: Upload E2E reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ github.run_id }}
+          path: output/playwright/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop isolated stack
+        if: always()
+        run: docker compose -f compose.yaml -f compose.e2e.yaml down --volumes --remove-orphans
+
+  mdns-runner-prerequisites:
+    name: External mDNS runner prerequisite gate
+    if: ${{ vars.LANCHAT_MDNS_E2E_ENABLED == 'true' }}
+    runs-on:
+      - self-hosted
+      - lanchat-mdns
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify real multicast runner contract
+        run: scripts/ci/check-mdns-runner.sh

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rendered directly from MeshX_light.svg for the dark system theme. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/meshx_launcher_artwork" />
+</layer-list>

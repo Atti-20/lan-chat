@@ -6,7 +6,7 @@ import lombok.Data;
 public class LoginDTO {
     private String username;
     private String password;
-    /** 设备类型：web/android/ios */
+    /** 设备类型：web/desktop/android/ios */
     private String deviceType;
     /** 设备名称 */
     private String deviceName;
