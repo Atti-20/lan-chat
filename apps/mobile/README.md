@@ -5,9 +5,9 @@
 
 ## 前置条件
 
-- Node.js 20.19+
-- JDK 17
-- Android SDK（API 35 Build Tools、Platform Tools）和 Android Studio
+- Node.js 22
+- JDK 21
+- Android SDK（API 36、Build Tools 36.0.0、Platform Tools）和 Android Studio
 
 首次安装依赖并生成 Android Studio 工程：
 
@@ -41,8 +41,9 @@ npm run build:apk:lan-debug --prefix apps/mobile
 - 受控的局域网 HTTP 仅提供给 `lanDebug` 变体，用于开发或管理员已确认的内网验证；不能作为
   正式发布渠道。生产节点优先 HTTPS/WSS。
 - 当前 P1 基线支持登录、聊天、文件选择上传、手动节点连接、前后台恢复重连和前台本地通知。
-  不持久化 Refresh Token；被系统终止后需要重新登录。后台可靠推送、mDNS/二维码导入和签名
-  AAB 发布仍需后续交付。
+  Android 原生认证按规范化节点 Origin 隔离 Cookie，并把 Refresh Cookie 加密保存在 Android
+  Keystore 保护的本地存储中；Refresh Token 不返回 JavaScript。后台可靠推送、mDNS/二维码导入、
+  实体机冷启动通知回归和签名 AAB 发布仍需后续验收。
 
 ## 签名
 
