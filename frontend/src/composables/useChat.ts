@@ -190,6 +190,8 @@ export function useChat() {
   function forgetConversation(conversationId: string): void {
     if (!conversationId) return
     inaccessibleConversationIds.add(conversationId)
+    pendingReadPositions.delete(conversationId)
+    runtimePositions.delete(conversationId)
     recordSummaryDelta({ kind: 'remove', conversationId })
   }
 
@@ -982,6 +984,10 @@ export function useChat() {
   async function refreshAndSynchronize(): Promise<void> {
     await refreshConversationSummaries()
     await synchronizeAfterReconnect()
+    // onOnline 只在 SYNCING→ONLINE 转换时触发；若会话停留在 DEGRADED
+    // （onReady 失败），挂起的已读位点与离线发件箱也要借周期同步补发。
+    flushPendingReadPositions()
+    void flushOutbox().catch(() => undefined)
   }
 
   function requestSync(positions: Record<string, number>): Promise<boolean> {
@@ -1367,6 +1373,11 @@ export function useChat() {
 
   function flushPendingReadPositions(): void {
     pendingReadPositions.forEach((lastReadSequence, conversationId) => {
+      // 排队期间被移出/拒绝访问的会话不再上报，避免重连后弹无权访问错误。
+      if (inaccessibleConversationIds.has(conversationId)) {
+        pendingReadPositions.delete(conversationId)
+        return
+      }
       if (transmitReadPosition(conversationId, lastReadSequence)) {
         pendingReadPositions.delete(conversationId)
       }

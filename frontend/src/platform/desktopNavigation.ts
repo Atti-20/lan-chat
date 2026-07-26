@@ -19,8 +19,13 @@ import {
 export const DESKTOP_NAVIGATION_EVENT = 'lanchat:desktop-navigation'
 
 let navigationStore: PendingNavigationStore | null = null
+let nodeActivationStore: PendingNavigationStore | null = null
 const targetDeduper = new NavigationDeliveryDeduper(Date.now, 3_000, 32)
 const toast = useToast()
+
+// 按 nodeId 寻址的深链只在发现服务仍在扫描的窗口内有效；
+// 用独立短 TTL 存储，避免数小时后节点重新上线触发意外切换。
+const NODE_ACTIVATION_TTL_MS = 2 * 60 * 1_000
 
 const CAPACITOR_REJECTION_COPY: Record<CapacitorNavigationRejectionReason, string> = {
   INVALID_TARGET: '通知目标格式无效，已拒绝打开。',
@@ -33,6 +38,24 @@ const CAPACITOR_REJECTION_COPY: Record<CapacitorNavigationRejectionReason, strin
 function pendingStore(): PendingNavigationStore {
   navigationStore ||= new PendingNavigationStore(sessionStorage)
   return navigationStore
+}
+
+function pendingNodeStore(): PendingNavigationStore {
+  nodeActivationStore ||= new PendingNavigationStore(
+    sessionStorage,
+    'lanchat_pending_node_activation_v1',
+    Date.now,
+    NODE_ACTIVATION_TTL_MS,
+  )
+  return nodeActivationStore
+}
+
+export function pendingNodeActivation(): DesktopNavigationTarget | null {
+  return pendingNodeStore().pending()
+}
+
+export function consumeNodeActivation(): DesktopNavigationTarget | null {
+  return pendingNodeStore().claim()
 }
 
 function storePendingTarget(target: DesktopNavigationTarget): void {
@@ -110,16 +133,16 @@ async function handleTarget(rawTarget: DesktopNavigationTarget): Promise<void> {
       }
     }
     if (!node) {
-      // 发现服务可能仍在扫描；挂起按 nodeId 寻址的目标，
+      // 发现服务可能仍在扫描；短时挂起按 nodeId 寻址的目标，
       // 待节点出现在发现列表后由 useNodeDiscovery.tryPendingNode 消费。
-      if (!target.nodeOrigin) storePendingTarget(target)
+      if (!target.nodeOrigin) pendingNodeStore().store(target)
       await nativeBridge.notify({
         title: '未找到 MeshX 节点',
         body: '请确认目标节点已启动，并与本机位于同一局域网。',
       }).catch(() => undefined)
       return
     }
-    if (await activateDesktopNode(node)) navigateToApp('/', true)
+    if (await activateDesktopNode(node).catch(() => false)) navigateToApp('/', true)
     return
   }
 
@@ -127,7 +150,7 @@ async function handleTarget(rawTarget: DesktopNavigationTarget): Promise<void> {
   if (target.nodeOrigin && selectedNode()?.origin !== target.nodeOrigin) {
     const node = await nativeBridge.addManualNode(target.nodeOrigin).catch(() => null)
     if (!node) return
-    if (await activateDesktopNode(node)) navigateToApp('/', true)
+    if (await activateDesktopNode(node).catch(() => false)) navigateToApp('/', true)
     else consumeDesktopNavigation()
     return
   }

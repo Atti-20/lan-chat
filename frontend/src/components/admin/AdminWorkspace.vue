@@ -9,6 +9,7 @@ import type {
 } from '../../types'
 import UiIcon from '../base/UiIcon.vue'
 import ConnectionDiagnosticsModal from '../diagnostics/ConnectionDiagnosticsModal.vue'
+import WorkspaceWelcome from '../chat/WorkspaceWelcome.vue'
 import RuntimeLogConsole from './logs/RuntimeLogConsole.vue'
 import AdminConsole from './AdminConsole.vue'
 import AdminSidebar from './AdminSidebar.vue'
@@ -150,6 +151,12 @@ const selectedTitle = computed(() => props.module ? moduleTitles[props.module] :
     />
     <RuntimeLogConsole v-else />
   </section>
+
+  <WorkspaceWelcome
+    v-else-if="showWorkspace"
+    class="workspace--welcome apple-content-surface"
+    section="admin"
+  />
 </template>
 
 <style scoped>
@@ -159,6 +166,13 @@ const selectedTitle = computed(() => props.module ? moduleTitles[props.module] :
   min-height: 0;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
+}
+.workspace--welcome {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0;
+  background: var(--surface);
 }
 .mobile-module-header { display: none; }
 .back-button {

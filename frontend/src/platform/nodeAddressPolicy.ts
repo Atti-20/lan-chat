@@ -28,7 +28,14 @@ export function isPrivateLanHost(hostname: string): boolean {
 }
 
 export function parseVerifiableNodeAddress(address: string): URL {
-  const target = new URL(address.trim())
+  let target: URL
+  try {
+    target = new URL(address.trim())
+  } catch {
+    // 例如 Android 发现回退产出的 IPv6 zone-id（fe80::1%wlan0）：
+    // WHATWG URL 无法解析，映射为友好提示而不是英文 TypeError。
+    throw new Error('节点地址必须是有效的 HTTP 或 HTTPS 地址')
+  }
   if (!['http:', 'https:'].includes(target.protocol)
     || target.username
     || target.password

@@ -15,8 +15,8 @@ import { isCapacitorRuntime, isNativeNodeRuntime } from '../platform/mobileRunti
 import { verifyMobileNode } from '../platform/mobileNodeVerification'
 import { navigateToApp } from '../platform/appNavigation'
 import {
-  consumeDesktopNavigation,
-  pendingDesktopNavigation,
+  consumeNodeActivation,
+  pendingNodeActivation,
 } from '../platform/desktopNavigation'
 import { api } from '../services/api'
 import type { DiscoveredNode, NodePublicInfo } from '../types'
@@ -171,12 +171,12 @@ export function useNodeDiscovery() {
 
   async function tryPendingNode(nextNodes = nodes.value): Promise<void> {
     if (!desktop || activatingPendingNode) return
-    const target = pendingDesktopNavigation()
+    const target = pendingNodeActivation()
     if (target?.kind !== 'node' || target.nodeOrigin) return
     const node = nextNodes.find((candidate) => candidate.nodeId === target.value)
     if (!node) return
     activatingPendingNode = true
-    consumeDesktopNavigation()
+    consumeNodeActivation()
     try {
       await openNode(node)
     } finally {

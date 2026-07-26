@@ -10,15 +10,18 @@ interface NodeInfoResponse {
   data?: NodePublicInfo
 }
 
+class HandshakeTransportError extends Error {}
+class HandshakeParseError extends Error {}
+
 export async function verifyMobileNode(address: string): Promise<DesktopNode> {
   const target = parseVerifiableNodeAddress(address)
 
   const origin = target.origin
   let result: NodeInfoResponse
   let responseOk: boolean
+  const requestUrl = new URL('/api/v1/node/info', origin).toString()
+  const headers = { 'X-Request-ID': `node_${crypto.randomUUID?.() || Date.now()}` }
   try {
-    const requestUrl = new URL('/api/v1/node/info', origin).toString()
-    const headers = { 'X-Request-ID': `node_${crypto.randomUUID?.() || Date.now()}` }
     if (isCapacitorRuntime()) {
       const response = await CapacitorHttp.get({
         url: requestUrl,
@@ -29,17 +32,34 @@ export async function verifyMobileNode(address: string): Promise<DesktopNode> {
         // 握手不得被重定向带离用户输入的 origin（例如被劫持到公网地址）。
         disableRedirects: true,
       })
-      result = typeof response.data === 'string'
-        ? JSON.parse(response.data) as NodeInfoResponse
-        : response.data as NodeInfoResponse
       responseOk = response.status >= 200 && response.status < 300
+      try {
+        result = typeof response.data === 'string'
+          ? JSON.parse(response.data) as NodeInfoResponse
+          : response.data as NodeInfoResponse
+      } catch {
+        throw new HandshakeParseError()
+      }
     } else {
-      const response = await fetch(requestUrl, { headers, redirect: 'error' })
-      result = await response.json() as NodeInfoResponse
+      let response: Response
+      try {
+        response = await fetch(requestUrl, { headers, redirect: 'error' })
+      } catch {
+        throw new HandshakeTransportError()
+      }
       responseOk = response.ok
+      try {
+        result = await response.json() as NodeInfoResponse
+      } catch {
+        throw new HandshakeParseError()
+      }
     }
-  } catch {
-    throw new Error('节点返回了无法识别的握手信息')
+  } catch (cause) {
+    // 连接失败与响应不可解析给出不同提示，便于区分网络问题和协议问题。
+    if (cause instanceof HandshakeParseError) {
+      throw new Error('节点返回了无法识别的握手信息')
+    }
+    throw new Error('无法连接到该节点，请检查地址与网络')
   }
   if (!responseOk || result.code !== 200 || !result.data) {
     throw new Error(result.msg || '节点握手失败')

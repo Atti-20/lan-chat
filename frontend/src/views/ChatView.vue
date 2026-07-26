@@ -1210,6 +1210,13 @@ async function resetUserPassword(newPassword: string): Promise<void> {
       max-height: calc(100dvh - 24px);
     }
   }
+  /* 横屏矮视口需要压过上面的平板高度规则，保持全出血。 */
+  @media (max-height: 480px) and (orientation: landscape) {
+    .chat-shell {
+      height: var(--app-viewport-height, 100dvh);
+      max-height: var(--app-viewport-height, 100dvh);
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

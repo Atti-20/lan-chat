@@ -22,7 +22,7 @@ const nodeB = {
   apiBasePath: '/api/v1',
 }
 
-function harness({ current, confirmed = true, logoutRejects = false } = {}) {
+function harness({ current, confirmed = true, logoutRejects = false, clearRejects = false } = {}) {
   const order = []
   return {
     order,
@@ -36,7 +36,10 @@ function harness({ current, confirmed = true, logoutRejects = false } = {}) {
         order.push(`nativeLogout:${origin}`)
         if (logoutRejects) throw new Error('network unreachable')
       },
-      clearNodeSession: async (origin) => { order.push(`clearNodeSession:${origin}`) },
+      clearNodeSession: async (origin) => {
+        order.push(`clearNodeSession:${origin}`)
+        if (clearRejects) throw new Error('node origin has not completed the native handshake')
+      },
       clearLocalChatDatabase: async () => { order.push('clearLocalChatDatabase') },
       clearSession: () => { order.push('clearSession') },
       clearCacheOwner: () => { order.push('clearCacheOwner') },
@@ -98,4 +101,12 @@ test('first-time selection with no current node skips logout entirely', async ()
     'clearCacheOwner',
     'selectNode:node-b',
   ])
+})
+
+test('a rejected native cookie clearing still lets the user leave a dead node', async () => {
+  const { deps, order } = harness({ current: nodeA, logoutRejects: true, clearRejects: true })
+
+  assert.equal(await performNodeSwitch(deps, nodeB), true)
+  assert.equal(order.at(-1), 'selectNode:node-b')
+  assert.ok(order.includes('clearSession'))
 })

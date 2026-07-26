@@ -177,53 +177,63 @@ watch(() => props.createdUsername, (createdUsername) => {
               </div>
             </td>
             <td>
-              <span class="status-badge" :class="{ banned: user.status === 0 }">
-                {{ user.status === 0 ? '已封禁' : '正常' }}
+              <span
+                class="status-badge"
+                :class="{ banned: user.status === 0 && !user.archivedAt, archived: Boolean(user.archivedAt) }"
+              >
+                {{ user.archivedAt ? '已归档' : user.status === 0 ? '已封禁' : '正常' }}
               </span>
             </td>
-            <td>
-              <div v-if="user.username !== 'admin'" class="permission-switch">
-                <AppleSwitch
-                  :model-value="user.canSendBroadcast === 1"
-                  :disabled="busyUserId === user.id"
-                  :aria-label="`${user.username} 的广播发布权限`"
-                  @update:model-value="requestBroadcastPermission(user, $event)"
-                />
-                <span>{{ user.canSendBroadcast === 1 ? '允许发布' : '禁止发布' }}</span>
-              </div>
-              <span v-else class="protected-copy">始终允许</span>
-            </td>
-            <td>
-              <div v-if="user.username !== 'admin'" class="mute-fields">
-                <input v-model="muteStarts[user.id]" type="time" :aria-label="`${user.username} 禁言开始时间`" />
-                <span>至</span>
-                <input v-model="muteEnds[user.id]" type="time" :aria-label="`${user.username} 禁言结束时间`" />
-                <button
-                  type="button"
-                  :disabled="busyUserId === user.id || !muteStarts[user.id] || !muteEnds[user.id]"
-                  @click="saveMute(user)"
-                >保存</button>
-              </div>
-              <span v-else class="protected-copy">系统管理员不受限</span>
-            </td>
-            <td>
-              <div v-if="user.username !== 'admin'" class="row-actions">
-                <button
-                  type="button"
-                  :disabled="busyUserId === user.id"
-                  @click="emit('resetPassword', user)"
-                >重置密码</button>
-                <button
-                  type="button"
-                  :disabled="busyUserId === user.id"
-                  @click="emit('status', { userId: user.id, status: user.status === 0 ? 1 : 0 })"
-                >{{ user.status === 0 ? '解封' : '封禁' }}</button>
-                <button class="danger-button" type="button" :disabled="busyUserId === user.id" @click="confirmDelete(user)">删除</button>
-              </div>
-              <div v-else class="row-actions row-actions--admin">
-                <button type="button" @click="emit('changeOwnPassword')">修改密码</button>
-              </div>
-            </td>
+            <template v-if="user.archivedAt">
+              <td colspan="3" class="archived-cell">
+                该账号已归档：会话已注销、资料已匿名化，聊天与广播历史仍保留；归档账号不能解封或再次删除。
+              </td>
+            </template>
+            <template v-else>
+              <td>
+                <div v-if="user.username !== 'admin'" class="permission-switch">
+                  <AppleSwitch
+                    :model-value="user.canSendBroadcast === 1"
+                    :disabled="busyUserId === user.id"
+                    :aria-label="`${user.username} 的广播发布权限`"
+                    @update:model-value="requestBroadcastPermission(user, $event)"
+                  />
+                  <span>{{ user.canSendBroadcast === 1 ? '允许发布' : '禁止发布' }}</span>
+                </div>
+                <span v-else class="protected-copy">始终允许</span>
+              </td>
+              <td>
+                <div v-if="user.username !== 'admin'" class="mute-fields">
+                  <input v-model="muteStarts[user.id]" type="time" :aria-label="`${user.username} 禁言开始时间`" />
+                  <span>至</span>
+                  <input v-model="muteEnds[user.id]" type="time" :aria-label="`${user.username} 禁言结束时间`" />
+                  <button
+                    type="button"
+                    :disabled="busyUserId === user.id || !muteStarts[user.id] || !muteEnds[user.id]"
+                    @click="saveMute(user)"
+                  >保存</button>
+                </div>
+                <span v-else class="protected-copy">系统管理员不受限</span>
+              </td>
+              <td>
+                <div v-if="user.username !== 'admin'" class="row-actions">
+                  <button
+                    type="button"
+                    :disabled="busyUserId === user.id"
+                    @click="emit('resetPassword', user)"
+                  >重置密码</button>
+                  <button
+                    type="button"
+                    :disabled="busyUserId === user.id"
+                    @click="emit('status', { userId: user.id, status: user.status === 0 ? 1 : 0 })"
+                  >{{ user.status === 0 ? '解封' : '封禁' }}</button>
+                  <button class="danger-button" type="button" :disabled="busyUserId === user.id" @click="confirmDelete(user)">删除</button>
+                </div>
+                <div v-else class="row-actions row-actions--admin">
+                  <button type="button" @click="emit('changeOwnPassword')">修改密码</button>
+                </div>
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>
@@ -262,6 +272,8 @@ watch(() => props.createdUsername, (createdUsername) => {
 .user-cell small { color: var(--ink-faint); font-size: var(--font-micro); }
 .status-badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: var(--green); font-size: var(--font-caption); font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
 .status-badge.banned { color: var(--coral); background: color-mix(in srgb, var(--coral) 10%, transparent); }
+.status-badge.archived { color: var(--ink-faint); background: var(--fill); }
+.archived-cell { color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.5; }
 .permission-switch { display: inline-flex; min-width: 138px; align-items: center; gap: 9px; color: var(--ink-soft); font-size: var(--font-caption); font-weight: 650; }
 .mute-fields { display: flex; min-width: 260px; align-items: center; gap: 6px; }
 .mute-fields input { width: 92px; height: 34px; padding: 0 8px; border: 1px solid var(--separator); border-radius: 9px; color: var(--ink); font: inherit; background: var(--surface); }

@@ -50,7 +50,9 @@ export async function performNodeSwitch(deps: NodeSwitchDeps, node: DesktopNode)
   if (current) {
     await deps.nativeLogout(current.origin, current.apiBasePath, deps.readToken())
       .catch(() => undefined)
-    await deps.clearNodeSession(current.origin)
+    // 旧节点可能已死亡并被原生发现列表淘汰导致清理被拒；
+    // 清不掉旧 Cookie 不能阻止用户离开死节点。
+    await deps.clearNodeSession(current.origin).catch(() => undefined)
   }
   await deps.clearLocalChatDatabase()
   deps.clearSession()
