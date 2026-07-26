@@ -113,7 +113,7 @@ const content = computed(() => welcomeBySection[props.section])
 .welcome-signal i:nth-of-type(1) { top: 8px; right: 14px; }
 .welcome-signal i:nth-of-type(2) { bottom: 10px; left: 11px; background: var(--green); }
 .welcome-signal i:nth-of-type(3) { right: 3px; bottom: 25px; background: var(--violet); }
-.welcome-panel > p { margin: 0 0 6px; color: var(--blue); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.welcome-panel > p { margin: 0 0 6px; color: var(--blue); font-size: var(--font-caption); font-weight: 700; letter-spacing: .08em; }
 .welcome-panel > h2 { margin: 0; font-size: 21px; letter-spacing: -.04em; }
 .welcome-panel > span { max-width: 320px; margin: 8px 0 15px; align-self: start; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
 .welcome-action-slot { display: grid; width: 100%; height: 46px; place-items: center; }

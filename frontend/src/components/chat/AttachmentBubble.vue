@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
 import { useToast } from '../../composables/useToast'
+import { useAttachmentDownload } from '../../composables/useAttachmentDownload'
 import { currentNodeOrigin } from '../../platform/nodeContext'
 import { nativeBridge } from '../../platform/nativeBridge'
+import { nodeFetch } from '../../platform/nativeTransport'
 import { api } from '../../services/api'
 import { loadDirectFile } from '../../services/localChatDb'
 import type { FileAttachmentData } from '../../types'
@@ -22,6 +24,7 @@ const emit = defineEmits<{
   layoutChange: []
 }>()
 const toast = useToast()
+const attachmentDownload = useAttachmentDownload()
 const imageUrl = shallowRef('')
 const loading = shallowRef(false)
 const previewOpen = shallowRef(false)
@@ -34,6 +37,8 @@ const filePreviewUrl = shallowRef('')
 const directAvailable = shallowRef<boolean | null>(null)
 let localObjectUrl = ''
 let thumbnailObjectUrl = ''
+let filePreviewObjectUrl = ''
+let previewObjectUrl = ''
 
 const data = computed<FileAttachmentData>(() => {
   if (!props.content) return {}
@@ -123,7 +128,7 @@ watch(
       // keeps authorization on the network request and gives the renderer a
       // same-context blob URL. This is intentionally only for the thumbnail;
       // the full-size viewer still streams the original on demand.
-      const response = await fetch(temporaryUrl)
+      const response = await nodeFetch(temporaryUrl)
       if (!response.ok) throw new Error(`缩略图请求失败：HTTP ${response.status}`)
       const contentType = response.headers.get('Content-Type') || ''
       if (!contentType.startsWith('image/')) throw new Error('缩略图不是图片资源')
@@ -209,18 +214,21 @@ async function download(): Promise<void> {
     downloadUrl.searchParams.set('download', 'true')
 
     if (nativeBridge.runtime() !== 'web') {
-      const saved = await nativeBridge.saveFile(
-        downloadUrl.toString(),
-        data.value.name || 'MeshX 文件',
-        fileMimeType.value,
-      )
+      loading.value = false
+      const saved = await attachmentDownload.save({
+        url: downloadUrl.toString(),
+        name: data.value.name || 'MeshX 文件',
+        mimeType: fileMimeType.value,
+        expectedBytes: data.value.size,
+        sha256: data.value.fileHash,
+      })
       if (saved) toast.push(`已保存到 ${saved.location}`, 'success')
       return
     }
 
     // 网页端没有可靠的、可授权的本地保存路径；保持浏览器原生下载并
     // 明确告知用户由浏览器决定保存位置。
-    const response = await fetch(downloadUrl.toString())
+    const response = await nodeFetch(downloadUrl.toString())
 
     if (!response.ok) {
       throw new Error(`文件请求失败：HTTP ${response.status}`)
@@ -259,7 +267,9 @@ async function openFileActions(): Promise<void> {
   if (!source) return
   filePreviewLoading.value = true
   try {
-    filePreviewUrl.value = await api.files.temporaryUrl(source)
+    const temporaryUrl = await api.files.temporaryUrl(source)
+    filePreviewUrl.value = await previewableUrl(temporaryUrl)
+    if (nativeBridge.runtime() === 'tauri') filePreviewObjectUrl = filePreviewUrl.value
   } catch {
     toast.push('文件预览暂时不可用', 'warning')
   } finally {
@@ -271,6 +281,8 @@ function closeFileActions(): void {
   fileActionsOpen.value = false
   filePreviewUrl.value = ''
   filePreviewLoading.value = false
+  if (filePreviewObjectUrl) URL.revokeObjectURL(filePreviewObjectUrl)
+  filePreviewObjectUrl = ''
 }
 
 async function openImage(): Promise<void> {
@@ -295,7 +307,9 @@ async function openImage(): Promise<void> {
   previewUrl.value = ''
   previewThumbnailUrl.value = imageUrl.value
   try {
-    previewUrl.value = await api.files.temporaryUrl(source)
+    const temporaryUrl = await api.files.temporaryUrl(source)
+    previewUrl.value = await previewableUrl(temporaryUrl)
+    if (nativeBridge.runtime() === 'tauri') previewObjectUrl = previewUrl.value
   } catch {
     previewOpen.value = false
     previewLoading.value = false
@@ -317,12 +331,28 @@ function triggerDownload(url: string, name: string): void {
 function releaseImageObjectUrls(): void {
   if (localObjectUrl) URL.revokeObjectURL(localObjectUrl)
   if (thumbnailObjectUrl) URL.revokeObjectURL(thumbnailObjectUrl)
+  if (filePreviewObjectUrl) URL.revokeObjectURL(filePreviewObjectUrl)
+  if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
   localObjectUrl = ''
   thumbnailObjectUrl = ''
+  filePreviewObjectUrl = ''
+  previewObjectUrl = ''
 }
 
 function closePreview(): void {
   previewOpen.value = false
+  if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
+  previewObjectUrl = ''
+  previewUrl.value = ''
+}
+
+async function previewableUrl(url: string): Promise<string> {
+  if (nativeBridge.runtime() !== 'tauri') return url
+  const response = await nodeFetch(url)
+  if (!response.ok) throw new Error(`预览请求失败：HTTP ${response.status}`)
+  const blob = await response.blob()
+  if (blob.size === 0) throw new Error('预览内容为空')
+  return URL.createObjectURL(blob)
 }
 
 function notifyLayoutChange(): void {
@@ -363,7 +393,7 @@ function handlePreviewError(): void {
     class="file-attachment"
     :class="{ 'file-attachment--outgoing': outgoing }"
     type="button"
-    :disabled="loading"
+    :disabled="loading || attachmentDownload.saving.value"
     :aria-label="`查看 ${data.name || '文件'}`"
     @click="openFileActions"
   >
@@ -372,7 +402,11 @@ function handlePreviewError(): void {
     </span>
     <span class="file-copy">
       <strong>{{ data.name || '文件' }}</strong>
-      <small>{{ loading ? '正在保存…' : `${formatFileSize(data.size)} · ${data.transferPath === 'PEER_TO_PEER' ? '设备直传' : '节点中转'}` }}</small>
+      <small>{{ attachmentDownload.saving.value
+        ? attachmentDownload.percent.value === null
+          ? `已保存 ${formatFileSize(attachmentDownload.writtenBytes.value)}`
+          : `正在保存 ${attachmentDownload.percent.value}%`
+        : loading ? '正在准备…' : `${formatFileSize(data.size)} · ${data.transferPath === 'PEER_TO_PEER' ? '设备直传' : '节点中转'}` }}</small>
     </span>
     <span class="download-action" aria-hidden="true">
       <UiIcon class="download-icon" name="download" :size="18" />
@@ -394,7 +428,33 @@ function handlePreviewError(): void {
             ? '直传文件仅保存在参与传输的设备上，请下载后查看。'
             : filePreviewable ? '暂时无法预览该文件。' : '此文件类型暂不支持直接预览。' }}
         </p>
-        <footer><button class="file-save-button" type="button" :disabled="loading" @click="download"><UiIcon name="download" :size="17" />{{ loading ? '正在保存…' : '下载并选择保存位置' }}</button></footer>
+        <footer>
+          <div
+            v-if="attachmentDownload.saving.value"
+            class="download-progress"
+            :class="{ 'download-progress--indeterminate': attachmentDownload.percent.value === null }"
+            role="progressbar"
+            aria-label="文件保存进度"
+            :aria-valuenow="attachmentDownload.percent.value ?? undefined"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
+            <span :style="{ width: `${attachmentDownload.percent.value ?? 35}%` }" />
+          </div>
+          <button
+            v-if="attachmentDownload.saving.value"
+            class="file-cancel-button"
+            type="button"
+            aria-label="取消文件保存"
+            @click="attachmentDownload.cancel"
+          >取消</button>
+          <button
+            class="file-save-button"
+            type="button"
+            :disabled="loading || attachmentDownload.saving.value"
+            @click="download"
+          ><UiIcon name="download" :size="17" />{{ loading ? '正在准备…' : attachmentDownload.saving.value ? '正在保存…' : '下载并选择保存位置' }}</button>
+        </footer>
       </section>
     </div>
   </Teleport>
@@ -428,8 +488,8 @@ function handlePreviewError(): void {
 .image-attachment { position: relative; display: block; max-width: min(340px, 62vw); min-width: 160px; min-height: 120px; padding: 0; overflow: hidden; border: 0; border-radius: 18px 18px 18px 8px; color: var(--ink-soft); background: rgba(223,236,248,.72); cursor: zoom-in; }
 .image-attachment img { display: block; width: 100%; max-height: 330px; object-fit: cover; }
 .image-loading { display: grid; min-height: 150px; padding: 20px; place-items: center; font-size: 12px; }
-.image-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.35); border-radius: 9px; color: white; font-size: 9px; font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
-.path-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border-radius: 9px; color: white; font-size: 9px; font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
+.image-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.35); border-radius: 9px; color: white; font-size: var(--font-micro); font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
+.path-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border-radius: 9px; color: white; font-size: var(--font-micro); font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
 .file-attachment { display: flex; width: min(288px, 68vw); min-height: 60px; padding: 9px 10px; align-items: center; gap: 10px; border: 0; border-radius: 15px; color: inherit; text-align: left; background: transparent; cursor: pointer; transition: background-color 150ms ease, transform 150ms ease; }
 .file-attachment:hover { background: rgba(0,122,255,.045); }
 .file-attachment:active { transform: scale(.985); }
@@ -438,7 +498,7 @@ function handlePreviewError(): void {
 .file-icon .ui-icon { width: 20px; }
 .file-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .file-copy strong { overflow: hidden; color: currentColor; font-size: 13px; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.file-copy small { color: var(--ink-faint); font-size: 10px; line-height: 1.2; }
+.file-copy small { color: var(--ink-faint); font-size: 11px; line-height: 1.2; }
 .download-action { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 10px; color: var(--blue); background: rgba(0,122,255,.09); transition: background-color 150ms ease; }
 .download-icon { width: 18px; }
 .file-attachment:hover .download-action { background: rgba(0,122,255,.14); }
@@ -465,7 +525,12 @@ function handlePreviewError(): void {
 .file-preview-header button { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: var(--ink-soft); font-size: 22px; background: var(--fill); cursor: pointer; }
 .file-preview-frame { width: 100%; min-height: min(58dvh, 540px); border: 0; background: white; }
 .file-preview-state { display: grid; min-height: 220px; max-width: 430px; padding: 32px; margin: 0 auto; place-items: center; color: var(--ink-faint); font-size: 13px; line-height: 1.6; text-align: center; }
-.file-preview footer { display: flex; padding: 14px 18px; justify-content: flex-end; border-top: 1px solid var(--separator); }
+.file-preview footer { display: flex; min-height: 68px; padding: 14px 18px; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--separator); }
+.download-progress { position: relative; height: 4px; min-width: 120px; flex: 1; overflow: hidden; border-radius: 999px; background: var(--fill); }
+.download-progress span { display: block; height: 100%; border-radius: inherit; background: var(--blue); transition: width 120ms linear; }
+.download-progress--indeterminate span { animation: download-indeterminate 1.2s ease-in-out infinite alternate; }
+@keyframes download-indeterminate { from { transform: translateX(-40%); } to { transform: translateX(225%); } }
+.file-cancel-button { min-height: 38px; padding: 0 12px; border: 1px solid var(--separator); border-radius: 10px; color: var(--ink-soft); font: inherit; font-size: 12px; font-weight: 650; background: var(--surface); cursor: pointer; }
 .file-save-button { display: inline-flex; min-height: 38px; padding: 0 14px; align-items: center; gap: 7px; border: 0; border-radius: 10px; color: white; font-size: 12px; font-weight: 700; background: var(--blue); cursor: pointer; }
 .file-save-button:disabled { cursor: wait; opacity: .7; }
 

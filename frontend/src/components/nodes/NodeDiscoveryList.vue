@@ -77,8 +77,8 @@ function sourceLabel(source: DesktopNode['source']): string {
 .node-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .node-copy strong,
 .node-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.node-copy strong { font-size: 10px; }
-.node-copy small { color: var(--ink-faint); font-size: 8px; }
-.node-action { color: var(--blue); font-size: 9px; font-weight: 700; white-space: nowrap; }
+.node-copy strong { font-size: var(--font-caption); }
+.node-copy small { color: var(--ink-faint); font-size: var(--font-micro); }
+.node-action { color: var(--blue); font-size: var(--font-micro); font-weight: 700; white-space: nowrap; }
 .node-item.current .node-action { color: var(--green); }
 </style>

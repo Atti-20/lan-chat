@@ -127,11 +127,11 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
 .module-item--active .module-icon { color: white; background: var(--blue); }
 .module-copy { display: grid; min-width: 0; }
 .module-copy strong { font-size: 13px; }
-.module-meta { align-self: start; padding-top: 3px; color: var(--ink-faint); font-size: 9px; white-space: nowrap; }
+.module-meta { align-self: start; padding-top: 3px; color: var(--ink-faint); font-size: var(--font-micro); white-space: nowrap; }
 .module-health { display: inline-flex; align-items: center; gap: 5px; color: var(--coral); }
 .module-health i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .module-health.healthy { color: var(--green); }
-.admin-sidebar-footer { display: flex; padding: 15px 18px; margin-top: auto; align-items: center; gap: 8px; border-top: 1px solid var(--separator); color: var(--ink-faint); font-size: 9px; }
+.admin-sidebar-footer { display: flex; padding: 15px 18px; margin-top: auto; align-items: center; gap: 8px; border-top: 1px solid var(--separator); color: var(--ink-faint); font-size: var(--font-micro); }
 .admin-sidebar-footer .ui-icon { color: var(--blue); }
 .module-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 55%, transparent); outline-offset: -2px; }
 

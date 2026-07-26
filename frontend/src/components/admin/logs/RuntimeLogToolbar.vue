@@ -133,7 +133,7 @@ function formatBytes(bytes: number): string {
   gap: 20px;
 }
 .heading-copy { min-width: 0; }
-.heading-copy p { margin: 0 0 5px; color: var(--blue); font-family: "SF Mono", Menlo, monospace; font-size: 9px; font-weight: 750; letter-spacing: .12em; }
+.heading-copy p { margin: 0 0 5px; color: var(--blue); font-family: "SF Mono", Menlo, monospace; font-size: var(--font-micro); font-weight: 750; letter-spacing: .12em; }
 .heading-copy h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
 .heading-copy span { display: block; margin-top: 5px; color: var(--ink-soft); font-size: 11px; }
 .toolbar-actions { display: flex; flex: none; gap: 8px; }
@@ -149,7 +149,7 @@ function formatBytes(bytes: number): string {
   border-radius: 10px;
   color: var(--blue);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 700;
   background: var(--active);
   cursor: pointer;
@@ -167,13 +167,13 @@ function formatBytes(bytes: number): string {
   border-bottom: 1px solid var(--separator);
   background: color-mix(in srgb, var(--surface) 70%, transparent);
 }
-.incident { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-soft); font-size: 10px; }
+.incident { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-soft); font-size: var(--font-caption); }
 .incident i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.incident strong { color: var(--ink); font-family: "SF Mono", Menlo, monospace; font-size: 10px; }
+.incident strong { color: var(--ink); font-family: "SF Mono", Menlo, monospace; font-size: var(--font-caption); }
 .incident--error { color: var(--coral); }
 .incident--warn { color: #d97706; }
 .incident--info { color: var(--blue); }
-.file-summary { margin-left: auto; overflow: hidden; color: var(--ink-faint); font-family: "SF Mono", Menlo, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.file-summary { margin-left: auto; overflow: hidden; color: var(--ink-faint); font-family: "SF Mono", Menlo, monospace; font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
 .log-filters {
   display: grid;
   padding: 13px 24px;
@@ -182,7 +182,7 @@ function formatBytes(bytes: number): string {
   gap: 10px;
 }
 .log-filters label { display: grid; gap: 6px; }
-.log-filters label > span { color: var(--ink-soft); font-size: 9px; font-weight: 700; }
+.log-filters label > span { color: var(--ink-soft); font-size: var(--font-micro); font-weight: 700; }
 .log-filters select,
 .log-filters input {
   width: 100%;
@@ -192,7 +192,7 @@ function formatBytes(bytes: number): string {
   border-radius: 10px;
   color: var(--ink);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--font-caption);
   background: var(--surface);
   outline: none;
 }
@@ -201,7 +201,7 @@ function formatBytes(bytes: number): string {
 .log-filters select:focus,
 .log-filters input:focus { border-color: color-mix(in srgb, var(--blue) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 10%, transparent); }
 .apply-button { color: var(--ink); background: var(--fill); }
-.toolbar-meta { display: flex; padding: 0 24px 12px; align-items: center; gap: 14px; color: var(--ink-faint); font-size: 9px; }
+.toolbar-meta { display: flex; padding: 0 24px 12px; align-items: center; gap: 14px; color: var(--ink-faint); font-size: var(--font-micro); }
 .toolbar-meta span + span::before { margin-right: 14px; content: "·"; }
 
 @media (max-width: 760px) {

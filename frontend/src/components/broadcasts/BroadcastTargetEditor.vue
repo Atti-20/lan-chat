@@ -99,7 +99,7 @@ function actionLabel(userId: number): string {
 .target-row :deep(.avatar) { flex: 0 0 30px; }
 .target-copy { display: grid; min-width: 0; flex: 1; gap: 1px; }
 .target-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.target-copy small { overflow: hidden; color: var(--ink-soft); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.target-copy small { overflow: hidden; color: var(--ink-soft); font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
 .target-action { flex: 0 0 auto; color: var(--blue); font-size: 11px; font-weight: 650; }
 .target-row--selected .target-action { color: var(--coral); }
 .target-row:disabled .target-action { color: var(--ink-soft); }

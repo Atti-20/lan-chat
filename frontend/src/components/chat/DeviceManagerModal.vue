@@ -4,6 +4,7 @@ import type { DeviceLogin } from '../../types'
 import { api } from '../../services/api'
 import { useToast } from '../../composables/useToast'
 import { formatMessageTime } from '../../utils/format'
+import { nativeBridge } from '../../platform/nativeBridge'
 import UiIcon from '../base/UiIcon.vue'
 
 interface Props {
@@ -36,7 +37,12 @@ async function kickDevice(device: DeviceLogin): Promise<void> {
   const prompt = device.current
     ? '确定下线当前设备？下线后将退出登录并返回首页。'
     : '确定下线该设备？'
-  if (!window.confirm(prompt)) return
+  if (!await nativeBridge.confirm(prompt, {
+    title: device.current ? '下线当前设备' : '下线登录设备',
+    kind: 'warning',
+    okLabel: '确认下线',
+    cancelLabel: '取消',
+  })) return
   busyId.value = device.id
   try {
     await api.user.logoutDevice(device.id)
@@ -194,9 +200,9 @@ function shortDeviceName(name: string): string {
 .device-info { display: grid; min-width: 0; flex: 1; gap: 2px; }
 .device-heading { display: flex; align-items: center; gap: 7px; }
 .device-heading strong { font-size: 13px; font-weight: 600; }
-.device-heading span { padding: 2px 6px; border-radius: 999px; color: var(--blue); font-size: 9px; font-weight: 700; background: var(--active); }
+.device-heading span { padding: 2px 6px; border-radius: 999px; color: var(--blue); font-size: var(--font-micro); font-weight: 700; background: var(--active); }
 .device-info small { overflow: hidden; color: var(--ink-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.device-time { color: var(--ink-faint); font-size: 10px; }
+.device-time { color: var(--ink-faint); font-size: var(--font-caption); }
 
 .kick-button {
   min-width: 48px;

@@ -33,7 +33,7 @@ onMounted(async () => {
   try {
     const user = await auth.hydrate()
     if (user) {
-      navigateToApp('/chat')
+      navigateToApp('/chat', true)
       return
     }
   } catch {
@@ -92,7 +92,7 @@ async function submit(): Promise<void> {
     if (mode.value === 'login') {
       await auth.login(cleanUsername, password.value)
       toast.push('已安全登录', 'success', 1200)
-      navigateToApp('/chat')
+      navigateToApp('/chat', true)
     } else {
       await auth.register(cleanUsername, password.value, cleanNickname)
       toast.push('账号已创建', 'success', 1200)

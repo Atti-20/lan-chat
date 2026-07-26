@@ -67,8 +67,8 @@ function selectNode(node: DesktopNode): void {
 .discovery-icon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 11px; color: var(--blue); background: var(--active); }
 .node-discovery header > div:nth-child(2) { min-width: 0; flex: 1; }
 .node-discovery h2 { margin: 0; font-size: 13px; }
-.node-discovery p { margin: 3px 0 0; overflow: hidden; color: var(--ink-faint); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.node-discovery header > button { padding: 5px 8px; border: 0; border-radius: 8px; color: var(--blue); font: inherit; font-size: 9px; background: var(--fill); cursor: pointer; }
+.node-discovery p { margin: 3px 0 0; overflow: hidden; color: var(--ink-faint); font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
+.node-discovery header > button { padding: 5px 8px; border: 0; border-radius: 8px; color: var(--blue); font: inherit; font-size: var(--font-micro); background: var(--fill); cursor: pointer; }
 .node-discovery header > button:disabled { opacity: .5; }
 
 @media (max-width: 860px) {

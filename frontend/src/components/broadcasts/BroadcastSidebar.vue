@@ -367,7 +367,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
 .item-time {
   flex: 0 0 auto;
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: var(--font-caption);
 }
 
 .item-preview {
@@ -386,7 +386,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   align-items: center;
   gap: 7px;
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: var(--font-caption);
   white-space: nowrap;
 }
 

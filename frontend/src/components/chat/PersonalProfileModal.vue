@@ -63,7 +63,7 @@ const { mode: themeMode, toggleWithReveal: toggleTheme } = useTheme()
 .modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; padding: 20px; place-items: center; }
 .personal-sheet { width: min(100%, 430px); max-height: calc(100dvh - 40px); overflow-y: auto; border-radius: 22px; box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft); }
 header { display: flex; padding: 20px 22px 16px; align-items: flex-start; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--separator); }
-header p { margin: 0 0 3px; color: var(--blue); font-size: 9px; font-weight: 750; letter-spacing: .12em; }
+header p { margin: 0 0 3px; color: var(--blue); font-size: var(--font-micro); font-weight: 750; letter-spacing: .12em; }
 header h2 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
 header button { display: grid; width: 40px; height: 40px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: var(--ink-soft); background: var(--fill); cursor: pointer; }
 header button:hover { background: var(--button-hover); }

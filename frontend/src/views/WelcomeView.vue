@@ -216,7 +216,7 @@ async function finish(): Promise<void> {
 .avatar-choice--selected { border-color: rgba(10,132,255,.48); background: rgba(217,238,255,.8); box-shadow: 0 0 0 4px rgba(10,132,255,.09), inset 0 1px 0 #fff; transform: scale(1.04); }
 .avatar-choice--text { color: #fff; font-weight: 750; background: linear-gradient(145deg, var(--blue), var(--violet)); }
 .avatar-choice--upload { display: grid; place-items: center; align-content: center; gap: 4px; color: var(--blue); }
-.avatar-choice--upload small { font-size: 10px; font-weight: 650; }
+.avatar-choice--upload small { font-size: var(--font-caption); font-weight: 650; }
 .avatar-choice--upload:disabled { cursor: wait; opacity: .65; }
 .name-field { display: grid; }
 .welcome-error { margin: -8px 0 0; color: var(--coral); font-size: 13px; }

@@ -200,12 +200,12 @@ function onFileChange(event: Event): void {
 .send-button:hover { transform: translateY(-1px); background: color-mix(in srgb, var(--blue) 88%, #000); }
 .send-button:disabled { opacity: .36; filter: grayscale(.5); cursor: not-allowed; transform: none; }
 .send-button .ui-icon { width: 22px; }
-.composer-hint { margin: 6px 8px 0; color: var(--ink-faint); font-size: 9px; text-align: right; }
+.composer-hint { margin: 6px 8px 0; color: var(--ink-faint); font-size: var(--font-micro); text-align: right; }
 .reply-bar { display: flex; min-height: 42px; padding: 7px 12px; margin: 0 8px 7px; align-items: center; gap: 10px; border: 1px solid var(--separator); border-radius: 12px; color: var(--ink-soft); background: var(--fill); }
 .reply-mark { color: var(--blue); font-size: 18px; }
 .reply-bar > span:nth-child(2) { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.reply-bar strong { color: var(--ink); font-size: 10px; }
-.reply-bar small { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.reply-bar strong { color: var(--ink); font-size: var(--font-caption); }
+.reply-bar small { overflow: hidden; font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
 .reply-bar button { padding: 0; border: 0; color: var(--ink-soft); font-size: 20px; background: transparent; cursor: pointer; }
 
 @media (max-width: 760px) {

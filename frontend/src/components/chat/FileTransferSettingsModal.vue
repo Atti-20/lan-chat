@@ -122,8 +122,8 @@ function updatePreference(enabled: boolean): void {
 .file-transfer-option strong,
 .setting-row strong { font-size: 11px; }
 .file-transfer-option small,
-.setting-row small { color: var(--ink-faint); font-size: 9px; line-height: 1.45; }
-.setting-note { margin: 10px 4px 0; color: var(--ink-faint); font-size: 10px; line-height: 1.5; }
+.setting-row small { color: var(--ink-faint); font-size: var(--font-micro); line-height: 1.45; }
+.setting-note { margin: 10px 4px 0; color: var(--ink-faint); font-size: var(--font-caption); line-height: 1.5; }
 
 @media (max-width: 480px) {
   .modal-backdrop { padding: 16px; }

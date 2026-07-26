@@ -31,7 +31,7 @@ const updateCopy = computed(() => {
   if (!update) return '手动检查正式发布渠道'
   if (update.status === 'UP_TO_DATE') return '当前已是最新版本'
   if (update.status === 'AVAILABLE') return `发现新版本 ${update.version || ''}`
-  if (update.status === 'UNCONFIGURED') return '当前构建未配置正式更新公钥'
+  if (update.status === 'UNCONFIGURED') return '当前构建未配置更新源或公钥'
   if (update.status === 'UNSUPPORTED') return '当前平台不支持自动更新'
   return '更新已安装，正在重启'
 })
@@ -114,9 +114,9 @@ watch(() => props.open, (open) => {
           <button
             v-else
             type="button"
-            :disabled="settings.loading.value"
+            :disabled="settings.loading.value || settings.update.value?.status === 'UNCONFIGURED'"
             @click="settings.checkForUpdate(false)"
-          >{{ settings.loading.value ? '检查中…' : '检查更新' }}</button>
+          >{{ settings.update.value?.status === 'UNCONFIGURED' ? '未配置' : settings.loading.value ? '检查中…' : '检查更新' }}</button>
         </section>
 
         <p v-if="settings.error.value" class="settings-error" role="alert">
@@ -141,7 +141,7 @@ watch(() => props.open, (open) => {
 }
 .desktop-settings { width: min(500px, calc(100vw - 28px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid var(--glass-border); border-radius: 24px; color: var(--ink); background: var(--surface-raise); box-shadow: 0 28px 80px rgba(0, 0, 0, .22); }
 .desktop-settings > header { display: flex; padding: 22px 24px 18px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--separator); }
-.desktop-settings header p { margin: 0 0 4px; color: var(--blue); font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+.desktop-settings header p { margin: 0 0 4px; color: var(--blue); font-size: var(--font-micro); font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
 .desktop-settings h2 { margin: 0; font-size: 20px; }
 .desktop-settings header button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 10px; background: var(--fill); cursor: pointer; }
 .desktop-settings-body { display: grid; padding: 20px 24px 24px; gap: 10px; }
@@ -158,12 +158,12 @@ watch(() => props.open, (open) => {
 .runtime-card span,
 .runtime-card small,
 .setting-row small,
-.update-card small { overflow: hidden; color: var(--ink-faint); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.update-card small { overflow: hidden; color: var(--ink-faint); font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
 .setting-action { width: 100%; color: inherit; text-align: left; cursor: pointer; }
 .setting-action > .ui-icon { color: var(--blue); }
-.update-card button { padding: 7px 10px; border: 0; border-radius: 9px; color: #fff; font-size: 9px; font-weight: 700; background: var(--blue); cursor: pointer; }
+.update-card button { padding: 7px 10px; border: 0; border-radius: 9px; color: #fff; font-size: var(--font-micro); font-weight: 700; background: var(--blue); cursor: pointer; }
 .update-card button:disabled { opacity: .5; }
-.settings-error { margin: 2px 4px 0; color: var(--coral); font-size: 9px; }
+.settings-error { margin: 2px 4px 0; color: var(--coral); font-size: var(--font-micro); }
 
 @media (max-width: 480px) {
   .modal-backdrop { padding: 16px; }

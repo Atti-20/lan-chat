@@ -191,7 +191,7 @@ function submit(): void {
   margin: 0 0 5px;
   color: var(--blue);
   font-family: "SF Mono", ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--font-micro);
   font-weight: 750;
   letter-spacing: .16em;
 }
@@ -230,7 +230,7 @@ function submit(): void {
 }
 .code-field input::placeholder { color: color-mix(in srgb, var(--ink-faint) 86%, transparent); font-size: .92em; font-weight: 400; opacity: 1; }
 .code-hint,
-.form-error { min-height: 30px; margin: 8px 2px 0; font-size: 10px; line-height: 1.4; }
+.form-error { min-height: 30px; margin: 8px 2px 0; font-size: var(--font-caption); line-height: 1.4; }
 .code-hint { color: var(--ink-faint); }
 .form-error { color: var(--coral); }
 

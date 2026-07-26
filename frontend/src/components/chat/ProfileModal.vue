@@ -437,7 +437,7 @@ function resetToTextAvatar(): void {
   background: var(--surface-glass);
 }
 .profile-header > div { display: grid; gap: 3px; }
-.profile-header p { margin: 0; color: var(--blue); font-size: 9px; font-weight: 750; letter-spacing: .12em; }
+.profile-header p { margin: 0; color: var(--blue); font-size: var(--font-micro); font-weight: 750; letter-spacing: .12em; }
 .profile-header h2 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
 .profile-header span { color: var(--ink-faint); font-size: 11px; }
 .profile-body {
@@ -517,7 +517,7 @@ function resetToTextAvatar(): void {
 }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .section-heading strong { font-size: 12px; }
-.section-heading span { color: var(--ink-faint); font-size: 10px; }
+.section-heading span { color: var(--ink-faint); font-size: var(--font-caption); }
 
 .emoji-row {
   display: grid;

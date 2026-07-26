@@ -378,7 +378,7 @@ function saveRemark(): void {
   place-items: center;
   border-radius: 8px;
   color: var(--blue);
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 600;
   background: rgba(0, 122, 255, 0.09);
 }
@@ -395,7 +395,7 @@ function saveRemark(): void {
 .member-item:hover { background: var(--hover); }
 .member-item > span { display: grid; min-width: 0; gap: 2px; }
 .member-item strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.member-item small { color: var(--ink-soft); font-size: 9px; }
+.member-item small { color: var(--ink-soft); font-size: var(--font-micro); }
 
 @media (max-width: 520px) {
   .context-panel { width: calc(100% - 32px); padding: 28px 18px 18px; border-radius: 20px; }

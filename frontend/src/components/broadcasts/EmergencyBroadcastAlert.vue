@@ -166,7 +166,7 @@ function confirm(): void {
 .alert-header { display: flex; align-items: flex-start; gap: 12px; }
 .alert-symbol { display: grid; width: 46px; height: 46px; flex: 0 0 auto; place-items: center; border-radius: 15px; color: var(--coral); background: color-mix(in srgb, var(--coral) 11%, var(--fill)); }
 .alert-heading { min-width: 0; flex: 1; }
-.alert-kicker { margin: 1px 0 4px; color: var(--coral); font-size: 10px; font-weight: 750; letter-spacing: 0.08em; }
+.alert-kicker { margin: 1px 0 4px; color: var(--coral); font-size: var(--font-caption); font-weight: 750; letter-spacing: 0.08em; }
 .alert-title { margin: 0; font-size: 21px; line-height: 1.25; letter-spacing: -0.035em; }
 .dismiss-button { display: inline-flex; min-width: 40px; height: 34px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 10px; color: var(--ink-soft); background: var(--fill); cursor: pointer; }
 .dismiss-button:hover { background: var(--button-hover); }
@@ -184,7 +184,7 @@ function confirm(): void {
 }
 
 .alert-meta { display: flex; margin-top: 17px; flex-wrap: wrap; gap: 7px; }
-.alert-meta span { padding: 5px 8px; border-radius: 9px; color: var(--ink-soft); font-size: 10px; font-weight: 600; background: var(--fill); }
+.alert-meta span { padding: 5px 8px; border-radius: 9px; color: var(--ink-soft); font-size: var(--font-caption); font-weight: 600; background: var(--fill); }
 .expired-note { margin: 13px 0 0; color: #d97706; font-size: 11px; line-height: 1.5; }
 .alert-actions { display: flex; margin-top: 22px; align-items: center; justify-content: flex-end; gap: 9px; }
 .confirm-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: var(--coral); box-shadow: 0 5px 16px color-mix(in srgb, var(--coral) 26%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.26); }

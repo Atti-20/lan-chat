@@ -515,7 +515,7 @@ function submit(): void {
 .priority-option strong,
 .scope-option strong { font-size: 13px; }
 .priority-option small,
-.scope-option small { color: var(--ink-soft); font-size: 10px; line-height: 1.4; }
+.scope-option small { color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.4; }
 
 .option-signal {
   position: absolute;
@@ -589,7 +589,7 @@ function submit(): void {
 .setting-row { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 18px; }
 .setting-copy { display: grid; gap: 3px; }
 .setting-copy strong { font-size: 13px; }
-.setting-copy small { color: var(--ink-soft); font-size: 10px; line-height: 1.4; }
+.setting-copy small { color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.4; }
 
 
 .confirmation-settings { display: grid; margin-top: 10px; padding-top: 13px; gap: 15px; border-top: 1px solid var(--separator); }
@@ -610,7 +610,7 @@ function submit(): void {
 }
 .confirmation-option--selected { border-color: color-mix(in srgb, var(--blue) 42%, transparent); color: var(--blue); background: var(--active); }
 .deadline-field > span { display: flex; align-items: center; gap: 5px; }
-.deadline-field > span small { color: var(--ink-faint); font-size: 10px; font-weight: 500; }
+.deadline-field > span small { color: var(--ink-faint); font-size: var(--font-caption); font-weight: 500; }
 .compact-setting { min-height: 42px; }
 .emergency-setting { margin-top: 11px; padding-top: 12px; border-top: 1px solid var(--separator); }
 .emergency-setting .setting-copy strong { color: var(--coral); }

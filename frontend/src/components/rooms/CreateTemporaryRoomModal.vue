@@ -333,7 +333,7 @@ function submit(): void {
   margin: 0 0 3px;
   color: var(--blue);
   font-family: "SF Mono", ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--font-micro);
   font-weight: 750;
   letter-spacing: .14em;
 }
@@ -370,7 +370,7 @@ function submit(): void {
   border-radius: 7px;
   color: var(--blue);
   font-family: "SF Mono", ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--font-micro);
   font-weight: 700;
   background: var(--active);
 }
@@ -381,10 +381,10 @@ function submit(): void {
 .field-group { position: relative; display: grid; min-width: 0; gap: 7px; }
 .field-group--wide { grid-column: 1 / -1; }
 .field-group > span { color: var(--ink-soft); font-size: 11px; font-weight: 650; }
-.field-group > span small { color: var(--ink-faint); font-size: 10px; font-weight: 500; }
+.field-group > span small { color: var(--ink-faint); font-size: var(--font-caption); font-weight: 500; }
 .field { color-scheme: light dark; }
 .purpose-field { min-height: 78px; padding-top: 12px; padding-bottom: 12px; resize: vertical; line-height: 1.5; }
-.character-count { position: absolute; right: 10px; bottom: 7px; color: var(--ink-faint); font-size: 9px; }
+.character-count { position: absolute; right: 10px; bottom: 7px; color: var(--ink-faint); font-size: var(--font-micro); }
 
 .policy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .policy-option {
@@ -402,7 +402,7 @@ function submit(): void {
 .policy-option:hover { border-color: var(--separator-strong); background: var(--hover); }
 .policy-copy { display: grid; min-width: 0; gap: 3px; }
 .policy-copy strong { font-size: 12px; }
-.policy-copy small { color: var(--ink-soft); font-size: 10px; line-height: 1.35; }
+.policy-copy small { color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.35; }
 
 .retention-field { width: min(100%, 220px); margin-bottom: 16px; }
 .expiry-options { display: grid; padding: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; border: 0; }
@@ -430,7 +430,7 @@ function submit(): void {
 .expiry-option > input:focus-visible + .radio-mark { outline: 3px solid color-mix(in srgb, var(--blue) 22%, transparent); outline-offset: 2px; }
 .expiry-option > span:last-child { display: grid; gap: 4px; }
 .expiry-option strong { font-size: 12px; }
-.expiry-option small { color: var(--ink-soft); font-size: 10px; line-height: 1.35; }
+.expiry-option small { color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.35; }
 
 .sheet-footer {
   display: flex;
@@ -443,7 +443,7 @@ function submit(): void {
   background: var(--surface-glass);
 }
 .privacy-note,
-.form-error { margin: 0; font-size: 10px; line-height: 1.4; }
+.form-error { margin: 0; font-size: var(--font-caption); line-height: 1.4; }
 .privacy-note { color: var(--ink-faint); }
 .form-error { color: var(--coral); }
 .footer-actions { display: flex; flex: 0 0 auto; gap: 9px; }
