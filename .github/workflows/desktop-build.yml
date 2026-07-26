@@ -3,16 +3,20 @@ name: Desktop Build
 on:
   pull_request:
     paths:
+      - "VERSION"
       - "apps/desktop/**"
       - "frontend/**"
+      - "scripts/ci/check-version-consistency.py"
       - ".github/workflows/desktop-build.yml"
   push:
     branches:
       - master
       - "feature/**"
     paths:
+      - "VERSION"
       - "apps/desktop/**"
       - "frontend/**"
+      - "scripts/ci/check-version-consistency.py"
       - ".github/workflows/desktop-build.yml"
   workflow_dispatch:
 
@@ -39,6 +43,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check release version consistency
+        run: python scripts/ci/check-version-consistency.py
 
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
@@ -86,8 +97,113 @@ jobs:
       - name: Run Rust tests
         run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
+      - name: Run strict Rust lint
+        run: cargo clippy --locked --all-targets --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
+
       - name: Build desktop frontend
         run: npm run build:desktop --prefix frontend
 
       - name: Build unsigned desktop executable
-        run: npm --prefix apps/desktop run tauri -- build --no-bundle
+        run: npm --prefix apps/desktop run tauri -- build --no-bundle -- --locked
+
+      - name: Build unsigned macOS app bundle
+        if: runner.os == 'macOS'
+        run: npm --prefix apps/desktop run tauri -- build --bundles app -- --locked
+
+      - name: Verify Linux or macOS smoke artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          binary="apps/desktop/src-tauri/target/release/lanchat-desktop"
+          test -s "$binary"
+          test -x "$binary"
+          file "$binary" | tee desktop-smoke.txt
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            grep -Fq "ELF" desktop-smoke.txt
+          else
+            grep -Fq "Mach-O" desktop-smoke.txt
+          fi
+          shasum -a 256 "$binary" 2>/dev/null \
+            || sha256sum "$binary"
+
+      - name: Verify unsigned macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="apps/desktop/src-tauri/target/release/bundle/macos/MeshX.app"
+          plist="$app/Contents/Info.plist"
+          expected_version="$(tr -d '\r\n' < VERSION)"
+          test -d "$app"
+          test -f "$plist"
+
+          executable_name="$(
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist"
+          )"
+          executable="$app/Contents/MacOS/$executable_name"
+          test -x "$executable"
+          test "$(
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist"
+          )" = "com.atti20.lanchat"
+          test "$(
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist"
+          )" = "$expected_version"
+          test "$(
+            /usr/libexec/PlistBuddy \
+              -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$plist"
+          )" = "lanchat"
+
+          file "$executable" | tee macos-app-smoke.txt
+          grep -Fq "Mach-O" macos-app-smoke.txt
+          codesign --verify --deep --strict --verbose=4 "$app"
+          codesign -dv --verbose=4 "$app" 2>&1 \
+            | tee macos-app-codesign.txt
+          grep -Fq "Signature=adhoc" macos-app-codesign.txt
+          grep -Fq "TeamIdentifier=not set" macos-app-codesign.txt
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app" desktop-unsigned-macos-app.zip
+
+      - name: Verify Windows smoke artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binary = "apps/desktop/src-tauri/target/release/lanchat-desktop.exe"
+          $item = Get-Item -LiteralPath $binary
+          if ($item.Length -le 0) {
+            throw "Desktop executable is empty: $binary"
+          }
+          $header = [IO.File]::ReadAllBytes($item.FullName)[0..1]
+          if ($header[0] -ne 0x4d -or $header[1] -ne 0x5a) {
+            throw "Desktop executable is not a PE file: $binary"
+          }
+          Get-FileHash -Algorithm SHA256 -LiteralPath $item.FullName
+
+      - name: Upload Linux or macOS unsigned smoke executable
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-unsigned-${{ runner.os }}-${{ github.sha }}
+          path: apps/desktop/src-tauri/target/release/lanchat-desktop
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Windows unsigned smoke executable
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-unsigned-${{ runner.os }}-${{ github.sha }}
+          path: apps/desktop/src-tauri/target/release/lanchat-desktop.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload unsigned macOS app bundle
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-unsigned-macos-app-${{ github.sha }}
+          path: |
+            desktop-unsigned-macos-app.zip
+            macos-app-smoke.txt
+            macos-app-codesign.txt
+          if-no-files-found: error
+          retention-days: 7

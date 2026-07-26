@@ -56,7 +56,7 @@ jobs:
         run: npm run build --prefix frontend
 
   repository-checks:
-    name: Compose and patch hygiene
+    name: Version, Compose and patch hygiene
     runs-on: ubuntu-22.04
     env:
       DB_ROOT_PASSWORD: E2eRootPassword-2026
@@ -71,6 +71,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Check release version consistency
+        run: python3 scripts/ci/check-version-consistency.py
 
       - name: Validate production Compose
         run: docker compose -f compose.yaml config --quiet

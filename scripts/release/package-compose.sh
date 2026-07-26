@@ -31,12 +31,96 @@ EOF
 cat >"$staging_directory/README.txt" <<EOF
 LANChat server release ${tag}
 
-1. Copy .env.example to .env and replace every blank secret.
-2. Review migration scripts and back up existing data before upgrading.
-3. Start the pinned release image:
+Before either a fresh install or an upgrade, validate the merged configuration:
+
+   docker compose -f compose.yaml -f compose.release.yaml config --quiet
+
+For a fresh install, copy .env.example to .env and replace every blank secret.
+For an upgrade, keep the existing .env and merge only newly introduced keys
+from .env.example. Never overwrite an installation's existing secrets.
+
+Existing installation upgrade
+=============================
+
+Do not run sql/init.sql against an existing database. It recreates tables.
+The migration files are not a migration ledger, and V2.4 is not repeatable.
+Use the version/schema records from the existing installation to identify the
+first missing migration, then run ONLY missing migrations in the order listed
+below. If that boundary is uncertain, stop and inspect information_schema
+before applying SQL.
+
+1. Pull the release image, then stop both application instances and the gateway.
+   Keep MySQL, Redis, and MinIO running:
 
    docker compose -f compose.yaml -f compose.release.yaml pull
-   docker compose -f compose.yaml -f compose.release.yaml up -d
+   docker compose -f compose.yaml -f compose.release.yaml stop gateway lanchat lanchat-2
+   docker compose -f compose.yaml -f compose.release.yaml up -d mysql redis minio
+
+2. Back up the database before changing its schema. Also snapshot the
+   mysql-data, minio-data, and uploads volumes with the installation's normal
+   backup tooling:
+
+   docker compose -f compose.yaml -f compose.release.yaml exec -T mysql sh -c \\
+     'exec mysqldump --user=root --password="\$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers --events lan_chat' \\
+     > lan_chat-before-${safe_tag}.sql
+   test -s lan_chat-before-${safe_tag}.sql
+
+3. Define this helper, remove every already-applied line from the ordered list,
+   and run only the remaining migrations:
+
+   apply_migration() {
+     docker compose -f compose.yaml -f compose.release.yaml exec -T mysql sh -c \\
+       'exec mysql --user=root --password="\$MYSQL_ROOT_PASSWORD" lan_chat' < "\$1"
+   }
+
+   apply_migration sql/migration-v1.1-file-access-cache.sql
+   apply_migration sql/migration-v2.0-reliable-messaging.sql
+   apply_migration sql/migration-v2.1-security-diagnostics.sql
+   apply_migration sql/migration-v2.2-file-transfer.sql
+   apply_migration sql/migration-v2.2-temporary-rooms.sql
+   apply_migration sql/migration-v2.2-emergency-broadcast.sql
+   apply_migration sql/migration-v2.2-broadcast-permission.sql
+   apply_migration sql/migration-v2.3-resumable-object-storage.sql
+   apply_migration sql/migration-v2.4-broadcast-task-workflow.sql
+   apply_migration sql/migration-v2.5-user-lifecycle.sql
+   apply_migration sql/migration-v2.6-device-session-single-active.sql
+
+4. Inspect the release-critical V2.4-V2.6 schema before restarting. The output
+   must show both tables, all three columns, and the non_unique value 0 for
+   uk_device_active_type:
+
+   docker compose -f compose.yaml -f compose.release.yaml exec -T mysql sh -c \\
+     'exec mysql --user=root --password="\$MYSQL_ROOT_PASSWORD" --table lan_chat' <<'SQL'
+   SHOW TABLES LIKE 'broadcast_evidence';
+   SHOW TABLES LIKE 'admin_user_lifecycle_audit';
+   SHOW COLUMNS FROM broadcast LIKE 'require_image_proof';
+   SHOW COLUMNS FROM user LIKE 'archived_at';
+   SHOW COLUMNS FROM device_login LIKE 'active_device_type';
+   SELECT DISTINCT index_name, non_unique
+     FROM information_schema.statistics
+    WHERE table_schema = 'lan_chat'
+      AND table_name = 'device_login'
+      AND index_name = 'uk_device_active_type';
+SQL
+
+5. Start the pinned release, wait for Compose health checks, and verify the
+   gateway health endpoint from inside the container:
+
+   docker compose -f compose.yaml -f compose.release.yaml up -d --wait --wait-timeout 300
+   docker compose -f compose.yaml -f compose.release.yaml ps
+   docker compose -f compose.yaml -f compose.release.yaml exec -T gateway \\
+     wget -qO- http://127.0.0.1:8080/api/v1/node/health
+
+Fresh installation
+==================
+
+With a new empty mysql-data volume, init.sql is applied automatically:
+
+   docker compose -f compose.yaml -f compose.release.yaml pull
+   docker compose -f compose.yaml -f compose.release.yaml up -d --wait --wait-timeout 300
+   docker compose -f compose.yaml -f compose.release.yaml ps
+   docker compose -f compose.yaml -f compose.release.yaml exec -T gateway \\
+     wget -qO- http://127.0.0.1:8080/api/v1/node/health
 
 Image: ${image}:${tag}
 EOF

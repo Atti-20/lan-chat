@@ -7,36 +7,42 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing v-prefixed tag to publish as a draft
+        description: Existing tag matching the repository VERSION
         required: true
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: ${{ matrix.name }} signed draft release
+  verified-candidates:
+    name: ${{ matrix.name }} signed candidate
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Linux
+          - id: linux
+            name: Linux
             os: ubuntu-22.04
             bundles: appimage,deb
             targetArgs: ""
-          - name: macOS
+            bundleRoot: apps/desktop/src-tauri/target/release/bundle
+          - id: macos
+            name: macOS universal
             os: macos-14
             bundles: app,dmg
             targetArgs: --target universal-apple-darwin
-          - name: Windows
+            bundleRoot: apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle
+          - id: windows
+            name: Windows
             os: windows-2022
             bundles: nsis,msi
             targetArgs: ""
+            bundleRoot: apps/desktop/src-tauri/target/release/bundle
     runs-on: ${{ matrix.os }}
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -54,6 +60,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Resolve and validate release tag
         id: release
@@ -61,10 +72,7 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
-            echo "::error::Desktop releases require a semantic v-prefixed tag."
-            exit 1
-          }
+          scripts/release/verify-release-tag.sh "$REQUESTED_TAG"
           echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
           echo "version=${REQUESTED_TAG#v}" >> "$GITHUB_OUTPUT"
 
@@ -87,26 +95,30 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          test -n "$APPLE_CERTIFICATE" \
-            && test -n "$APPLE_CERTIFICATE_PASSWORD" \
-            && test -n "$APPLE_SIGNING_IDENTITY" \
-            && test -n "$APPLE_TEAM_ID" \
-            && test -n "$APPLE_ID" \
-            && test -n "$APPLE_PASSWORD" || {
-              echo "::error::Apple Developer certificate, identity, team, and notarization secrets are required."
-              exit 1
-            }
+          if ! {
+            test -n "$APPLE_CERTIFICATE" \
+              && test -n "$APPLE_CERTIFICATE_PASSWORD" \
+              && test -n "$APPLE_SIGNING_IDENTITY" \
+              && test -n "$APPLE_TEAM_ID" \
+              && test -n "$APPLE_ID" \
+              && test -n "$APPLE_PASSWORD"
+          }; then
+            echo "::error::Apple Developer certificate, identity, team, and notarization secrets are required."
+            exit 1
+          fi
 
       - name: Require Windows code-signing material
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          test -n "$WINDOWS_CERTIFICATE_BASE64" \
-            && test -n "$WINDOWS_CERTIFICATE_PASSWORD" \
-            && test -n "$TAURI_WINDOWS_CERTIFICATE_THUMBPRINT" || {
-              echo "::error::Windows PFX, password, and certificate thumbprint secrets are required."
-              exit 1
-            }
+          if ! {
+            test -n "$WINDOWS_CERTIFICATE_BASE64" \
+              && test -n "$WINDOWS_CERTIFICATE_PASSWORD" \
+              && test -n "$TAURI_WINDOWS_CERTIFICATE_THUMBPRINT"
+          }; then
+            echo "::error::Windows PFX, password, and certificate thumbprint secrets are required."
+            exit 1
+          fi
 
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
@@ -132,10 +144,8 @@ jobs:
             apps/desktop/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install universal macOS Rust targets
-        if: runner.os == 'macOS'
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        with:
+          targets: ${{ matrix.id == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -158,7 +168,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $pfxPath = Join-Path $env:RUNNER_TEMP "lanchat-code-signing.pfx"
+          $pfxPath = Join-Path $env:RUNNER_TEMP "meshx-code-signing.pfx"
           [IO.File]::WriteAllBytes(
             $pfxPath,
             [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
@@ -183,19 +193,132 @@ jobs:
       - name: Run locked Rust tests before release
         run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
-      - name: Build and attach signed desktop artifacts
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build signed release candidate without publishing
+        id: build
+        uses: tauri-apps/tauri-action@v1
         with:
           projectPath: apps/desktop
-          tagName: ${{ steps.release.outputs.tag }}
-          releaseName: LANChat ${{ steps.release.outputs.tag }}
-          releaseBody: |
-            Draft desktop release generated from ${{ github.sha }}.
-            Review signatures, updater metadata, installation smoke tests, and release notes before publishing.
-          releaseDraft: true
-          prerelease: ${{ contains(steps.release.outputs.tag, '-') }}
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
-          args: ${{ matrix.targetArgs }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.generated.json
+          args: ${{ matrix.targetArgs }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.release.generated.json -- --locked
+
+      - name: Verify Linux release candidate
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          scripts/release/verify-linux-release.sh \
+            "${{ matrix.bundleRoot }}" \
+            "${{ steps.release.outputs.version }}"
+
+      - name: Verify signed, notarized universal macOS DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          scripts/release/notarize-macos-dmg.sh \
+            "${{ matrix.bundleRoot }}"
+          scripts/release/verify-macos-release.sh \
+            "${{ matrix.bundleRoot }}" \
+            "${{ steps.release.outputs.version }}"
+
+      - name: Verify Windows Authenticode release candidate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/release/verify-windows-release.ps1 `
+            -BundleRoot "${{ matrix.bundleRoot }}" `
+            -ExpectedVersion "${{ steps.release.outputs.version }}"
+
+      - name: Stage verified release artifacts
+        shell: bash
+        run: |
+          node scripts/release/stage-desktop-artifacts.mjs \
+            "${{ matrix.id }}" \
+            "${{ matrix.bundleRoot }}" \
+            "release-candidates/${{ matrix.id }}" \
+            "${{ steps.release.outputs.version }}"
+
+      - name: Upload verified candidate and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-candidate-${{ matrix.id }}
+          path: |
+            release-candidates/${{ matrix.id }}/
+            release-verification/${{ matrix.id }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-draft:
+    name: Publish draft after every verification gate
+    needs: verified-candidates
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve and validate release tag
+        id: release
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          scripts/release/verify-release-tag.sh "$REQUESTED_TAG"
+          echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${REQUESTED_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download verified candidates
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-release-candidate-*
+          path: verified-candidates
+
+      - name: Verify updater signatures against the configured public key
+        run: |
+          test -n "$TAURI_UPDATER_PUBLIC_KEY" || {
+            echo "::error::TAURI_UPDATER_PUBLIC_KEY is required to verify release artifacts."
+            exit 1
+          }
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          scripts/release/verify-updater-signatures.sh verified-candidates
+
+      - name: Assemble updater manifest and checksums
+        run: |
+          node scripts/release/assemble-desktop-release.mjs \
+            verified-candidates \
+            release-assets \
+            "${{ steps.release.outputs.version }}" \
+            "${{ steps.release.outputs.tag }}" \
+            "${{ github.repository }}"
+
+      - name: Preserve assembled release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-verified-${{ steps.release.outputs.tag }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create or update verified draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: MeshX ${{ steps.release.outputs.tag }}
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            Desktop candidates were attached only after all platform gates passed.
+
+            macOS evidence includes universal arm64/x86_64 architecture, Developer ID and Team ID,
+            strict code-sign verification, Gatekeeper assessment, notarization ticket validation,
+            DMG verification, and validation of the mounted app copy.
+
+            This automated evidence does not replace physical-device installation, first-launch,
+            or old-version updater regression. Keep this release as a draft until those checks
+            and the server/Android release evidence are attached.
+          files: release-assets/*

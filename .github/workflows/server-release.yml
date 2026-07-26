@@ -26,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Resolve and validate release tag
         id: release
@@ -33,10 +34,7 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
-            echo "::error::Server releases require a semantic v-prefixed tag."
-            exit 1
-          }
+          scripts/release/verify-release-tag.sh "$REQUESTED_TAG"
           echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Resolve lowercase GHCR image name

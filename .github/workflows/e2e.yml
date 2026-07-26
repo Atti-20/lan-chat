@@ -9,8 +9,10 @@ on:
       - "compose.yaml"
       - "compose.e2e.yaml"
       - "Dockerfile"
+      - "pom.xml"
       - "deploy/**"
       - "frontend/**"
+      - "sql/**"
       - "src/**"
       - "tests/e2e/**"
       - "scripts/ci/**"
@@ -51,6 +53,9 @@ jobs:
 
       - name: Install E2E dependencies
         run: npm ci --prefix tests/e2e
+
+      - name: Type-check E2E suite
+        run: npm run typecheck --prefix tests/e2e
 
       - name: Install Playwright Chromium
         run: npm exec --prefix tests/e2e playwright -- install --with-deps chromium

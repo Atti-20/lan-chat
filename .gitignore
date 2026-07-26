@@ -49,3 +49,5 @@ apps/mobile/android/*.jks
 apps/mobile/android/*.keystore
 output/playwright/
 .playwright-cli/
+out/
+__pycache__/

@@ -32,6 +32,14 @@ const overlay = {
   },
 }
 
+const appleSigningIdentity =
+  process.env.APPLE_SIGNING_IDENTITY?.trim()
+if (appleSigningIdentity) {
+  overlay.bundle.macOS = {
+    signingIdentity: appleSigningIdentity,
+  }
+}
+
 const windowsThumbprint =
   process.env.TAURI_WINDOWS_CERTIFICATE_THUMBPRINT?.trim()
 if (windowsThumbprint) {

@@ -3,8 +3,10 @@ name: Android Build
 on:
   pull_request:
     paths:
+      - "VERSION"
       - "apps/mobile/**"
       - "frontend/**"
+      - "scripts/ci/check-version-consistency.py"
       - "src/main/java/com/lanchat/config/**"
       - "src/main/resources/application.yml"
       - ".github/workflows/android-build.yml"
@@ -14,8 +16,10 @@ on:
       - "feature/**"
       - "codex/**"
     paths:
+      - "VERSION"
       - "apps/mobile/**"
       - "frontend/**"
+      - "scripts/ci/check-version-consistency.py"
       - "src/main/java/com/lanchat/config/**"
       - "src/main/resources/application.yml"
       - ".github/workflows/android-build.yml"
@@ -34,6 +38,9 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check release version consistency
+        run: python3 scripts/ci/check-version-consistency.py
 
       - uses: actions/setup-node@v4
         with:
@@ -63,6 +70,9 @@ jobs:
 
       - name: Build and sync shared Vue assets
         run: npm run sync --prefix apps/mobile
+
+      - name: Verify native bridge logging policy
+        run: npm test --prefix apps/mobile
 
       - name: Verify Android toolchain
         working-directory: apps/mobile/android
