@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::endpoint::{normalize_node_address, valid_node_id};
+use crate::endpoint::{normalize_node_address, normalize_origin, valid_node_id};
 
 const SERVICE_TYPE: &str = "_lanchat._tcp.local.";
 const PROTOCOL_VERSION: u16 = 1;
@@ -197,7 +197,7 @@ impl DiscoveryService {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .values()
-            .any(|node| node.api_origin == origin)
+            .any(|node| origin_matches(origin, &node.api_origin))
     }
 
     pub fn refresh(self: &Arc<Self>) -> Result<(), String> {
@@ -609,7 +609,7 @@ impl DiscoveryService {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .values()
-            .find(|node| node.api_origin == origin)
+            .find(|node| origin_matches(origin, &node.api_origin))
             .map(|node| node.node_id.clone())
     }
 
@@ -802,22 +802,7 @@ fn candidate_from_mdns(info: &ResolvedService) -> Result<DiscoveryCandidate, Str
         .collect();
     addresses.sort_by_key(|address| if address.is_ipv4() { 0 } else { 1 });
     addresses.dedup();
-    let origins = addresses
-        .into_iter()
-        .map(|address| {
-            let host = match address {
-                IpAddr::V4(address) => address.to_string(),
-                IpAddr::V6(address) => format!("[{address}]"),
-            };
-            let origin = format!(
-                "{}://{}:{}",
-                if secure { "https" } else { "http" },
-                host,
-                info.get_port()
-            );
-            (origin, address.to_string())
-        })
-        .collect();
+    let origins = candidate_origins(secure, info.get_port(), addresses);
     Ok(DiscoveryCandidate {
         fullname: Some(info.get_fullname().to_string()),
         expected_node_id: Some(node_id),
@@ -830,6 +815,34 @@ fn candidate_from_mdns(info: &ResolvedService) -> Result<DiscoveryCandidate, Str
         origins,
         source: DesktopNodeSource::Mdns,
     })
+}
+
+/// Builds candidate origins in the same normalized form that the gated
+/// commands produce via `normalize_origin`, so advertisements on default
+/// ports ("https://host:443", "http://host:80") match the allow-list.
+fn candidate_origins(secure: bool, port: u16, addresses: Vec<IpAddr>) -> Vec<(String, String)> {
+    let scheme = if secure { "https" } else { "http" };
+    addresses
+        .into_iter()
+        .filter_map(|address| {
+            let host = match address {
+                IpAddr::V4(address) => address.to_string(),
+                IpAddr::V6(address) => format!("[{address}]"),
+            };
+            let origin = normalize_origin(&format!("{scheme}://{host}:{port}")).ok()?;
+            Some((origin, address.to_string()))
+        })
+        .collect()
+}
+
+/// Compares an already-normalized origin against a stored node origin.
+/// Stored origins are normalized before comparing so cache entries that were
+/// persisted with explicit default ports (":443"/":80") keep matching.
+fn origin_matches(origin: &str, stored: &str) -> bool {
+    stored == origin
+        || normalize_origin(stored)
+            .map(|normalized| normalized == origin)
+            .unwrap_or(false)
 }
 
 fn direct_candidate(origin: String, source: DesktopNodeSource) -> DiscoveryCandidate {
@@ -1010,10 +1023,12 @@ fn safe_mode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        cache_candidates, safe_label, safe_mode, usable_ip, validate_protocol_contract,
-        DesktopNode, DesktopNodeHealth, DesktopNodeSource, NodePublicInfo, API_BASE_PATH,
-        DEFAULT_APP_PATH, HEALTH_PATH, REFRESH_TRANSPORT, WEB_SOCKET_PATH,
+        cache_candidates, candidate_origins, origin_matches, safe_label, safe_mode, usable_ip,
+        validate_protocol_contract, DesktopNode, DesktopNodeHealth, DesktopNodeSource,
+        NodePublicInfo, API_BASE_PATH, DEFAULT_APP_PATH, HEALTH_PATH, REFRESH_TRANSPORT,
+        WEB_SOCKET_PATH,
     };
+    use crate::endpoint::normalize_origin;
     use chrono::{Duration, Utc};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -1037,6 +1052,55 @@ mod tests {
             "fe80::1".parse::<Ipv6Addr>().unwrap()
         )));
         assert!(usable_ip(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 5))));
+    }
+
+    #[test]
+    fn mdns_origins_on_default_ports_are_normalized() {
+        let address = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 5));
+        assert_eq!(
+            candidate_origins(true, 443, vec![address]),
+            vec![("https://192.168.1.5".to_string(), "192.168.1.5".to_string())]
+        );
+        assert_eq!(
+            candidate_origins(false, 80, vec![address]),
+            vec![("http://192.168.1.5".to_string(), "192.168.1.5".to_string())]
+        );
+    }
+
+    #[test]
+    fn mdns_origins_on_non_default_ports_are_preserved() {
+        let address = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 5));
+        assert_eq!(
+            candidate_origins(true, 8443, vec![address]),
+            vec![(
+                "https://192.168.1.5:8443".to_string(),
+                "192.168.1.5".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn origin_allow_list_matches_normalized_and_stored_default_port_forms() {
+        // An mDNS candidate advertising port 443 now stores "https://host",
+        // which matches gated commands normalizing "https://host:443/".
+        assert!(origin_matches(
+            &normalize_origin("https://chat.local:443/").unwrap(),
+            "https://chat.local"
+        ));
+        // Cache entries persisted before normalization keep matching too.
+        assert!(origin_matches(
+            &normalize_origin("https://chat.local:443/").unwrap(),
+            "https://chat.local:443"
+        ));
+        // Non-default ports are preserved and still match exactly.
+        assert!(origin_matches(
+            &normalize_origin("https://chat.local:8443").unwrap(),
+            "https://chat.local:8443"
+        ));
+        assert!(!origin_matches(
+            "https://chat.local",
+            "https://chat.local:8443"
+        ));
     }
 
     #[test]

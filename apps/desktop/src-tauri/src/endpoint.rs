@@ -81,6 +81,22 @@ mod tests {
     }
 
     #[test]
+    fn elides_default_ports_from_normalized_origins() {
+        assert_eq!(
+            normalize_origin("https://chat.local:443").unwrap(),
+            "https://chat.local"
+        );
+        assert_eq!(
+            normalize_origin("http://chat.local:80/").unwrap(),
+            "http://chat.local"
+        );
+        assert_eq!(
+            normalize_origin("https://chat.local:8443").unwrap(),
+            "https://chat.local:8443"
+        );
+    }
+
+    #[test]
     fn rejects_unsafe_origins() {
         assert!(normalize_origin("file:///tmp/app").is_err());
         assert!(normalize_origin("http://user:pass@host").is_err());

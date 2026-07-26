@@ -131,7 +131,6 @@ pub async fn desktop_logout(
     discovery: tauri::State<'_, Arc<DiscoveryService>>,
 ) -> Result<(), String> {
     let origin = normalize_origin(&origin)?;
-    require_allowed_origin(&origin, &discovery)?;
     if let Some(access_token) = access_token.as_ref() {
         if access_token.len() > 8_192 || access_token.bytes().any(|byte| byte.is_ascii_control()) {
             return Err("access token is invalid".to_string());
@@ -141,6 +140,12 @@ pub async fn desktop_logout(
         Ok(session) => session,
         Err(_) => return Ok(()),
     };
+    // Clearing local session state must keep working even after the node
+    // dropped off the discovery allow-list (for example when a crashed node
+    // was pruned). Only the network logout request is gated on the allow-list.
+    if require_allowed_origin(&origin, &discovery).is_err() {
+        return clear_session_without_network(&state, &origin);
+    }
     let api_base_path = resolve_session_path(&session, api_base_path.as_deref())?;
     let result = async {
         let mut request = session
@@ -167,6 +172,11 @@ fn build_client() -> Result<Client, String> {
         .user_agent(concat!("MeshX-Desktop/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| format!("failed to initialize native authentication: {error}"))
+}
+
+fn clear_session_without_network(state: &NativeAuthState, origin: &str) -> Result<(), String> {
+    state.remove_client(origin);
+    Ok(())
 }
 
 fn require_allowed_origin(origin: &str, discovery: &DiscoveryService) -> Result<(), String> {
@@ -270,8 +280,9 @@ fn network_error(error: reqwest::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_client, normalized_device_name, sanitize_auth_data, validate_login_input,
-        validated_api_base_path, NativeAuthState, NativeSession, API_BASE_PATH,
+        build_client, clear_session_without_network, normalized_device_name, sanitize_auth_data,
+        validate_login_input, validated_api_base_path, NativeAuthState, NativeSession,
+        API_BASE_PATH,
     };
     use serde_json::{json, Value};
 
@@ -335,6 +346,30 @@ mod tests {
             Some("no native refresh session exists for this node".to_string())
         );
         assert!(state.client_for("https://node-b.local:8443").is_ok());
+    }
+
+    #[test]
+    fn logout_for_a_pruned_origin_still_clears_the_stored_session() {
+        let state = NativeAuthState::default();
+        state.replace_client(
+            "https://node-a.local:8443".to_string(),
+            NativeSession {
+                client: build_client().unwrap(),
+                api_base_path: API_BASE_PATH.to_string(),
+            },
+        );
+
+        // desktop_logout takes this path when the origin is no longer on the
+        // discovery allow-list: the network logout is skipped, but the local
+        // session must still be cleared so the user can leave a dead node.
+        assert_eq!(
+            clear_session_without_network(&state, "https://node-a.local:8443"),
+            Ok(())
+        );
+        assert_eq!(
+            state.client_for("https://node-a.local:8443").err(),
+            Some("no native refresh session exists for this node".to_string())
+        );
     }
 
     #[test]
