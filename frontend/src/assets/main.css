@@ -114,6 +114,15 @@ button,
 input,
 textarea { font: inherit; }
 
+/* iOS WKWebView 在聚焦字号小于 16px 的输入框时会强制放大整页且不还原。
+ * 触摸屏上把可编辑控件的最小字号抬到 16px；组件内的紧凑字号定义
+ * 优先级更高，这里必须用 !important 才能兜住，桌面端不受影响。 */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select { font-size: max(16px, 1em) !important; }
+}
+
 button { color: inherit; }
 
 button,

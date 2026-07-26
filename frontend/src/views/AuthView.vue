@@ -328,9 +328,13 @@ async function submit(): Promise<void> {
   .brand-mark { width: 108px; }
 }
 
+/* 原生外壳是全屏 WebView：页面根必须避让状态栏/挖孔与底部指示条。 */
 .auth-page {
   width: min(1000px, calc(100% - 40px));
-  padding: 40px 0;
+  padding:
+    max(40px, env(safe-area-inset-top))
+    0
+    max(40px, env(safe-area-inset-bottom));
   grid-template-columns: minmax(0, 1fr) 400px;
   gap: clamp(48px, 8vw, 96px);
 }
@@ -388,7 +392,12 @@ async function submit(): Promise<void> {
 @keyframes auth-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 860px) {
-  .auth-page { width: min(520px, calc(100% - 28px)); grid-template-columns: 1fr; gap: 28px; padding: 26px 0; }
+  .auth-page {
+    width: min(520px, calc(100% - 28px));
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding: max(26px, env(safe-area-inset-top)) 0 max(26px, env(safe-area-inset-bottom));
+  }
   .auth-story { gap: 16px; }
   .story-copy h1 { font-size: clamp(34px, 10vw, 44px); }
   .story-lead { margin-top: 12px; font-size: 14px; }

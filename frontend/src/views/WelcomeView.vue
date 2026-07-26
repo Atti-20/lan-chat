@@ -230,7 +230,15 @@ async function finish(): Promise<void> {
   .welcome-header h1 { font-size: 40px; }
 }
 
-.welcome-page { padding: 30px 20px; }
+/* 原生外壳是全屏 WebView：页面根必须避让状态栏/挖孔与底部指示条，
+ * 浏览器里 env() 为 0，桌面排版不受影响。 */
+.welcome-page {
+  padding:
+    max(30px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(30px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+}
 .welcome-sheet {
   width: min(100%, 760px);
   padding: clamp(28px, 5vw, 48px);
@@ -271,7 +279,13 @@ async function finish(): Promise<void> {
 .name-field > span { color: var(--ink-soft); font-weight: 600; }
 
 @media (max-width: 720px) {
-  .welcome-page { padding: 14px; }
+  .welcome-page {
+    padding:
+      max(14px, env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      max(14px, env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+  }
   .welcome-sheet { grid-template-columns: 1fr; gap: 24px; border-radius: 24px; }
   .profile-stage { min-height: 200px; }
   .welcome-header h1 { font-size: 36px; }
