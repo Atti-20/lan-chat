@@ -6,6 +6,7 @@ pub struct RuntimeInfo {
     runtime: &'static str,
     platform: &'static str,
     version: String,
+    updater_configured: bool,
 }
 
 #[tauri::command]
@@ -14,6 +15,7 @@ pub fn runtime_info(app: tauri::AppHandle) -> RuntimeInfo {
         runtime: "tauri",
         platform: current_platform(),
         version: app.package_info().version.to_string(),
+        updater_configured: crate::updater::is_updater_configured(&app),
     }
 }
 

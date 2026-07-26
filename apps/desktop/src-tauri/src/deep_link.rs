@@ -199,7 +199,7 @@ fn valid_token(value: &str, minimum: usize, maximum: usize, colon: bool) -> bool
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_deep_link, DeepLinkKind};
+    use super::{parse_deep_link, DeepLinkKind, DeepLinkState, DeepLinkTarget};
     use url::Url;
 
     #[test]
@@ -232,5 +232,28 @@ mod tests {
         );
         assert!(parse_deep_link(&Url::parse("lanchat://broadcast/-1").unwrap()).is_err());
         assert!(parse_deep_link(&Url::parse("lanchat://room/code?extra=x").unwrap()).is_err());
+        assert!(parse_deep_link(&Url::parse("meshx://room/code").unwrap()).is_err());
+    }
+
+    #[test]
+    fn pending_target_is_consumed_once() {
+        let state = DeepLinkState::default();
+        *state.pending.lock().unwrap() = Some(DeepLinkTarget {
+            kind: DeepLinkKind::Conversation,
+            value: "private:1:2".to_string(),
+            node_origin: None,
+        });
+        assert_eq!(state.take().unwrap().value, "private:1:2");
+        assert!(state.take().is_none());
+    }
+
+    #[test]
+    fn bundle_registers_the_supported_scheme() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let schemes = config["plugins"]["deep-link"]["desktop"]["schemes"]
+            .as_array()
+            .unwrap();
+        assert!(schemes.iter().any(|value| value == "lanchat"));
     }
 }

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use reqwest::redirect::Policy;
@@ -7,6 +7,7 @@ use reqwest::{Client, Response};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::discovery::DiscoveryService;
 use crate::endpoint::normalize_origin;
 
 const API_BASE_PATH: &str = "/api/v1";
@@ -64,8 +65,10 @@ pub async fn desktop_login(
     device_name: String,
     api_base_path: Option<String>,
     state: tauri::State<'_, NativeAuthState>,
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
 ) -> Result<Value, String> {
     let origin = normalize_origin(&origin)?;
+    require_allowed_origin(&origin, &discovery)?;
     let api_base_path = validated_api_base_path(api_base_path.as_deref())?;
     validate_login_input(&username, &password, &device_name)?;
     let client = build_client()?;
@@ -97,8 +100,10 @@ pub async fn desktop_refresh(
     device_name: String,
     api_base_path: Option<String>,
     state: tauri::State<'_, NativeAuthState>,
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
 ) -> Result<Value, String> {
     let origin = normalize_origin(&origin)?;
+    require_allowed_origin(&origin, &discovery)?;
     if device_name.len() > 100 {
         return Err("device name is too long".to_string());
     }
@@ -123,8 +128,10 @@ pub async fn desktop_logout(
     access_token: Option<String>,
     api_base_path: Option<String>,
     state: tauri::State<'_, NativeAuthState>,
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
 ) -> Result<(), String> {
     let origin = normalize_origin(&origin)?;
+    require_allowed_origin(&origin, &discovery)?;
     if let Some(access_token) = access_token.as_ref() {
         if access_token.len() > 8_192 || access_token.bytes().any(|byte| byte.is_ascii_control()) {
             return Err("access token is invalid".to_string());
@@ -157,9 +164,17 @@ fn build_client() -> Result<Client, String> {
         .no_proxy()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
-        .user_agent("MeshX-Desktop/3.0.0")
+        .user_agent(concat!("MeshX-Desktop/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| format!("failed to initialize native authentication: {error}"))
+}
+
+fn require_allowed_origin(origin: &str, discovery: &DiscoveryService) -> Result<(), String> {
+    if discovery.allows_origin(origin) {
+        Ok(())
+    } else {
+        Err("node origin has not completed the native handshake".to_string())
+    }
 }
 
 fn validated_api_base_path(value: Option<&str>) -> Result<String, String> {
@@ -184,14 +199,18 @@ fn resolve_session_path(
 }
 
 async fn parse_auth_response(response: Response) -> Result<Value, String> {
-    let mut result = parse_result(response).await?;
-    if let Value::Object(data) = &mut result.data {
-        data.remove("refreshToken");
+    let result = parse_result(response).await?;
+    sanitize_auth_data(result.data)
+}
+
+fn sanitize_auth_data(mut data: Value) -> Result<Value, String> {
+    if let Value::Object(fields) = &mut data {
+        fields.remove("refreshToken");
     }
-    if result.data.is_null() {
+    if data.is_null() {
         return Err("authentication response did not contain session data".to_string());
     }
-    Ok(result.data)
+    Ok(data)
 }
 
 async fn parse_unit_response(response: Response) -> Result<(), String> {
@@ -250,7 +269,11 @@ fn network_error(error: reqwest::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized_device_name, validate_login_input, validated_api_base_path};
+    use super::{
+        build_client, normalized_device_name, sanitize_auth_data, validate_login_input,
+        validated_api_base_path, NativeAuthState, NativeSession, API_BASE_PATH,
+    };
+    use serde_json::{json, Value};
 
     #[test]
     fn sanitizes_device_names() {
@@ -273,5 +296,51 @@ mod tests {
         );
         assert!(validated_api_base_path(Some("/api/v2")).is_err());
         assert!(validated_api_base_path(Some("https://example.test/api/v1")).is_err());
+    }
+
+    #[test]
+    fn strips_refresh_token_before_exposing_auth_data_to_js() {
+        let sanitized = sanitize_auth_data(json!({
+            "token": "access-token",
+            "refreshToken": "secret-refresh-token",
+            "expiresIn": 3600,
+            "userId": 42,
+        }))
+        .unwrap();
+        assert!(sanitized.get("refreshToken").is_none());
+        assert_eq!(sanitized.get("token"), Some(&json!("access-token")));
+        assert_eq!(sanitized.get("expiresIn"), Some(&json!(3600)));
+        assert_eq!(sanitized.get("userId"), Some(&json!(42)));
+    }
+
+    #[test]
+    fn rejects_auth_responses_without_session_data() {
+        assert!(sanitize_auth_data(Value::Null).is_err());
+    }
+
+    #[test]
+    fn clearing_a_node_session_leaves_other_nodes_untouched() {
+        let state = NativeAuthState::default();
+        let session = NativeSession {
+            client: build_client().unwrap(),
+            api_base_path: API_BASE_PATH.to_string(),
+        };
+        state.replace_client("https://node-a.local:8443".to_string(), session.clone());
+        state.replace_client("https://node-b.local:8443".to_string(), session);
+
+        state.remove_client("https://node-a.local:8443");
+
+        assert_eq!(
+            state.client_for("https://node-a.local:8443").err(),
+            Some("no native refresh session exists for this node".to_string())
+        );
+        assert!(state.client_for("https://node-b.local:8443").is_ok());
+    }
+
+    #[test]
+    fn clearing_an_unknown_node_session_is_a_no_op() {
+        let state = NativeAuthState::default();
+        state.remove_client("https://node-a.local:8443");
+        assert!(state.client_for("https://node-a.local:8443").is_err());
     }
 }

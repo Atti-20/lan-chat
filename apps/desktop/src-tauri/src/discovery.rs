@@ -149,7 +149,10 @@ impl DiscoveryService {
                 .no_proxy()
                 .connect_timeout(Duration::from_millis(1_500))
                 .timeout(Duration::from_secs(3))
-                .user_agent("MeshX-Desktop-Discovery/3.0.0")
+                .user_agent(concat!(
+                    "MeshX-Desktop-Discovery/",
+                    env!("CARGO_PKG_VERSION")
+                ))
                 .build()
                 .map_err(|error| format!("failed to initialize discovery HTTP client: {error}"))?,
         });
@@ -184,6 +187,17 @@ impl DiscoveryService {
                 })
         });
         nodes
+    }
+
+    /// Native networking is deliberately limited to origins that completed
+    /// the discovery/manual-node handshake. The WebView cannot widen this
+    /// allow-list by writing a different origin into local storage.
+    pub fn allows_origin(&self, origin: &str) -> bool {
+        self.nodes
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .values()
+            .any(|node| node.api_origin == origin)
     }
 
     pub fn refresh(self: &Arc<Self>) -> Result<(), String> {
@@ -1085,7 +1099,7 @@ mod tests {
             node_id: format!("n{index:02}"),
             node_name: format!("Node {index}"),
             organization_name: "MeshX".to_string(),
-            version: "3.0.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             mode: "LAN_FIRST".to_string(),
             app_url: format!("http://10.0.0.{index}:8080{DEFAULT_APP_PATH}"),
             secure: false,
@@ -1112,7 +1126,7 @@ mod tests {
             node_id: "node_abc".to_string(),
             node_name: "Node".to_string(),
             organization_name: "MeshX".to_string(),
-            version: "3.0.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             mode: "LAN_FIRST".to_string(),
             service_status: "AVAILABLE".to_string(),
             secure: false,

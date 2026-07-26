@@ -4,16 +4,19 @@ mod discovery;
 mod endpoint;
 mod lifecycle;
 mod native_auth;
+mod native_transport;
 mod runtime;
 mod tray;
 mod updater;
 
 use std::sync::Arc;
 
+use attachments::AttachmentDownloadState;
 use deep_link::{dispatch_url, DeepLinkState};
 use discovery::DiscoveryService;
 use lifecycle::{show_main_window, LifecycleState};
 use native_auth::NativeAuthState;
+use native_transport::NativeTransportState;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -42,6 +45,8 @@ pub fn run() {
         .manage(DeepLinkState::default())
         .manage(LifecycleState::default())
         .manage(NativeAuthState::default())
+        .manage(NativeTransportState::default())
+        .manage(AttachmentDownloadState::default())
         .setup(|app| {
             use tauri::Manager;
 
@@ -88,7 +93,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             attachments::save_attachment,
+            attachments::cancel_attachment,
             runtime::runtime_info,
+            updater::updater_configured,
             lifecycle::desktop_show,
             lifecycle::desktop_hide,
             lifecycle::desktop_quit,
@@ -100,6 +107,11 @@ pub fn run() {
             native_auth::desktop_login,
             native_auth::desktop_refresh,
             native_auth::desktop_logout,
+            native_transport::node_http_request,
+            native_transport::cancel_node_request,
+            native_transport::open_node_socket,
+            native_transport::send_node_socket,
+            native_transport::close_node_socket,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build MeshX desktop client")
