@@ -41,9 +41,9 @@ function submit(): void {
 </script>
 
 <template>
-  <div v-if="user" class="reset-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="reset-sheet" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
-      <button class="close-button" type="button" aria-label="关闭" :disabled="saving" @click="emit('close')">
+  <div v-if="user" class="reset-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="reset-sheet apple-modal-surface" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+      <button class="close-button apple-modal-close" type="button" aria-label="关闭" :disabled="saving" @click="emit('close')">
         <UiIcon name="close" :size="16" />
       </button>
 
@@ -128,7 +128,7 @@ function submit(): void {
 .close-button:hover { background: var(--button-hover); }
 .close-button:disabled { opacity: .45; cursor: default; }
 .reset-icon { display: grid; width: 46px; height: 46px; margin-bottom: 14px; place-items: center; border-radius: 14px; color: var(--blue); background: var(--active); }
-.reset-kicker { margin: 0 0 5px; color: var(--blue); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.reset-kicker { margin: 0 0 5px; color: var(--blue); font-size: var(--font-micro); font-weight: 800; letter-spacing: .14em; }
 .reset-sheet h2 { max-width: calc(100% - 36px); margin: 0; font-size: 20px; letter-spacing: -.025em; }
 .reset-desc { margin: 7px 0 18px; color: var(--ink-soft); font-size: 12px; line-height: 1.55; }
 .reset-form { display: grid; gap: 14px; }

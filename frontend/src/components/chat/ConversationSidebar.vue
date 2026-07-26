@@ -181,7 +181,7 @@ function itemTime(item: ConversationListItem): string {
 </script>
 
 <template>
-  <aside class="conversation-sidebar">
+  <aside class="conversation-sidebar apple-structural-surface">
     <header class="sidebar-header">
       <div>
         <p>{{ kicker }}</p>
@@ -240,7 +240,7 @@ function itemTime(item: ConversationListItem): string {
         v-for="item in listItems"
         :key="item.key"
         type="button"
-        class="conversation-item"
+        class="conversation-item apple-list-row"
         :class="{ 'conversation-item--active': selectedId === item.conversation.id && selectedKind === item.conversation.kind }"
         @click="emit('select', item.conversation)"
       >
@@ -283,7 +283,7 @@ function itemTime(item: ConversationListItem): string {
 <style scoped>
 .conversation-sidebar { display: flex; width: 330px; min-width: 0; min-height: 0; flex-direction: column; border-radius: 18px; overflow: hidden; }
 .sidebar-header { display: flex; padding: 24px 22px 16px; align-items: center; justify-content: space-between; }
-.sidebar-header p { margin: 0 0 2px; color: #5480aa; font-family: "SF Mono", monospace; font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.sidebar-header p { margin: 0 0 2px; color: #5480aa; font-family: "SF Mono", monospace; font-size: var(--font-micro); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .sidebar-header h1 { margin: 0; font-size: 25px; letter-spacing: -.04em; }
 .header-actions { position: relative; display: flex; gap: 7px; }
 .action-menu {
@@ -322,7 +322,7 @@ function itemTime(item: ConversationListItem): string {
 .sidebar-search .ui-icon { width: 17px; color: var(--ink-faint); }
 .sidebar-search input { width: 100%; min-width: 0; border: 0; outline: none; color: var(--ink); background: none; }
 .sidebar-search input::-webkit-search-cancel-button { display: none; }
-.sidebar-search kbd { padding: 3px 5px; border: 1px solid rgba(138,163,188,.2); border-radius: 5px; color: #8293a5; font-family: inherit; font-size: 9px; background: rgba(255,255,255,.4); }
+.sidebar-search kbd { padding: 3px 5px; border: 1px solid rgba(138,163,188,.2); border-radius: 5px; color: #8293a5; font-family: inherit; font-size: var(--font-micro); background: rgba(255,255,255,.4); }
 .conversation-list { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 0 10px 14px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(92,124,156,.22) transparent; }
 .conversation-item { display: flex; width: 100%; min-height: 74px; padding: 10px; align-items: center; gap: 12px; border: 1px solid transparent; border-radius: 19px 15px 19px 15px; text-align: left; background: transparent; cursor: pointer; transition: 200ms var(--ease-liquid); }
 .conversation-item:hover { background: rgba(255,255,255,.42); transform: translateX(2px); }
@@ -330,12 +330,12 @@ function itemTime(item: ConversationListItem): string {
 .conversation-copy { display: grid; min-width: 0; flex: 1; gap: 6px; }
 .conversation-line { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .conversation-line strong { overflow: hidden; flex: 1; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-line time { color: var(--ink-faint); font-size: 10px; }
+.conversation-line time { color: var(--ink-faint); font-size: var(--font-caption); }
 .conversation-preview { color: #718398; font-size: 12px; }
 .conversation-preview > span { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-preview i { font-style: normal; }
-.conversation-preview .unread-badge {display: grid; min-width: 18px; height: 18px; padding: 0 5px; place-items: center; flex: 0 0 auto; border-radius: 999px; color: white; font-size: 9px; font-weight: 700; font-style: normal; background: var(--coral)}
-.conversation-preview .pending { min-width: 17px; padding: 1px 5px; border-radius: 999px; color: var(--blue); font-size: 9px; font-style: normal; text-align: center; background: rgba(0,122,255,.1); }
+.conversation-preview .unread-badge {display: grid; min-width: 18px; height: 18px; padding: 0 5px; place-items: center; flex: 0 0 auto; border-radius: 999px; color: white; font-size: var(--font-micro); font-weight: 700; font-style: normal; background: var(--coral)}
+.conversation-preview .pending { min-width: 17px; padding: 1px 5px; border-radius: 999px; color: var(--blue); font-size: var(--font-micro); font-style: normal; text-align: center; background: rgba(0,122,255,.1); }
 .conversation-pin { display: grid; width: 20px; height: 20px; margin-left: auto; place-items: center; color: var(--blue); }
 .conversation-pin .ui-icon { width: 15px; height: 15px; }
 .request-section { margin-bottom: 4px; }
@@ -344,7 +344,7 @@ function itemTime(item: ConversationListItem): string {
 .request-copy { min-width: 0; }
 .request-copy strong { font-size: 13px; }
 .request-copy p { margin: 3px 0; overflow: hidden; color: var(--ink-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.request-copy span { color: var(--ink-faint); font-size: 9px; }
+.request-copy span { color: var(--ink-faint); font-size: var(--font-micro); }
 .request-actions { display: flex; grid-column: 1 / -1; gap: 8px; }
 .request-actions button { min-height: 32px; padding: 0 13px; border: 0; border-radius: 11px; color: var(--on-surface); font-size: 11px; font-weight: 700; background: var(--fill); cursor: pointer; }
 .request-actions .accept { color: white; background: var(--blue); box-shadow: 0 6px 13px rgba(10,132,255,.2); }
@@ -410,7 +410,7 @@ function itemTime(item: ConversationListItem): string {
 .conversation-item--active { background: var(--active); box-shadow: none; }
 .conversation-copy { gap: 5px; }
 .conversation-line strong { font-size: 14px; }
-.conversation-line time { font-size: 10px; }
+.conversation-line time { font-size: var(--font-caption); }
 .conversation-preview { color: var(--ink-faint); font-size: 12px; }
 .request-section { margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--separator); }
 .request-section-title { padding: 8px 10px 4px; }

@@ -4,15 +4,27 @@ import ToastStack from './components/base/ToastStack.vue'
 import AuthView from './views/AuthView.vue'
 import ChatView from './views/ChatView.vue'
 import WelcomeView from './views/WelcomeView.vue'
-import {installNotificationSoundUnlock} from "./services/notificationSound";
+import { installDesktopNavigation } from './platform/desktopNavigation'
+import { installMobileLifecycle } from './platform/mobileLifecycle'
+import { installNotificationSoundUnlock } from './services/notificationSound'
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '') // e.g. '/app'
 const path = window.location.pathname
 let removeNotificationSoundUnlock: (() => void) | null = null
-onMounted(() => {removeNotificationSoundUnlock = installNotificationSoundUnlock()})
+let removeDesktopNavigation: (() => void) | null = null
+let removeMobileLifecycle: (() => void) | null = null
+onMounted(async () => {
+  removeNotificationSoundUnlock = installNotificationSoundUnlock()
+  removeDesktopNavigation = await installDesktopNavigation()
+  removeMobileLifecycle = await installMobileLifecycle()
+})
 onBeforeUnmount(() => {
   removeNotificationSoundUnlock?.()
   removeNotificationSoundUnlock = null
+  removeDesktopNavigation?.()
+  removeDesktopNavigation = null
+  removeMobileLifecycle?.()
+  removeMobileLifecycle = null
 })
 const route = computed(() => {
   if (path === `${base}/chat` || path === '/chat') return 'chat'

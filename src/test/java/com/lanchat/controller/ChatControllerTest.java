@@ -1,6 +1,7 @@
 package com.lanchat.controller;
 
 import com.lanchat.security.LoginUser;
+import com.lanchat.dto.ConversationSummary;
 import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.GroupService;
 import com.lanchat.service.ConversationService;
@@ -75,5 +76,19 @@ class ChatControllerTest {
 
         assertEquals(200, result.getCode());
         verify(chatMessageService).getConversationHistory("private:7:8", 7L, 41L, 25);
+    }
+
+    @Test
+    void conversationSummarySnapshotUsesAuthenticatedUser() {
+        ConversationSummary summary = new ConversationSummary();
+        summary.setConversationId("private:7:8");
+        summary.setUnreadCount(3L);
+        when(conversationService.getConversationSummaries(7L)).thenReturn(List.of(summary));
+
+        var result = controller.getConversationSummaries();
+
+        assertEquals(200, result.getCode());
+        assertEquals(3L, result.getData().get(0).getUnreadCount());
+        verify(conversationService).getConversationSummaries(7L);
     }
 }

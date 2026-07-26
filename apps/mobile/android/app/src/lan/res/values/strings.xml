@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- Flavor override: the LAN flavor allows cleartext HTTP, so its launcher
+     label must make that risk visible next to the secure install. -->
+<resources>
+    <string name="app_name">MeshX (LAN 明文)</string>
+    <string name="title_activity_main">MeshX (LAN 明文)</string>
+</resources>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AdminUser } from '../../types'
+import AppleSwitch from '../base/AppleSwitch.vue'
 import UserAvatar from '../base/UserAvatar.vue'
 import UiIcon from '../base/UiIcon.vue'
 
@@ -22,44 +23,49 @@ const emit = defineEmits<{
 }>()
 
 const isAdministrator = computed(() => props.user.username === 'admin')
+const isArchived = computed(() => Boolean(props.user.archivedAt))
 const canSaveMute = computed(() => Boolean(muteStart.value && muteEnd.value) && !props.busy)
 
-function requestBroadcastPermission(event: Event): void {
-  const input = event.currentTarget as HTMLInputElement
-  const enabled = input.checked
-  // Wait for the parent to reload the authoritative account record. This also
-  // restores the original state immediately when the request fails.
-  input.checked = props.user.canSendBroadcast === 1
+function requestBroadcastPermission(enabled: boolean): void {
   emit('broadcastPermission', enabled)
 }
 </script>
 
 <template>
-  <article class="account-card" :class="{ 'account-card--banned': user.status === 0 }" :aria-busy="busy">
+  <article class="account-card" :class="{ 'account-card--banned': user.status === 0 && !isArchived }" :aria-busy="busy">
     <header class="account-card-header">
       <UserAvatar :name="user.nickname || user.username" :avatar="user.avatar" :size="40" />
       <span class="account-identity">
         <strong>{{ user.nickname || user.username }}</strong>
         <small>@{{ user.username }} · ID {{ user.id }}</small>
       </span>
-      <span class="account-status" :class="{ 'account-status--banned': user.status === 0 }">
-        {{ user.status === 0 ? '已封禁' : '正常' }}
+      <span
+        class="account-status"
+        :class="{
+          'account-status--banned': user.status === 0 && !isArchived,
+          'account-status--archived': isArchived,
+        }"
+      >
+        {{ isArchived ? '已归档' : user.status === 0 ? '已封禁' : '正常' }}
       </span>
     </header>
 
-    <section v-if="!isAdministrator" class="account-tools" aria-label="账号控制">
-      <label class="broadcast-permission">
+    <p v-if="isArchived" class="administrator-note">
+      该账号已归档：会话已注销、资料已匿名化，聊天与广播历史仍保留。归档账号不能解封或再次删除。
+    </p>
+
+    <section v-else-if="!isAdministrator" class="account-tools" aria-label="账号控制">
+      <div class="broadcast-permission">
         <span>
           <strong>广播发布权限</strong>
-          <small>允许向自己的好友发布应急广播</small>
         </span>
-        <input
-          type="checkbox"
-          :checked="user.canSendBroadcast === 1"
+        <AppleSwitch
+          :model-value="user.canSendBroadcast === 1"
           :disabled="busy"
-          @change="requestBroadcastPermission"
+          :aria-label="`${user.username} 的广播发布权限`"
+          @update:model-value="requestBroadcastPermission"
         />
-      </label>
+      </div>
 
       <div class="account-mute" aria-label="禁言时段">
         <strong class="account-tool-label">禁言</strong>
@@ -118,16 +124,17 @@ function requestBroadcastPermission(event: Event): void {
 .account-identity strong,
 .account-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-identity strong { color: var(--ink); font-size: 14px; }
-.account-identity small { color: var(--ink-faint); font-size: 10px; }
+.account-identity small { color: var(--ink-faint); font-size: var(--font-caption); }
 .account-status {
   padding: 4px 7px;
   border-radius: 999px;
   color: var(--green);
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 700;
   background: color-mix(in srgb, var(--green) 11%, transparent);
 }
 .account-status--banned { color: var(--coral); background: color-mix(in srgb, var(--coral) 10%, transparent); }
+.account-status--archived { color: var(--ink-faint); background: var(--fill); }
 .account-tools {
   display: grid;
   gap: 8px;
@@ -144,16 +151,14 @@ function requestBroadcastPermission(event: Event): void {
 }
 .broadcast-permission span { display: grid; min-width: 0; gap: 2px; }
 .broadcast-permission strong { color: var(--ink); font-size: 11px; }
-.broadcast-permission small { color: var(--ink-faint); font-size: 9px; line-height: 1.4; }
-.broadcast-permission input { width: 18px; height: 18px; margin: 0; flex: 0 0 auto; accent-color: var(--blue); }
-.broadcast-permission input:disabled { cursor: wait; opacity: .55; }
+.broadcast-permission small { color: var(--ink-faint); font-size: var(--font-micro); line-height: 1.4; }
 .account-mute {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
 }
-.account-tool-label { color: var(--ink-soft); font-size: 10px; font-weight: 700; }
+.account-tool-label { color: var(--ink-soft); font-size: var(--font-caption); font-weight: 700; }
 .account-time-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
@@ -172,7 +177,7 @@ function requestBroadcastPermission(event: Event): void {
   font-size: 12px;
   background: var(--surface);
 }
-.account-time-fields > span { color: var(--ink-faint); font-size: 10px; }
+.account-time-fields > span { color: var(--ink-faint); font-size: var(--font-caption); }
 .save-mute-button,
 .account-actions button {
   min-height: 36px;
@@ -180,7 +185,7 @@ function requestBroadcastPermission(event: Event): void {
   border-radius: 9px;
   color: var(--blue);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 700;
   background: var(--active);
   cursor: pointer;
@@ -193,7 +198,7 @@ function requestBroadcastPermission(event: Event): void {
   padding: 9px 10px;
   border-radius: 10px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: var(--font-caption);
   line-height: 1.5;
   background: var(--fill);
 }
@@ -207,12 +212,12 @@ function requestBroadcastPermission(event: Event): void {
   .account-card { padding: 10px; }
   .account-card-header { gap: 7px; }
   .account-identity strong { font-size: 13px; }
-  .account-identity small { font-size: 9px; }
-  .account-status { padding-inline: 6px; font-size: 9px; }
+  .account-identity small { font-size: var(--font-micro); }
+  .account-status { padding-inline: 6px; font-size: var(--font-micro); }
   .account-mute { gap: 6px; }
   .account-time-fields { gap: 4px; }
   .account-time-fields input { padding-inline: 5px; font-size: 11px; }
   .account-actions { gap: 5px; }
-  .account-actions button { font-size: 9px; }
+  .account-actions button { font-size: var(--font-micro); }
 }
 </style>

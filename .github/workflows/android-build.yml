@@ -1,0 +1,110 @@
+name: Android Build
+
+on:
+  pull_request:
+    paths:
+      - "VERSION"
+      - "apps/mobile/**"
+      - "frontend/**"
+      - "scripts/ci/check-version-consistency.py"
+      - "src/main/java/com/lanchat/config/**"
+      - "src/main/resources/application.yml"
+      - ".github/workflows/android-build.yml"
+  push:
+    branches:
+      - master
+      - "feature/**"
+      - "codex/**"
+    paths:
+      - "VERSION"
+      - "apps/mobile/**"
+      - "frontend/**"
+      - "scripts/ci/check-version-consistency.py"
+      - "src/main/java/com/lanchat/config/**"
+      - "src/main/resources/application.yml"
+      - ".github/workflows/android-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Capacitor Android verification
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check release version consistency
+        run: python3 scripts/ci/check-version-consistency.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            apps/mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36 build prerequisites
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install JavaScript dependencies
+        run: |
+          npm ci --prefix frontend
+          npm ci --prefix apps/mobile
+
+      - name: Build and sync shared Vue assets
+        run: npm run sync --prefix apps/mobile
+
+      - name: Verify native bridge logging policy
+        run: npm test --prefix apps/mobile
+
+      - name: Verify Android toolchain
+        working-directory: apps/mobile/android
+        run: ./gradlew --version
+
+      - name: Run Android lint
+        working-directory: apps/mobile/android
+        run: ./gradlew --console=plain --no-daemon :app:lint
+
+      - name: Run Android JVM unit tests
+        working-directory: apps/mobile/android
+        run: ./gradlew --console=plain --no-daemon :app:test
+
+      - name: Build unsigned secure debug APK
+        working-directory: apps/mobile/android
+        run: ./gradlew --console=plain --no-daemon :app:assembleSecureDebug
+
+      - name: Build unsigned secure release AAB
+        working-directory: apps/mobile/android
+        run: ./gradlew --console=plain --no-daemon :app:bundleSecureRelease
+
+      - name: Build unsigned LAN debug APK
+        working-directory: apps/mobile/android
+        run: ./gradlew --console=plain --no-daemon :app:assembleLanDebug
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lanchat-android-${{ github.sha }}
+          path: |
+            apps/mobile/android/app/build/outputs/apk/secure/debug/*.apk
+            apps/mobile/android/app/build/outputs/bundle/secureRelease/*.aab
+            apps/mobile/android/app/build/outputs/apk/lan/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

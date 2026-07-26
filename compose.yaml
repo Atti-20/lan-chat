@@ -42,7 +42,8 @@ x-lanchat-environment: &lanchat-environment
   LANCHAT_LOG_MAX_HISTORY: ${LANCHAT_LOG_MAX_HISTORY:-30}
   LANCHAT_LOG_TOTAL_SIZE_CAP: ${LANCHAT_LOG_TOTAL_SIZE_CAP:-1GB}
   LANCHAT_RUNTIME_LOG_MAX_READ_BYTES: ${LANCHAT_RUNTIME_LOG_MAX_READ_BYTES:-4194304}
-  WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,tauri://localhost,http://tauri.localhost,https://tauri.localhost,http://127.0.0.1:1420,http://localhost:1420}
+  WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,tauri://localhost,http://tauri.localhost,https://tauri.localhost,http://127.0.0.1:1420,http://localhost:1420}
   TUNNEL_ENABLED: "false"
   TZ: Asia/Shanghai
 

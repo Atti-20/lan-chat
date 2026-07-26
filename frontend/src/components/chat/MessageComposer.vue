@@ -133,7 +133,7 @@ function onFileChange(event: Event): void {
       <button type="button" aria-label="取消回复" @click="emit('cancelReply')">×</button>
     </div>
 
-    <div class="composer glass-surface" :class="{ 'composer--burn': burn }">
+    <div class="composer glass-surface apple-content-surface" :class="{ 'composer--burn': burn }">
       <div class="composer-tools">
         <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading || pasting || !connected || !writable || !fileAllowed" :title="!fileAllowed ? '房间不允许上传附件' : connected ? '' : '连接节点后可上传图片'" @click="chooseFile(imageRef)">
           <UiIcon name="image" :size="20" />
@@ -165,7 +165,7 @@ function onFileChange(event: Event): void {
       <input ref="imageInput" class="sr-only" type="file" accept="image/*" @change="onFileChange" />
       <input ref="fileInput" class="sr-only" type="file" @change="onFileChange" />
     </div>
-    <p class="composer-hint">{{ statusLabel || transferLabel || (connected ? 'Enter 发送 · Shift + Enter 换行' : '离线可发送文本 · 文件任务等待连接') }}</p>
+    <p v-if="statusLabel || transferLabel || !connected" class="composer-hint">{{ statusLabel || transferLabel || '离线可发送文本 · 文件任务等待连接' }}</p>
   </footer>
 </template>
 
@@ -194,18 +194,18 @@ function onFileChange(event: Event): void {
 .tool-button .ui-icon { width: 20px; }
 .burn-button--active { color: #fff; background: var(--coral); box-shadow: none; }
 .composer textarea { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 132px; padding: 8px 4px; align-self: end; resize: none; overflow-y: auto; border: 0; outline: none; color: var(--ink); line-height: 1.5; background: transparent; }
-.composer textarea::placeholder { color: var(--ink-faint); }
+.composer textarea::placeholder { color: color-mix(in srgb, var(--ink-faint) 86%, transparent); font-size: .92em; font-weight: 400; }
 .composer textarea:disabled { cursor: not-allowed; opacity: .72; }
 .send-button { display: grid; width: 40px; height: 40px; padding: 0; align-self: end; place-items: center; border: 0; border-radius: 50%; color: #fff; cursor: pointer; transition: 180ms var(--ease-liquid); flex: 0 0 auto; background: var(--blue); box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.28); }
 .send-button:hover { transform: translateY(-1px); background: color-mix(in srgb, var(--blue) 88%, #000); }
 .send-button:disabled { opacity: .36; filter: grayscale(.5); cursor: not-allowed; transform: none; }
 .send-button .ui-icon { width: 22px; }
-.composer-hint { margin: 6px 8px 0; color: var(--ink-faint); font-size: 9px; text-align: right; }
+.composer-hint { margin: 6px 8px 0; color: var(--ink-faint); font-size: var(--font-micro); text-align: right; }
 .reply-bar { display: flex; min-height: 42px; padding: 7px 12px; margin: 0 8px 7px; align-items: center; gap: 10px; border: 1px solid var(--separator); border-radius: 12px; color: var(--ink-soft); background: var(--fill); }
 .reply-mark { color: var(--blue); font-size: 18px; }
 .reply-bar > span:nth-child(2) { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.reply-bar strong { color: var(--ink); font-size: 10px; }
-.reply-bar small { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.reply-bar strong { color: var(--ink); font-size: var(--font-caption); }
+.reply-bar small { overflow: hidden; font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
 .reply-bar button { padding: 0; border: 0; color: var(--ink-soft); font-size: 20px; background: transparent; cursor: pointer; }
 
 @media (max-width: 760px) {

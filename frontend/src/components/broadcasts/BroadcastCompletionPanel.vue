@@ -144,7 +144,7 @@ function captureLocation(): void {
 .completion-panel { display: grid; margin-top: 16px; padding: 15px; gap: 12px; border: 1px solid color-mix(in srgb, var(--green) 24%, var(--separator)); border-radius: 14px; background: color-mix(in srgb, var(--green) 4%, var(--surface)); }
 .completion-header { display: flex; align-items: center; gap: 10px; }
 .completion-mark { display: inline-grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 10px; color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--surface)); }
-.completion-kicker { margin: 0 0 2px; color: var(--green); font-size: 10px; font-weight: 750; }
+.completion-kicker { margin: 0 0 2px; color: var(--green); font-size: var(--font-caption); font-weight: 750; }
 .completion-title { margin: 0; font-size: 15px; letter-spacing: -0.02em; }
 .completion-requirements { display: grid; gap: 7px; }
 .requirement-row { display: grid; min-height: 58px; padding: 9px 10px; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--separator); border-radius: 10px; background: var(--surface); }
@@ -153,8 +153,8 @@ function captureLocation(): void {
 .requirement-row--ready .requirement-icon { color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--surface)); }
 .requirement-copy { display: grid; min-width: 0; gap: 2px; }
 .requirement-copy strong { font-size: 12px; }
-.requirement-copy span { overflow: hidden; color: var(--ink-soft); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.requirement-state { color: var(--green); font-size: 10px; font-weight: 700; }
+.requirement-copy span { overflow: hidden; color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.requirement-state { color: var(--green); font-size: var(--font-caption); font-weight: 700; }
 .evidence-button { display: inline-flex; min-height: 32px; padding: 0 10px; align-items: center; justify-content: center; border: 1px solid var(--separator); border-radius: 9px; color: var(--ink); font-size: 11px; font-weight: 650; line-height: 1; white-space: nowrap; background: var(--surface); cursor: pointer; }
 .evidence-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--blue) 36%, var(--separator)); color: var(--blue); background: var(--active); }
 .evidence-button:disabled, .complete-button:disabled { cursor: not-allowed; opacity: .55; }
@@ -164,7 +164,7 @@ function captureLocation(): void {
 .completion-error { margin: -2px 0 0; color: var(--coral); font-size: 11px; }
 .complete-button { display: inline-flex; min-height: 42px; padding: 0 14px; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 10px; color: white; font-size: 12px; font-weight: 700; line-height: 1; background: var(--green); box-shadow: 0 5px 12px color-mix(in srgb, var(--green) 22%, transparent); cursor: pointer; }
 .complete-button:hover:not(:disabled) { background: color-mix(in srgb, var(--green) 86%, #000); }
-.completion-hint { margin: -4px 0 0; color: var(--ink-soft); font-size: 10px; line-height: 1.45; text-align: center; }
+.completion-hint { margin: -4px 0 0; color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.45; text-align: center; }
 
 @media (max-width: 520px) {
   .requirement-row { grid-template-columns: 30px minmax(0, 1fr); }

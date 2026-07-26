@@ -294,29 +294,29 @@ function repliedMessage(message: ChatMessage): ChatMessage | undefined {
 .message-avatar { margin-bottom: 18px; }
 .message-stack { display: grid; max-width: min(72%, 620px); gap: 4px; }
 .message-row--self .message-stack { justify-items: end; }
-.sender-name { padding-left: 7px; color: #657a90; font-size: 10px; font-weight: 650; }
+.sender-name { padding-left: 7px; color: #657a90; font-size: var(--font-caption); font-weight: 650; }
 .message-bubble { position: relative; min-width: 50px; padding: 10px 13px; border: 1px solid rgba(255,255,255,.7); border-radius: 19px 19px 19px 7px; background: rgba(255,255,255,.66); box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 7px 16px rgba(45,78,113,.08); }
 .message-bubble--self { border-color: rgba(255,255,255,.26); border-radius: 19px 19px 7px 19px; color: white; background: linear-gradient(145deg, #168dff, #0879ee 68%, #5b62ea); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 9px 20px rgba(10,132,255,.2); }
 .message-bubble--attachment { padding: 3px; overflow: hidden; }
 .message-text { margin: 0; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
 .message-placeholder { color: inherit; font-size: 12px; font-style: italic; opacity: .68; }
-.reply-quote { display: grid; padding: 7px 9px; margin-bottom: 7px; gap: 2px; border-left: 3px solid currentColor; border-radius: 7px; font-size: 10px; background: rgba(16,35,63,.08); opacity: .78; }
+.reply-quote { display: grid; padding: 7px 9px; margin-bottom: 7px; gap: 2px; border-left: 3px solid currentColor; border-radius: 7px; font-size: var(--font-caption); background: rgba(16,35,63,.08); opacity: .78; }
 .message-bubble--self .reply-quote { background: rgba(255,255,255,.14); }
 .reply-quote span { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.burn-label { display: inline-block; margin-top: 6px; padding: 3px 6px; border: 1px solid currentColor; border-radius: 7px; font-size: 8px; font-weight: 750; opacity: .68; }
-.message-meta { display: flex; min-height: 15px; padding: 0 5px; align-items: center; gap: 6px; color: #8a9bad; font-size: 9px; }
+.burn-label { display: inline-block; margin-top: 6px; padding: 3px 6px; border: 1px solid currentColor; border-radius: 7px; font-size: var(--font-micro); font-weight: 750; opacity: .68; }
+.message-meta { display: flex; min-height: 15px; padding: 0 5px; align-items: center; gap: 6px; color: #8a9bad; font-size: var(--font-micro); }
 .delivery-failed { color: var(--coral); font-weight: 650; }
 .message-actions { display: flex; gap: 3px; opacity: 0; transition: opacity 150ms ease; }
 .message-row:hover .message-actions,
 .message-actions:focus-within { opacity: 1; }
 .message-row--self .message-actions { opacity: 1; }
-.message-actions button { padding: 1px 5px; border: 0; color: #58728b; font-size: 9px; background: transparent; cursor: pointer; }
+.message-actions button { padding: 1px 5px; border: 0; color: #58728b; font-size: var(--font-micro); background: transparent; cursor: pointer; }
 .thread-state { display: grid; height: 100%; min-height: 320px; place-items: center; align-content: center; color: var(--ink-soft); text-align: center; }
 .thread-state p { margin: 8px 0 0; font-size: 12px; }
 .thread-spinner { width: 26px; height: 26px; border: 2px solid rgba(10,132,255,.16); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty-wave { display: grid; width: 66px; height: 66px; margin-bottom: 17px; place-items: center; border: 1px solid rgba(255,255,255,.75); border-radius: 24px 24px 24px 11px; color: var(--blue); font-size: 28px; background: rgba(255,255,255,.44); box-shadow: inset 0 1px 0 #fff, 0 12px 28px rgba(42,81,121,.1); }
-.typing-pill { position: sticky; bottom: 4px; display: flex; width: max-content; padding: 8px 12px; margin: 10px auto 0; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,.76); border-radius: 999px; color: var(--ink-soft); font-size: 10px; background: rgba(255,255,255,.7); box-shadow: 0 8px 20px rgba(46,78,111,.1); backdrop-filter: blur(18px); }
+.typing-pill { position: sticky; bottom: 4px; display: flex; width: max-content; padding: 8px 12px; margin: 10px auto 0; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,.76); border-radius: 999px; color: var(--ink-soft); font-size: var(--font-caption); background: rgba(255,255,255,.7); box-shadow: 0 8px 20px rgba(46,78,111,.1); backdrop-filter: blur(18px); }
 .typing-pill span { width: 4px; height: 4px; border-radius: 50%; background: var(--blue); animation: bounce 1s infinite alternate; }
 .typing-pill span:nth-child(2) { animation-delay: .16s; }.typing-pill span:nth-child(3) { animation-delay: .32s; margin-right: 4px; }
 @keyframes bounce { to { transform: translateY(-3px); opacity: .5; } }

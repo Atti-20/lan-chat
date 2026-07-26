@@ -1,5 +1,11 @@
 import { computed, onBeforeUnmount, readonly, shallowRef } from 'vue'
 import type { ConnectionState, WsEnvelope } from '../types'
+import {
+  openRealtimeSocket,
+  SOCKET_CONNECTING,
+  SOCKET_OPEN,
+  type RealtimeSocket,
+} from '../platform/nativeTransport'
 import { createClientMessageId } from '../utils/id'
 import { readSession } from '../utils/storage'
 
@@ -22,7 +28,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const connected = computed(() => ['ONLINE', 'DEGRADED'].includes(state.value))
   const reconnecting = computed(() => state.value === 'RECONNECTING')
 
-  let socket: WebSocket | null = null
+  let socket: RealtimeSocket | null = null
+  let opening = false
+  let socketEpoch = 0
   let reconnectTimer: number | null = null
   let heartbeatTimer: number | null = null
   let lastPingAt = 0
@@ -48,7 +56,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
   function connect(): void {
     const token = readSession()?.token
-    if (!token || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return
+    if (!token || opening || socket?.readyState === SOCKET_OPEN || socket?.readyState === SOCKET_CONNECTING) return
     if (!navigator.onLine) {
       state.value = 'OFFLINE'
       return
@@ -57,36 +65,51 @@ export function useWebSocket(options: UseWebSocketOptions) {
     manuallyClosed = false
     authenticated = false
     state.value = reconnectAttempts.value > 0 ? 'RECONNECTING' : 'CONNECTING'
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const nextSocket = new WebSocket(`${protocol}//${window.location.host}/ws/chat`)
-    socket = nextSocket
+    opening = true
+    const epoch = ++socketEpoch
+    void openRealtimeSocket()
+      .then((nextSocket) => {
+        if (epoch !== socketEpoch || manuallyClosed) {
+          nextSocket.close()
+          return
+        }
+        opening = false
+        socket = nextSocket
 
-    nextSocket.onopen = () => {
-      if (socket !== nextSocket) return
-      state.value = 'AUTHENTICATING'
-      sendRaw(createEnvelope('AUTH', { token }, { requestId: createRequestId() }))
-    }
+        nextSocket.onopen = () => {
+          if (socket !== nextSocket) return
+          state.value = 'AUTHENTICATING'
+          sendRaw(createEnvelope('AUTH', { token }, { requestId: createRequestId() }))
+        }
 
-    nextSocket.onmessage = (messageEvent) => {
-      if (socket !== nextSocket) return
-      // Preserve server event order even when a handler performs async IndexedDB
-      // work (for example transfer-id remapping before a fallback notification).
-      inboundQueue = inboundQueue
-        .then(() => socket === nextSocket ? handleMessage(messageEvent.data) : undefined)
-        .catch(() => options.onError?.('实时消息处理失败'))
-    }
+        nextSocket.onmessage = (messageEvent) => {
+          if (socket !== nextSocket) return
+          // Preserve server event order even when a handler performs async IndexedDB
+          // work (for example transfer-id remapping before a fallback notification).
+          inboundQueue = inboundQueue
+            .then(() => socket === nextSocket ? handleMessage(messageEvent.data) : undefined)
+            .catch(() => options.onError?.('实时消息处理失败'))
+        }
 
-    nextSocket.onerror = () => {
-      if (socket === nextSocket && state.value !== 'OFFLINE') state.value = 'DEGRADED'
-    }
+        nextSocket.onerror = () => {
+          if (socket === nextSocket && state.value !== 'OFFLINE') state.value = 'DEGRADED'
+        }
 
-    nextSocket.onclose = () => {
-      if (socket !== nextSocket) return
-      socket = null
-      authenticated = false
-      stopHeartbeat()
-      if (!manuallyClosed && !refreshingAuth) scheduleReconnect()
-    }
+        nextSocket.onclose = () => {
+          if (socket !== nextSocket) return
+          socket = null
+          authenticated = false
+          stopHeartbeat()
+          if (!manuallyClosed && !refreshingAuth) scheduleReconnect()
+        }
+      })
+      .catch((cause) => {
+        if (epoch !== socketEpoch) return
+        opening = false
+        state.value = 'OFFLINE'
+        options.onError?.(cause instanceof Error ? cause.message : '实时连接地址无效')
+        if (!manuallyClosed) scheduleReconnect()
+      })
   }
 
   async function handleMessage(raw: unknown): Promise<void> {
@@ -198,7 +221,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   }
 
   function sendRaw(envelope: WsEnvelope): boolean {
-    if (socket?.readyState !== WebSocket.OPEN) return false
+    if (socket?.readyState !== SOCKET_OPEN) return false
     socket.send(JSON.stringify(envelope))
     return true
   }
@@ -223,6 +246,8 @@ export function useWebSocket(options: UseWebSocketOptions) {
   }
 
   function closeSocket(): void {
+    socketEpoch += 1
+    opening = false
     const current = socket
     socket = null
     authenticated = false
@@ -268,7 +293,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   }
 
   function hasActiveSocket(): boolean {
-    return socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN
+    return opening || socket?.readyState === SOCKET_CONNECTING || socket?.readyState === SOCKET_OPEN
   }
 
   window.addEventListener('online', handleOnline)

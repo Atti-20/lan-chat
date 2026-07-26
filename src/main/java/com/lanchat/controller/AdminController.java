@@ -2,6 +2,7 @@ package com.lanchat.controller;
 
 import com.lanchat.common.Result;
 import com.lanchat.dto.AdminDiagnostics;
+import com.lanchat.dto.AdminPhysicalErasureDTO;
 import com.lanchat.dto.AdminResetPasswordDTO;
 import com.lanchat.dto.RegisterDTO;
 import com.lanchat.dto.RuntimeLogSnapshot;
@@ -92,10 +93,7 @@ public class AdminController {
             return Result.error("操作失败：不能封禁管理员账号！");
         }
 
-        User userUpdate = new User();
-        userUpdate.setId(userId);
-        userUpdate.setStatus(status);
-        boolean success = userService.updateById(userUpdate);
+        boolean success = userService.setStatusByAdmin(userId, status);
 
         return success ? Result.success(status == 0 ? "用户已被封禁！" : "用户已解禁！") : Result.error("操作失败");
     }
@@ -112,17 +110,41 @@ public class AdminController {
         return success ? Result.success("禁言时段设置成功") : Result.error("操作失败");
     }
 
-    /**
-     * 4、删除用户
-     */
+    /** Default account removal is a reversible-data-safe archive, not history deletion. */
     @DeleteMapping("/user/{userId}")
     public Result deleteUser(@PathVariable Long userId) {
         checkAdminPermission();
         try {
-            userService.deleteUserByAdmin(userId);
-            return Result.success("用户已删除");
+            userService.archiveUserByAdmin(userId, UserContextHolder.getCurrentUserId());
+            return Result.success("用户已归档，历史消息与广播回执已保留");
         } catch (IllegalArgumentException e) {
-            return Result.error(e.getMessage());
+            int code = "用户不存在".equals(e.getMessage()) ? 404 : 400;
+            return Result.error(code, e.getMessage());
+        }
+    }
+
+    /**
+     * Separate high-risk erasure path. The exact phrase is "ERASE USER {userId}";
+     * the account must already have been archived.
+     */
+    @PostMapping("/user/{userId}/physical-erasure")
+    public Result<Void> physicallyEraseUser(@PathVariable Long userId,
+                                            @RequestBody AdminPhysicalErasureDTO dto) {
+        checkAdminPermission();
+        try {
+            String phrase = dto == null ? null : dto.getConfirmationPhrase();
+            String reason = dto == null ? null : dto.getReason();
+            userService.physicallyEraseUserByAdmin(
+                    userId,
+                    UserContextHolder.getCurrentUserId(),
+                    phrase,
+                    reason);
+            return Result.success();
+        } catch (IllegalArgumentException e) {
+            int code = "用户不存在".equals(e.getMessage())
+                    ? 404
+                    : e.getMessage() != null && e.getMessage().contains("必须先归档") ? 409 : 400;
+            return Result.error(code, e.getMessage());
         }
     }
 

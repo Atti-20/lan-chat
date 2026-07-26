@@ -5,6 +5,7 @@ import UiIcon from '../components/base/UiIcon.vue'
 import { api, ApiError } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
+import { navigateToApp } from '../platform/appNavigation'
 
 const auth = useAuth()
 const toast = useToast()
@@ -25,7 +26,7 @@ const isCustomAvatar = computed(() => Boolean(selectedAvatar.value)
 onMounted(async () => {
   const user = auth.currentUser.value || await auth.hydrate()
   if (!user) {
-    window.location.replace('/')
+    navigateToApp('/', true)
     return
   }
   nickname.value = user.nickname
@@ -73,8 +74,8 @@ async function finish(): Promise<void> {
   error.value = ''
   try {
     await auth.updateProfile({ nickname: cleanName, avatar: selectedAvatar.value })
-    toast.push('资料已保存，欢迎来到 LanChat', 'success', 1400)
-    window.location.assign(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/chat`)
+    toast.push('资料已保存，欢迎来到 MeshX', 'success', 1400)
+    navigateToApp('/chat')
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.message : '保存失败，请稍后重试'
   } finally {
@@ -85,7 +86,7 @@ async function finish(): Promise<void> {
 
 <template>
   <main class="welcome-page">
-    <section class="welcome-sheet glass-surface">
+    <section class="welcome-sheet glass-surface apple-float-surface">
       <header class="welcome-header">
         <div class="step-pill"><span /> 只差一步</div>
         <h1>让朋友一眼认出你。</h1>
@@ -96,7 +97,7 @@ async function finish(): Promise<void> {
         <UserAvatar :name="displayName" :avatar="selectedAvatar" :size="112" online />
         <div class="profile-caption">
           <strong>{{ displayName }}</strong>
-          <span>已连接到 LanChat</span>
+          <span>已连接到 MeshX</span>
         </div>
       </div>
 
@@ -215,7 +216,7 @@ async function finish(): Promise<void> {
 .avatar-choice--selected { border-color: rgba(10,132,255,.48); background: rgba(217,238,255,.8); box-shadow: 0 0 0 4px rgba(10,132,255,.09), inset 0 1px 0 #fff; transform: scale(1.04); }
 .avatar-choice--text { color: #fff; font-weight: 750; background: linear-gradient(145deg, var(--blue), var(--violet)); }
 .avatar-choice--upload { display: grid; place-items: center; align-content: center; gap: 4px; color: var(--blue); }
-.avatar-choice--upload small { font-size: 10px; font-weight: 650; }
+.avatar-choice--upload small { font-size: var(--font-caption); font-weight: 650; }
 .avatar-choice--upload:disabled { cursor: wait; opacity: .65; }
 .name-field { display: grid; }
 .welcome-error { margin: -8px 0 0; color: var(--coral); font-size: 13px; }

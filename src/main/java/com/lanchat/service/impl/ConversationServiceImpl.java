@@ -2,6 +2,9 @@ package com.lanchat.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lanchat.common.ConversationIds;
+import com.lanchat.common.ConversationMembershipChangedEvent;
+import com.lanchat.common.ConversationReadChangedEvent;
+import com.lanchat.dto.ConversationSummary;
 import com.lanchat.entity.ConversationMember;
 import com.lanchat.entity.Conversation;
 import com.lanchat.entity.GroupMember;
@@ -14,6 +17,7 @@ import com.lanchat.mapper.TemporaryRoomMapper;
 import com.lanchat.service.ConversationService;
 import com.lanchat.service.FriendService;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -32,19 +36,22 @@ public class ConversationServiceImpl implements ConversationService {
     private final GroupMemberMapper groupMemberMapper;
     private final TemporaryRoomMapper temporaryRoomMapper;
     private final FriendService friendService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ConversationServiceImpl(ConversationMapper conversationMapper,
                                    ConversationMemberMapper conversationMemberMapper,
                                    ChatMessageMapper chatMessageMapper,
                                    GroupMemberMapper groupMemberMapper,
                                    TemporaryRoomMapper temporaryRoomMapper,
-                                   FriendService friendService) {
+                                   FriendService friendService,
+                                   ApplicationEventPublisher eventPublisher) {
         this.conversationMapper = conversationMapper;
         this.conversationMemberMapper = conversationMemberMapper;
         this.chatMessageMapper = chatMessageMapper;
         this.groupMemberMapper = groupMemberMapper;
         this.temporaryRoomMapper = temporaryRoomMapper;
         this.friendService = friendService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -99,7 +106,10 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     public void removeConversationMember(String conversationId, Long userId) {
         if (StringUtils.hasText(conversationId) && userId != null) {
-            conversationMemberMapper.markLeft(conversationId, userId);
+            if (conversationMemberMapper.markLeft(conversationId, userId) > 0) {
+                eventPublisher.publishEvent(
+                        new ConversationMembershipChangedEvent(conversationId, userId, false));
+            }
         }
     }
 
@@ -144,6 +154,12 @@ public class ConversationServiceImpl implements ConversationService {
             if (canAccess(membership.getConversationId(), userId)) result.add(membership.getConversationId());
         }
         return result.stream().distinct().toList();
+    }
+
+    @Override
+    public List<ConversationSummary> getConversationSummaries(Long userId) {
+        if (userId == null || userId <= 0) return List.of();
+        return conversationMapper.selectSummaries(userId);
     }
 
     @Override
@@ -302,17 +318,36 @@ public class ConversationServiceImpl implements ConversationService {
         if (!canAccess(conversationId, userId)) {
             throw new IllegalArgumentException("无权访问该会话");
         }
-        long safeSequence = Math.max(0, Math.min(sequence, getLastSequence(conversationId)));
         if (ConversationIds.parsePrivate(conversationId).isPresent()) {
             var participants = ConversationIds.parsePrivate(conversationId).orElseThrow();
             ensurePrivateConversation(participants.firstUserId(), participants.secondUserId());
         } else if (ConversationIds.parseGroup(conversationId).isPresent()) {
             ensureGroupConversation(ConversationIds.parseGroup(conversationId).orElseThrow());
         }
-        conversationMemberMapper.advanceReadSequence(conversationId, userId, safeSequence);
-        if (ConversationIds.parsePrivate(conversationId).isPresent()) {
-            chatMessageMapper.markPrivateMessagesRead(conversationId, userId, safeSequence);
+        Long lockedLastSequence = conversationMapper.selectLastSequenceForUpdate(conversationId);
+        if (lockedLastSequence == null) {
+            throw new IllegalArgumentException("会话不存在");
         }
+        long safeSequence = Math.max(0, Math.min(sequence, lockedLastSequence));
+        conversationMemberMapper.advanceReadSequence(conversationId, userId, safeSequence);
+        conversationMemberMapper.recalculateUnread(conversationId, userId);
+        ConversationMember membership =
+                conversationMemberMapper.selectActiveMember(conversationId, userId);
+        if (membership == null) {
+            throw new IllegalArgumentException("你已不在该会话");
+        }
+        long persistedReadSequence =
+                membership.getLastReadSequence() == null ? 0 : membership.getLastReadSequence();
+        if (ConversationIds.parsePrivate(conversationId).isPresent()) {
+            chatMessageMapper.markPrivateMessagesRead(
+                    conversationId, userId, persistedReadSequence);
+        }
+        eventPublisher.publishEvent(new ConversationReadChangedEvent(
+                conversationId,
+                userId,
+                lockedLastSequence,
+                persistedReadSequence,
+                membership.getUnreadCount() == null ? 0 : membership.getUnreadCount()));
     }
 
     @Override
@@ -336,7 +371,7 @@ public class ConversationServiceImpl implements ConversationService {
 
     @Override
     public void markGroupMemberLeft(Long groupId, Long userId) {
-        conversationMemberMapper.markLeft(ConversationIds.groupConversation(groupId), userId);
+        removeConversationMember(ConversationIds.groupConversation(groupId), userId);
     }
 
     @Override

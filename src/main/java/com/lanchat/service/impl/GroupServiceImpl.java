@@ -267,6 +267,7 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     }
 
     @Override
+    @Transactional
     public boolean removeMember(Long groupId, Long operatorId, Long userId) {
         int role = getMemberRole(groupId, operatorId);
         if (role < 1) {
@@ -289,6 +290,7 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
     }
 
     @Override
+    @Transactional
     public boolean leaveGroup(Long groupId, Long userId) {
         int role = getMemberRole(groupId, userId);
         if (role == 2) {

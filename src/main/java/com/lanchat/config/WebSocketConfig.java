@@ -16,7 +16,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private final String[] allowedOrigins;
 
     public WebSocketConfig(ChatWebSocketHandler chatWebSocketHandler,
-                           @Value("${websocket.allowed-origins:http://localhost:8080,http://127.0.0.1:8080}")
+                           @Value("${websocket.allowed-origins:"
+                                   + ClientOriginDefaults.ALLOWED_ORIGINS + "}")
                            String[] allowedOrigins) {
         this.chatWebSocketHandler = chatWebSocketHandler;
         this.allowedOrigins = allowedOrigins;

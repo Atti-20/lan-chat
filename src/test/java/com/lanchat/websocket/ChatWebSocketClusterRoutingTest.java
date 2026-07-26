@@ -3,6 +3,7 @@ package com.lanchat.websocket;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lanchat.cluster.ClusterPresenceService;
 import com.lanchat.cluster.RealtimeRouter;
+import com.lanchat.common.DeviceSessionsRevokedEvent;
 import com.lanchat.dto.BroadcastDetailDTO;
 import com.lanchat.dto.FileTransferOfferDTO;
 import com.lanchat.dto.FileTransferVO;
@@ -181,6 +182,24 @@ class ChatWebSocketClusterRoutingTest {
     }
 
     @Test
+    void forceLogoutRoutesEveryExactDeviceThroughClusterRouter() {
+        handler.forceLogoutDevices(new DeviceSessionsRevokedEvent(
+                REMOTE_USER_ID,
+                List.of(91L, 92L),
+                "ACCOUNT_DISABLED",
+                "账号已被管理员停用"
+        ));
+
+        ArgumentCaptor<WebSocketEnvelope> first = ArgumentCaptor.forClass(WebSocketEnvelope.class);
+        ArgumentCaptor<WebSocketEnvelope> second = ArgumentCaptor.forClass(WebSocketEnvelope.class);
+        verify(realtimeRouter).sendToDevice(eq(REMOTE_USER_ID), eq(91L), first.capture());
+        verify(realtimeRouter).sendToDevice(eq(REMOTE_USER_ID), eq(92L), second.capture());
+        assertEquals("FORCE_LOGOUT", first.getValue().getEvent());
+        assertEquals("ACCOUNT_DISABLED", first.getValue().getPayload().get("reason"));
+        assertEquals("FORCE_LOGOUT", second.getValue().getEvent());
+    }
+
+    @Test
     @SuppressWarnings({"unchecked", "rawtypes"})
     void expiredRemoteLeaseRepairsDatabaseAndBroadcastsOfflineOnce() {
         when(presenceService.isUserDefinitelyOffline(REMOTE_USER_ID, false)).thenReturn(true);
@@ -228,6 +247,19 @@ class ChatWebSocketClusterRoutingTest {
 
         verify(userService).updateOnlineStatus(REMOTE_USER_ID, 0);
         verify(userService).updateOnlineStatus(REMOTE_USER_ID, 1);
+        verify(realtimeRouter, never()).broadcast(any());
+    }
+
+    @Test
+    void shutdownConnectionCloseOnlyClearsLocalState() throws Exception {
+        WebSocketSession session = authenticateLocalUser();
+        clearInvocations(presenceService, userService, realtimeRouter);
+
+        handler.handleContextClosed(null);
+        handler.afterConnectionClosed(session, CloseStatus.GOING_AWAY);
+
+        verify(presenceService, never()).unregister(any(), any(), any(), any(Boolean.class));
+        verify(userService, never()).updateOnlineStatus(any(), any());
         verify(realtimeRouter, never()).broadcast(any());
     }
 

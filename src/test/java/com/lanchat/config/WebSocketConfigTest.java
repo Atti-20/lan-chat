@@ -28,4 +28,15 @@ class WebSocketConfigTest {
 
         verify(registration).setAllowedOrigins(allowedOrigins);
     }
+
+    @Test
+    void sharedDefaultsIncludeDesktopWebViewOrigins() {
+        String defaults = ClientOriginDefaults.ALLOWED_ORIGINS;
+
+        org.junit.jupiter.api.Assertions.assertTrue(defaults.contains("tauri://localhost"));
+        org.junit.jupiter.api.Assertions.assertTrue(defaults.contains("http://tauri.localhost"));
+        org.junit.jupiter.api.Assertions.assertTrue(defaults.contains("https://tauri.localhost"));
+        org.junit.jupiter.api.Assertions.assertTrue(defaults.contains("http://127.0.0.1:1420"));
+        org.junit.jupiter.api.Assertions.assertFalse(defaults.contains("*"));
+    }
 }

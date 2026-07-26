@@ -15,7 +15,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/group")
-@CrossOrigin
 public class GroupController {
 
     @Autowired

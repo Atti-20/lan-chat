@@ -1,4 +1,5 @@
 import type { AuthSession } from '../types'
+import { currentNodeKey } from '../platform/nodeContext'
 
 const SESSION_KEY = 'lanchat_session_v2'
 const LAST_USERNAME_KEY = 'lanchat_last_username'
@@ -49,13 +50,16 @@ export function writeTheme(mode: ThemeMode): void {
   localStorage.setItem(THEME_KEY, mode)
 }
 
-export function readCacheOwner(): number | null {
-  const value = Number(localStorage.getItem(CACHE_OWNER_KEY))
-  return Number.isInteger(value) && value > 0 ? value : null
+export function cacheOwnerKey(userId: number): string {
+  return `${currentNodeKey()}::${userId}`
+}
+
+export function readCacheOwner(): string | null {
+  return localStorage.getItem(CACHE_OWNER_KEY)
 }
 
 export function writeCacheOwner(userId: number): void {
-  localStorage.setItem(CACHE_OWNER_KEY, String(userId))
+  localStorage.setItem(CACHE_OWNER_KEY, cacheOwnerKey(userId))
 }
 
 export function clearCacheOwner(): void {

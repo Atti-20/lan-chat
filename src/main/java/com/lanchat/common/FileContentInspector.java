@@ -37,7 +37,7 @@ public final class FileContentInspector {
     private static final Set<String> ALWAYS_BLOCKED_EXTENSIONS = Set.of(
             "html", "htm", "xhtml", "svg", "xml", "js", "mjs", "cjs", "css",
             "exe", "dll", "com", "bat", "cmd", "ps1", "sh", "bash", "zsh",
-            "jar", "war", "class", "msi", "apk", "app", "dmg", "iso", "lnk", "url"
+            "jar", "war", "class", "msi", "app", "dmg", "iso", "lnk", "url"
     );
     private static final Map<String, Set<String>> DECLARED_TYPES_BY_EXTENSION = Map.ofEntries(
             Map.entry("jpg", Set.of("image/jpeg", "image/jpg", "image/pjpeg")),
@@ -72,7 +72,8 @@ public final class FileContentInspector {
             Map.entry("txt", Set.of("text/plain")),
             Map.entry("csv", Set.of("text/csv", "text/plain", "application/csv", "application/vnd.ms-excel")),
             Map.entry("json", Set.of("application/json", "text/json", "text/plain")),
-            Map.entry("md", Set.of("text/markdown", "text/plain"))
+            Map.entry("md", Set.of("text/markdown", "text/plain")),
+            Map.entry("apk", Set.of("application/vnd.android.package-archive"))
     );
 
     private FileContentInspector() {
@@ -138,6 +139,7 @@ public final class FileContentInspector {
             case "avi" -> requireRiff(header, ascii("AVI "), "video/x-msvideo");
             case "mp4" -> inspectIsoMedia(header, "video/mp4");
             case "mov" -> inspectIsoMedia(header, "video/quicktime");
+            case "apk" -> inspectApk(path);
             default -> {
                 if (TEXT_EXTENSIONS.contains(extension)) {
                     validateUtf8Text(path);
@@ -319,6 +321,30 @@ public final class FileContentInspector {
         byte[] result = new byte[values.length];
         for (int index = 0; index < values.length; index++) result[index] = (byte) values[index];
         return result;
+    }
+
+    private static String inspectApk(Path path) {
+        boolean hasAndroidManifest = false;
+        boolean hasApkPayload = false;
+        int inspected = 0;
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(path))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null && inspected++ < MAX_ZIP_ENTRIES_TO_INSPECT) {
+                String name = entry.getName().replace('\\', '/');
+                if (name.startsWith("/") || name.contains("../")) {
+                    throw new IllegalArgumentException("APK 包含不安全路径");
+                }
+                if ("AndroidManifest.xml".equals(name)) hasAndroidManifest = true;
+                if ("resources.arsc".equals(name) || name.matches("class\\d*\\.dex") || name.startsWith("lib/") || name.startsWith("res/")) hasApkPayload = true;
+                if (hasAndroidManifest && hasApkPayload) break;
+            }
+        } catch (IllegalArgumentException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("APK 文件结构损坏");
+        }
+        if (!hasAndroidManifest || !hasApkPayload) throw new IllegalArgumentException("文件扩展名与APK内容不匹配");
+        return "application/vnd.android.package-archive";
     }
 
     private static IllegalArgumentException mismatch() {

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { reactive, shallowRef, watch } from 'vue'
 import type { AdminUser } from '../../types'
+import { nativeBridge } from '../../platform/nativeBridge'
+import AppleSwitch from '../base/AppleSwitch.vue'
 import UserAvatar from '../base/UserAvatar.vue'
 import AdminAccountCard from './AdminAccountCard.vue'
 
@@ -55,17 +57,22 @@ function saveMute(user: AdminUser): void {
   emit('mute', { userId: user.id, muteStart, muteEnd })
 }
 
-function requestBroadcastPermission(user: AdminUser, event: Event): void {
-  const input = event.currentTarget as HTMLInputElement
-  const enabled = input.checked
-  // The server remains authoritative. Keep the controlled checkbox on the
-  // current prop until the refreshed account list confirms the mutation.
-  input.checked = user.canSendBroadcast === 1
+function requestBroadcastPermission(user: AdminUser, enabled: boolean): void {
   emit('broadcastPermission', { userId: user.id, enabled })
 }
 
-function confirmDelete(user: AdminUser): void {
-  if (!window.confirm(`确定永久删除用户“${user.nickname || user.username}”吗？该操作不可撤销。`)) return
+async function confirmDelete(user: AdminUser): Promise<void> {
+  const confirmed = await nativeBridge.confirm(
+    `确定归档用户“${user.nickname || user.username}”吗？\n\n`
+      + '账号将被禁用并清除登录会话和个人敏感资料，历史消息、广播回执与审计记录会保留。',
+    {
+      title: '归档用户',
+      kind: 'warning',
+      okLabel: '归档用户',
+      cancelLabel: '取消',
+    },
+  )
+  if (!confirmed) return
   emit('delete', user.id)
 }
 
@@ -100,7 +107,7 @@ watch(() => props.createdUsername, (createdUsername) => {
 </script>
 
 <template>
-  <section class="admin-console" aria-labelledby="admin-console-title">
+  <section class="admin-console apple-content-surface" aria-labelledby="admin-console-title">
     <header class="admin-header">
       <div>
         <p>ADMINISTRATION</p>
@@ -170,53 +177,63 @@ watch(() => props.createdUsername, (createdUsername) => {
               </div>
             </td>
             <td>
-              <span class="status-badge" :class="{ banned: user.status === 0 }">
-                {{ user.status === 0 ? '已封禁' : '正常' }}
+              <span
+                class="status-badge"
+                :class="{ banned: user.status === 0 && !user.archivedAt, archived: Boolean(user.archivedAt) }"
+              >
+                {{ user.archivedAt ? '已归档' : user.status === 0 ? '已封禁' : '正常' }}
               </span>
             </td>
-            <td>
-              <label v-if="user.username !== 'admin'" class="permission-switch">
-                <input
-                  type="checkbox"
-                  :checked="user.canSendBroadcast === 1"
-                  :disabled="busyUserId === user.id"
-                  @change="requestBroadcastPermission(user, $event)"
-                />
-                <span>{{ user.canSendBroadcast === 1 ? '允许发布' : '禁止发布' }}</span>
-              </label>
-              <span v-else class="protected-copy">始终允许</span>
-            </td>
-            <td>
-              <div v-if="user.username !== 'admin'" class="mute-fields">
-                <input v-model="muteStarts[user.id]" type="time" :aria-label="`${user.username} 禁言开始时间`" />
-                <span>至</span>
-                <input v-model="muteEnds[user.id]" type="time" :aria-label="`${user.username} 禁言结束时间`" />
-                <button
-                  type="button"
-                  :disabled="busyUserId === user.id || !muteStarts[user.id] || !muteEnds[user.id]"
-                  @click="saveMute(user)"
-                >保存</button>
-              </div>
-              <span v-else class="protected-copy">系统管理员不受限</span>
-            </td>
-            <td>
-              <div v-if="user.username !== 'admin'" class="row-actions">
-                <button
-                  type="button"
-                  :disabled="busyUserId === user.id"
-                  @click="emit('resetPassword', user)"
-                >重置密码</button>
-                <button
-                  type="button"
-                  :disabled="busyUserId === user.id"
-                  @click="emit('status', { userId: user.id, status: user.status === 0 ? 1 : 0 })"
-                >{{ user.status === 0 ? '解封' : '封禁' }}</button>
-                <button class="danger-button" type="button" :disabled="busyUserId === user.id" @click="confirmDelete(user)">删除</button>
-              </div>
-              <div v-else class="row-actions row-actions--admin">
-                <button type="button" @click="emit('changeOwnPassword')">修改密码</button>
-              </div>
-            </td>
+            <template v-if="user.archivedAt">
+              <td colspan="3" class="archived-cell">
+                该账号已归档：会话已注销、资料已匿名化，聊天与广播历史仍保留；归档账号不能解封或再次删除。
+              </td>
+            </template>
+            <template v-else>
+              <td>
+                <div v-if="user.username !== 'admin'" class="permission-switch">
+                  <AppleSwitch
+                    :model-value="user.canSendBroadcast === 1"
+                    :disabled="busyUserId === user.id"
+                    :aria-label="`${user.username} 的广播发布权限`"
+                    @update:model-value="requestBroadcastPermission(user, $event)"
+                  />
+                  <span>{{ user.canSendBroadcast === 1 ? '允许发布' : '禁止发布' }}</span>
+                </div>
+                <span v-else class="protected-copy">始终允许</span>
+              </td>
+              <td>
+                <div v-if="user.username !== 'admin'" class="mute-fields">
+                  <input v-model="muteStarts[user.id]" type="time" :aria-label="`${user.username} 禁言开始时间`" />
+                  <span>至</span>
+                  <input v-model="muteEnds[user.id]" type="time" :aria-label="`${user.username} 禁言结束时间`" />
+                  <button
+                    type="button"
+                    :disabled="busyUserId === user.id || !muteStarts[user.id] || !muteEnds[user.id]"
+                    @click="saveMute(user)"
+                  >保存</button>
+                </div>
+                <span v-else class="protected-copy">系统管理员不受限</span>
+              </td>
+              <td>
+                <div v-if="user.username !== 'admin'" class="row-actions">
+                  <button
+                    type="button"
+                    :disabled="busyUserId === user.id"
+                    @click="emit('resetPassword', user)"
+                  >重置密码</button>
+                  <button
+                    type="button"
+                    :disabled="busyUserId === user.id"
+                    @click="emit('status', { userId: user.id, status: user.status === 0 ? 1 : 0 })"
+                  >{{ user.status === 0 ? '解封' : '封禁' }}</button>
+                  <button class="danger-button" type="button" :disabled="busyUserId === user.id" @click="confirmDelete(user)">删除</button>
+                </div>
+                <div v-else class="row-actions row-actions--admin">
+                  <button type="button" @click="emit('changeOwnPassword')">修改密码</button>
+                </div>
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>
@@ -227,7 +244,7 @@ watch(() => props.createdUsername, (createdUsername) => {
 <style scoped>
 .admin-console { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--surface); }
 .admin-header { display: flex; flex: 0 0 auto; padding: 22px 24px; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--separator); background: var(--surface-glass); }
-.admin-header p { margin: 0 0 5px; color: var(--blue); font-size: 9px; font-weight: 800; letter-spacing: .16em; }
+.admin-header p { margin: 0 0 5px; color: var(--blue); font-size: var(--font-micro); font-weight: 800; letter-spacing: .16em; }
 .admin-header h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
 .admin-header span { color: var(--ink-soft); font-size: 11px; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
@@ -239,32 +256,32 @@ watch(() => props.createdUsername, (createdUsername) => {
 .mute-fields button:disabled { opacity: .45; cursor: default; }
 .account-create { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; gap: 10px; padding: 14px 24px; align-items: end; border-bottom: 1px solid var(--separator); background: var(--surface-raise); }
 .account-create label { display: grid; gap: 6px; }
-.account-create label span { color: var(--ink-soft); font-size: 10px; font-weight: 700; }
+.account-create label span { color: var(--ink-soft); font-size: var(--font-caption); font-weight: 700; }
 .account-create input { min-width: 0; height: 38px; padding: 0 11px; border: 1px solid var(--separator); border-radius: 10px; color: var(--ink); font: inherit; background: var(--surface); }
 .account-create button { height: 38px; padding: 0 15px; border: 0; border-radius: 10px; color: white; font-size: 11px; font-weight: 750; background: var(--blue); cursor: pointer; }
 .account-create button:disabled { opacity: .5; cursor: default; }
-.account-create p { grid-column: 1 / -1; margin: 0; color: var(--coral); font-size: 10px; }
+.account-create p { grid-column: 1 / -1; margin: 0; color: var(--coral); font-size: var(--font-caption); }
 .admin-card-list { display: none; }
 .admin-table-wrap { min-height: 0; flex: 1; overflow: auto; }
 .admin-table { width: 100%; border-collapse: collapse; }
-.admin-table th { position: sticky; z-index: 1; top: 0; padding: 12px 18px; color: var(--ink-faint); text-align: left; font-size: 10px; font-weight: 700; background: var(--surface-raise); }
+.admin-table th { position: sticky; z-index: 1; top: 0; padding: 12px 18px; color: var(--ink-faint); text-align: left; font-size: var(--font-caption); font-weight: 700; background: var(--surface-raise); }
 .admin-table td { padding: 14px 18px; border-top: 1px solid var(--separator); vertical-align: middle; }
 .user-cell { display: flex; min-width: 180px; align-items: center; gap: 10px; }
 .user-cell div { display: grid; gap: 3px; }
 .user-cell strong { font-size: 12px; }
-.user-cell small { color: var(--ink-faint); font-size: 9px; }
-.status-badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: var(--green); font-size: 10px; font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
+.user-cell small { color: var(--ink-faint); font-size: var(--font-micro); }
+.status-badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: var(--green); font-size: var(--font-caption); font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
 .status-badge.banned { color: var(--coral); background: color-mix(in srgb, var(--coral) 10%, transparent); }
-.permission-switch { display: inline-flex; min-width: 92px; align-items: center; gap: 7px; color: var(--ink-soft); font-size: 10px; font-weight: 650; cursor: pointer; }
-.permission-switch input { width: 16px; height: 16px; margin: 0; accent-color: var(--blue); cursor: inherit; }
-.permission-switch:has(input:disabled) { cursor: wait; opacity: .55; }
+.status-badge.archived { color: var(--ink-faint); background: var(--fill); }
+.archived-cell { color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.5; }
+.permission-switch { display: inline-flex; min-width: 138px; align-items: center; gap: 9px; color: var(--ink-soft); font-size: var(--font-caption); font-weight: 650; }
 .mute-fields { display: flex; min-width: 260px; align-items: center; gap: 6px; }
 .mute-fields input { width: 92px; height: 34px; padding: 0 8px; border: 1px solid var(--separator); border-radius: 9px; color: var(--ink); font: inherit; background: var(--surface); }
-.mute-fields span { color: var(--ink-faint); font-size: 10px; }
+.mute-fields span { color: var(--ink-faint); font-size: var(--font-caption); }
 .row-actions { display: flex; min-width: 206px; gap: 7px; }
 .row-actions--admin { min-width: 0; }
 .row-actions .danger-button { color: var(--coral); background: color-mix(in srgb, var(--coral) 9%, transparent); }
-.protected-copy { color: var(--ink-faint); font-size: 10px; }
+.protected-copy { color: var(--ink-faint); font-size: var(--font-caption); }
 .empty-cell { height: 180px; color: var(--ink-soft); text-align: center !important; font-size: 12px; }
 
 @media (max-width: 760px) {

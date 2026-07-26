@@ -1,31 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
-import AdminConsole from '../components/admin/AdminConsole.vue'
-import AdminPasswordResetModal from '../components/admin/AdminPasswordResetModal.vue'
-import AdminSidebar from '../components/admin/AdminSidebar.vue'
+import AdminWorkspace from '../components/admin/AdminWorkspace.vue'
 import type { AdminModule } from '../components/admin/adminNavigation'
-import RuntimeLogConsole from '../components/admin/logs/RuntimeLogConsole.vue'
 import BroadcastSidebar from '../components/broadcasts/BroadcastSidebar.vue'
 import BroadcastWorkspace from '../components/broadcasts/BroadcastWorkspace.vue'
-import CreateBroadcastModal from '../components/broadcasts/CreateBroadcastModal.vue'
-import EmergencyBroadcastAlert from '../components/broadcasts/EmergencyBroadcastAlert.vue'
-import ConnectionDiagnosticsModal from '../components/diagnostics/ConnectionDiagnosticsModal.vue'
 import AppRail from '../components/chat/AppRail.vue'
-import ChangePasswordModal from '../components/chat/ChangePasswordModal.vue'
-import ConnectionStatusBar from '../components/chat/ConnectionStatusBar.vue'
-import ContextPanel from '../components/chat/ContextPanel.vue'
+import ChatWorkspace from '../components/chat/ChatWorkspace.vue'
 import ConversationSidebar from '../components/chat/ConversationSidebar.vue'
-import CreateGroupModal from '../components/chat/CreateGroupModal.vue'
-import DeviceManagerModal from '../components/chat/DeviceManagerModal.vue'
-import MessageComposer from '../components/chat/MessageComposer.vue'
-import MessageThread from '../components/chat/MessageThread.vue'
-import ProfileModal from '../components/chat/ProfileModal.vue'
-import SearchPeopleModal from '../components/chat/SearchPeopleModal.vue'
-import UserAvatar from '../components/base/UserAvatar.vue'
-import UiIcon from '../components/base/UiIcon.vue'
+import GlobalModalHost from '../components/chat/GlobalModalHost.vue'
+import NavigationCoordinator from '../components/chat/NavigationCoordinator.vue'
+import type { NavigationBackAction, NavigationBackState } from '../components/chat/navigationState'
 import WorkspaceWelcome from '../components/chat/WorkspaceWelcome.vue'
-import CreateTemporaryRoomModal from '../components/rooms/CreateTemporaryRoomModal.vue'
-import JoinTemporaryRoomModal from '../components/rooms/JoinTemporaryRoomModal.vue'
 import { useAdmin } from '../composables/useAdmin'
 import { useAuth } from '../composables/useAuth'
 import { useChat, type ChatSection } from '../composables/useChat'
@@ -34,7 +19,18 @@ import { useDiagnostics } from '../composables/useDiagnostics'
 import { useTemporaryRooms } from '../composables/useTemporaryRooms'
 import { useToast } from '../composables/useToast'
 import { api, ApiError } from '../services/api'
-import { nativeBridge } from "../platform/nativeBridge";
+import { navigateToApp } from '../platform/appNavigation'
+import {
+  claimNavigationForCurrentNode,
+  pendingDesktopNavigation,
+} from '../platform/desktopNavigation'
+import {
+  clearSelectedNode,
+} from '../platform/nodeContext'
+import {
+  nativeBridge,
+  type DesktopNavigationTarget,
+} from '../platform/nativeBridge'
 import type {
   AdminUser,
   BroadcastCreatePayload,
@@ -97,11 +93,13 @@ const roomCreateOpen = shallowRef(false)
 const roomJoinOpen = shallowRef(false)
 const broadcastCreateOpen = shallowRef(false)
 const profileOpen = shallowRef(false)
+const profileEditorOpen = shallowRef(false)
 const contextOpen = shallowRef(false)
 const devicesOpen = shallowRef(false)
 const passwordOpen = shallowRef(false)
 const passwordResetTarget = shallowRef<AdminUser | null>(null)
-const diagnosticsOpen = shallowRef(false)
+const desktopSettingsOpen = shallowRef(false)
+const fileTransferSettingsOpen = shallowRef(false)
 const adminModule = shallowRef<AdminModule | null>(null)
 const groupSaving = shallowRef(false)
 const profileSaving = shallowRef(false)
@@ -109,6 +107,8 @@ const uploading = shallowRef(false)
 const broadcastConfirming = shallowRef(false)
 const broadcastStatisticsLoading = shallowRef(false)
 const replyTo = shallowRef<ChatMessage | null>(null)
+// Keep this aligned with the 760px responsive media queries in the chat UI.
+// Desktop and Web use the same width-based layout switch; runtime is irrelevant.
 const MOBILE_BREAKPOINT = 760
 const SIDEBAR_MIN_WIDTH = 280
 const SIDEBAR_MAX_WIDTH = 520
@@ -123,7 +123,7 @@ const user = computed<User>(() => auth.currentUser.value || {
   id: auth.session.value?.userId || 0,
   userId: auth.session.value?.userId,
   username: auth.session.value?.username || '',
-  nickname: auth.session.value?.nickname || 'LanChat 用户',
+  nickname: auth.session.value?.nickname || 'MeshX 用户',
   avatar: auth.session.value?.avatar,
 })
 const isAdminSection = computed(() => section.value === 'admin')
@@ -157,12 +157,6 @@ const hasWorkspaceSelection = computed(() => {
 })
 const showSidebar = computed(() => !mobile.value || !hasWorkspaceSelection.value)
 const showWorkspace = computed(() => !mobile.value || hasWorkspaceSelection.value)
-const adminModuleTitles: Record<AdminModule, string> = {
-  accounts: '账号管理',
-  diagnostics: '连接诊断',
-  logs: '运行日志',
-}
-const selectedAdminTitle = computed(() => adminModule.value ? adminModuleTitles[adminModule.value] : '管理')
 const friendIds = computed(() => friends.value.map((friend) => friend.friendId))
 const selectedTemporaryRoom = computed<TemporaryRoom | null>(() => selected.value?.kind === 'temporary'
   ? selected.value.source as TemporaryRoom
@@ -189,30 +183,106 @@ const connectionCopy = computed(() => reconnecting.value
     : connected.value
       ? '实时在线'
       : '离线可用')
+const profileConnectionSummary = computed(() => {
+  const path = diagnostics.connectionPath.value === 'LOCAL'
+    ? '本机节点'
+    : diagnostics.connectionPath.value === 'LAN'
+      ? '局域网节点'
+      : '远程节点'
+  const name = diagnostics.nodeInfo.value?.nodeName || 'MeshX 节点'
+  const latency = latencyMs.value === null ? '' : ` · ${latencyMs.value} ms`
+  return `${name} · ${path} · ${connectionCopy.value}${latency}`
+})
+const navigationBackState = computed<NavigationBackState>(() => ({
+  emergencyAlert: Boolean(broadcasts.emergencyAlert.value),
+  passwordReset: Boolean(passwordResetTarget.value),
+  profileEditor: profileEditorOpen.value,
+  contextPanel: contextOpen.value,
+  searchPeople: searchOpen.value,
+  createGroup: groupOpen.value,
+  createRoom: roomCreateOpen.value,
+  joinRoom: roomJoinOpen.value,
+  createBroadcast: broadcastCreateOpen.value,
+  devices: devicesOpen.value,
+  password: passwordOpen.value,
+  fileTransferSettings: fileTransferSettingsOpen.value,
+  desktopSettings: desktopSettingsOpen.value,
+  profile: profileOpen.value,
+  adminModule: Boolean(adminModule.value),
+  broadcast: broadcasts.selectedId.value !== null,
+  conversation: Boolean(selected.value),
+}))
 
 onMounted(async () => {
-  window.addEventListener('resize', handleResize)
   // 登录响应中的用户资料可能是旧快照；进入聊天前以 /user/info 的结果为准，
   // 确保导航栏、个人资料弹窗和消息头像使用同一份头像数据。
   const hydrated = await auth.hydrate()
   if (!hydrated) {
-    window.location.replace('/')
+    navigateToApp('/', true)
     return
   }
   try {
     await Promise.all([chat.load(), broadcasts.load()])
+    const pendingTarget = pendingDesktopNavigation()
+    if (pendingTarget) await openDesktopNavigation(pendingTarget)
   } catch (cause) {
     handleError(cause, '载入聊天失败')
   }
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize)
   stopActiveSidebarResize?.()
 })
 
-function handleResize(): void {
-  viewportWidth.value = window.innerWidth
+function handleNavigationBack(action: NavigationBackAction): void {
+  if (action === 'emergency-alert') broadcasts.closeEmergencyAlert()
+  else if (action === 'password-reset') passwordResetTarget.value = null
+  else if (action === 'profile-editor') { profileEditorOpen.value = false; profileOpen.value = true }
+  else if (action === 'context-panel') contextOpen.value = false
+  else if (action === 'search-people') searchOpen.value = false
+  else if (action === 'create-group') groupOpen.value = false
+  else if (action === 'create-room') roomCreateOpen.value = false
+  else if (action === 'join-room') roomJoinOpen.value = false
+  else if (action === 'create-broadcast') broadcastCreateOpen.value = false
+  else if (action === 'devices') devicesOpen.value = false
+  else if (action === 'password') passwordOpen.value = false
+  else if (action === 'file-transfer-settings') fileTransferSettingsOpen.value = false
+  else if (action === 'desktop-settings') desktopSettingsOpen.value = false
+  else if (action === 'profile') profileOpen.value = false
+  else if (action === 'admin-module') adminModule.value = null
+  else if (action === 'broadcast') broadcasts.clearSelection()
+  else if (action === 'conversation') selected.value = null
+}
+
+async function openDesktopNavigation(target: DesktopNavigationTarget): Promise<void> {
+  if (loading.value || target.kind === 'node') return
+  const claimedTarget = claimNavigationForCurrentNode(target)
+  if (!claimedTarget) return
+  target = claimedTarget
+  if (target.kind === 'conversation') {
+    changeSection('messages')
+    const conversation = chat.conversations.value.find(
+      (candidate) => candidate.conversationId === target.value,
+    )
+    if (!conversation) {
+      toast.push('深链指定的会话当前不可用', 'warning')
+      return
+    }
+    await selectConversation(conversation)
+    return
+  }
+  if (target.kind === 'room') {
+    await joinTemporaryRoom(target.value)
+    return
+  }
+  const broadcastId = Number(target.value)
+  if (Number.isSafeInteger(broadcastId) && broadcastId > 0) {
+    await openEmergencyBroadcast(broadcastId)
+  }
+}
+
+function handleViewportChange(width: number): void {
+  viewportWidth.value = width
   sidebarWidth.value = clampSidebarWidth(sidebarWidth.value, viewportWidth.value)
   if (mobile.value) stopActiveSidebarResize?.()
 }
@@ -591,7 +661,8 @@ async function saveProfile(payload: { nickname: string; avatar: string }): Promi
   try {
     await auth.updateProfile(payload)
     toast.push('个人资料已更新', 'success')
-    profileOpen.value = false
+    profileEditorOpen.value = false
+    profileOpen.value = true
   } catch (cause) {
     handleError(cause, '保存个人资料失败')
   } finally {
@@ -604,7 +675,28 @@ async function logout(): Promise<void> {
   try {
     await auth.logout()
   } finally {
-    window.location.assign('/')
+    navigateToApp('/')
+  }
+}
+
+async function switchDesktopNode(): Promise<void> {
+  const confirmed = await nativeBridge.confirm(
+    '切换节点会退出当前设备会话并清理本地聊天缓存。是否继续？',
+    {
+      title: '切换 MeshX 节点',
+      kind: 'warning',
+      okLabel: '退出并切换',
+      cancelLabel: '取消',
+    },
+  )
+  if (!confirmed) return
+  chat.disconnect()
+  desktopSettingsOpen.value = false
+  try {
+    await auth.logout()
+  } finally {
+    clearSelectedNode()
+    navigateToApp('/')
   }
 }
 
@@ -627,7 +719,16 @@ async function toggleMute(): Promise<void> {
 }
 
 async function deleteFriend(): Promise<void> {
-  if (!window.confirm(`确定删除好友"${selected.value?.name || ''}"吗？聊天记录会保留。`)) return
+  const confirmed = await nativeBridge.confirm(
+    `确定删除好友“${selected.value?.name || ''}”吗？聊天记录会保留。`,
+    {
+      title: '删除好友',
+      kind: 'warning',
+      okLabel: '删除好友',
+      cancelLabel: '取消',
+    },
+  )
+  if (!confirmed) return
   try {
     await chat.deleteFriend()
     toast.push('好友已删除')
@@ -668,6 +769,13 @@ async function resetUserPassword(newPassword: string): Promise<void> {
 
 <template>
   <main class="chat-page">
+    <NavigationCoordinator
+      :back-state="navigationBackState"
+      @navigate="openDesktopNavigation"
+      @viewport-change="handleViewportChange"
+      @back="handleNavigationBack"
+    />
+
     <div v-if="loading && !auth.currentUser.value" class="boot-screen glass-surface">
       <span />
       <strong>正在整理你的对话空间</strong>
@@ -693,13 +801,48 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         @profile="profileOpen = true"
       />
 
-      <AdminSidebar
+      <AdminWorkspace
         v-if="isAdminSection"
-        v-show="showSidebar"
-        :selected="adminModule"
-        :account-count="adminLoaded ? adminUsers.length : undefined"
+        :module="adminModule"
+        :users="adminUsers"
+        :loading="adminLoading"
+        :loaded="adminLoaded"
+        :creating="adminCreating"
+        :created-username="adminCreatedUsername"
+        :busy-user-id="adminBusyUserId"
         :connection-state="connectionState"
-        @select="selectAdminModule"
+        :connection-path="diagnostics.connectionPath.value"
+        :node-address="diagnostics.nodeAddress.value"
+        :web-socket-address="diagnostics.webSocketAddress.value"
+        :node-info="diagnostics.nodeInfo.value"
+        :admin-diagnostics="diagnostics.adminDiagnostics.value"
+        :reconnect-attempts="reconnectAttempts"
+        :latency-ms="latencyMs"
+        :last-heartbeat-at="lastHeartbeatAt"
+        :last-sync-at="lastSyncAt"
+        :pending-count="pendingCount"
+        :failed-count="failedCount"
+        :browser-capabilities="diagnostics.browserCapabilities"
+        :diagnostics-loading="diagnostics.loading.value"
+        :diagnostics-error="diagnostics.error.value"
+        :mobile="mobile"
+        :show-sidebar="showSidebar"
+        :show-workspace="showWorkspace"
+        @select-module="selectAdminModule"
+        @close-module="adminModule = null"
+        @refresh-users="admin.loadUsers"
+        @create-user="admin.createUser"
+        @set-status="admin.setUserStatus"
+        @set-mute="admin.setMutePeriod"
+        @set-broadcast-permission="admin.setBroadcastPermission"
+        @reset-password="passwordResetTarget = $event"
+        @change-own-password="passwordOpen = true"
+        @delete-user="admin.deleteUser"
+        @refresh-diagnostics="diagnostics.refresh"
+        @reconnect="chat.reconnect"
+        @retry="chat.retryOutbox"
+        @export-diagnostics="diagnostics.exportDiagnostics"
+        @clear-cache="clearBrowserCaches"
       />
 
       <BroadcastSidebar
@@ -752,67 +895,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
       />
 
       <section
-        v-if="isAdminSection && adminModule && showWorkspace"
-        class="workspace workspace--admin-module"
-      >
-        <header v-if="mobile" class="mobile-module-header">
-          <button class="back-button" type="button" aria-label="返回管理模块" @click="adminModule = null">
-            <UiIcon name="back" :size="21" />
-          </button>
-          <div>
-            <span>节点控制台</span>
-            <strong>{{ selectedAdminTitle }}</strong>
-          </div>
-        </header>
-        <AdminConsole
-          v-if="adminModule === 'accounts'"
-          :users="adminUsers"
-          :loading="adminLoading"
-          :creating="adminCreating"
-          :created-username="adminCreatedUsername"
-          :busy-user-id="adminBusyUserId"
-          :mobile="mobile"
-          :friends="friends"
-          @refresh="admin.loadUsers"
-          @create="admin.createUser"
-          @status="admin.setUserStatus"
-          @mute="admin.setMutePeriod"
-          @broadcast-permission="admin.setBroadcastPermission"
-          @reset-password="passwordResetTarget = $event"
-          @change-own-password="passwordOpen = true"
-          @delete="admin.deleteUser"
-        />
-        <ConnectionDiagnosticsModal
-          v-else-if="adminModule === 'diagnostics'"
-          :open="true"
-          embedded
-          :state="connectionState"
-            :connection-path="diagnostics.connectionPath.value"
-          :node-address="diagnostics.nodeAddress.value"
-          :web-socket-address="diagnostics.webSocketAddress.value"
-          :node-info="diagnostics.nodeInfo.value"
-          :admin-diagnostics="diagnostics.adminDiagnostics.value"
-          :reconnect-attempts="reconnectAttempts"
-          :latency-ms="latencyMs"
-          :last-heartbeat-at="lastHeartbeatAt"
-          :last-sync-at="lastSyncAt"
-          :pending-count="pendingCount"
-          :failed-count="failedCount"
-          :browser-capabilities="diagnostics.browserCapabilities"
-          :loading="diagnostics.loading.value"
-          :error="diagnostics.error.value"
-          @close="adminModule = null"
-          @refresh="diagnostics.refresh"
-          @reconnect="chat.reconnect"
-          @retry="chat.retryOutbox"
-          @export="diagnostics.exportDiagnostics"
-          @clear-cache="clearBrowserCaches"
-        />
-        <RuntimeLogConsole v-else />
-      </section>
-
-      <section
-        v-else-if="isBroadcastSection && broadcasts.selectedId.value !== null && showWorkspace"
+        v-if="isBroadcastSection && broadcasts.selectedId.value !== null && showWorkspace"
         class="workspace workspace--broadcast"
       >
         <BroadcastWorkspace
@@ -839,220 +922,133 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         />
       </section>
 
-      <section v-else-if="selected && showWorkspace" class="workspace">
-        <header class="workspace-header">
-          <button v-if="mobile" class="back-button" type="button" aria-label="返回会话列表" @click="selected = null">
-            <UiIcon name="back" :size="21" />
-          </button>
-          <button class="header-profile" type="button" aria-label="查看详情" @click="contextOpen = true">
-            <UserAvatar :name="selected.name" :avatar="selected.avatar" :size="42" />
-            <div class="workspace-title">
-              <strong>{{ selected.name }}</strong>
-              <span><i :class="{ offline: !connected }" /> {{ connectionCopy }}</span>
-            </div>
-          </button>
-        </header>
-
-        <div class="connection-status-slot">
-          <ConnectionStatusBar
-            :state="connectionState"
-            :pending-count="pendingCount"
-            :failed-count="failedCount"
-            :reconnect-attempts="reconnectAttempts"
-            :latency-ms="latencyMs"
-            :node-name="diagnostics.nodeInfo.value?.nodeName"
-            :connection-path="diagnostics.connectionPath.value"
-            :can-view-diagnostics="isAdministrator"
-            @details="isAdministrator && (diagnosticsOpen = true)"
-            @reconnect="chat.reconnect"
-            @retry="chat.retryOutbox"
-          />
-        </div>
-
-        <MessageThread
-          :conversation="selected"
-          :messages="messages"
-          :user="user"
-          :members="members"
-          :loading="loadingMessages"
-          :typing-label="typingLabel"
-          @recall="chat.recall"
-          @burn="chat.burn"
-          @reply="replyTo = $event"
-          @retry="chat.retryMessage"
-          @cancel-pending="chat.cancelPendingMessage"
-        />
-        <MessageComposer
-          :conversation="selected"
-          :reply-to="replyTo"
-          :connected="connected"
-          :uploading="uploading"
-          :transfer-label="fileTransferLabel"
-          :writable="conversationWritable"
-          :file-allowed="conversationFileAllowed"
-          :status-label="conversationStatusLabel"
-          @send="sendMessage"
-          @typing="chat.sendTyping"
-          @file="sendFile"
-          @cancel-reply="replyTo = null"
-        />
-      </section>
-
-      <WorkspaceWelcome
-        v-else-if="showWorkspace"
-        class="workspace workspace--welcome"
-        :section="section"
-        @primary="handleWelcomeAction"
-      />
-
-      <ContextPanel
-        :open="contextOpen"
-        :conversation="selected!"
+      <ChatWorkspace
+        v-else-if="!isAdminSection && selected && showWorkspace"
+        :conversation="selected"
+        :messages="messages"
+        :user="user"
         :members="members"
-        @close="contextOpen = false"
+        :loading-messages="loadingMessages"
+        :typing-label="typingLabel"
+        :connected="connected"
+        :uploading="uploading"
+        :transfer-label="fileTransferLabel"
+        :writable="conversationWritable"
+        :file-allowed="conversationFileAllowed"
+        :status-label="conversationStatusLabel"
+        :mobile="mobile"
+        :reply-to="replyTo"
+        :context-open="contextOpen"
+        @back="selected = null"
+        @open-context="contextOpen = true"
+        @recall="chat.recall"
+        @burn="chat.burn"
+        @reply="replyTo = $event"
+        @retry="chat.retryMessage"
+        @cancel-pending="chat.cancelPendingMessage"
+        @send="sendMessage"
+        @typing="chat.sendTyping"
+        @file="sendFile"
+        @cancel-reply="replyTo = null"
+        @close-context="contextOpen = false"
         @toggle-pin="togglePin"
         @toggle-mute="toggleMute"
         @delete-friend="deleteFriend"
         @update-remark="updateRemark"
         @leave-room="leaveTemporaryRoom"
       />
+
+      <WorkspaceWelcome
+        v-else-if="!isAdminSection && showWorkspace"
+        class="workspace workspace--welcome apple-content-surface"
+        :section="section"
+        @primary="handleWelcomeAction"
+      />
+
     </div>
 
-    <SearchPeopleModal
-      :open="searchOpen"
-      :current-user-id="user.id"
-      :friend-ids="friendIds"
-      @close="searchOpen = false"
-      @request="sendFriendRequest"
-    />
-    <CreateGroupModal
-      :open="groupOpen"
-      :friends="friends"
-      :saving="groupSaving"
-      @close="groupOpen = false"
-      @create="createGroup"
-    />
-    <CreateTemporaryRoomModal
-      :open="roomCreateOpen"
-      :saving="temporaryRooms.saving.value"
-      @close="roomCreateOpen = false"
-      @create="createTemporaryRoom"
-    />
-    <JoinTemporaryRoomModal
-      :open="roomJoinOpen"
-      :saving="temporaryRooms.saving.value"
-      @close="roomJoinOpen = false"
-      @join="joinTemporaryRoom"
-    />
-    <CreateBroadcastModal
-      :open="broadcastCreateOpen"
-      :friends="friends"
-      :is-admin="isAdministrator"
-      :saving="broadcasts.saving.value"
-      @close="broadcastCreateOpen = false"
-      @create="createBroadcast"
-    />
-    <EmergencyBroadcastAlert
-      :broadcast="broadcasts.emergencyAlert.value?.broadcast"
-      :confirmation-options="broadcasts.emergencyAlert.value?.confirmationOptions"
-      :busy="broadcastConfirming"
-      @open="openEmergencyBroadcast"
-      @confirm="(broadcastId, status) => confirmBroadcast(status, broadcastId)"
-      @dismiss="broadcasts.closeEmergencyAlert"
-    />
-    <ProfileModal
-      :open="profileOpen"
+    <GlobalModalHost
+      :search-open="searchOpen"
+      :group-open="groupOpen"
+      :room-create-open="roomCreateOpen"
+      :room-join-open="roomJoinOpen"
+      :broadcast-create-open="broadcastCreateOpen"
+      :profile-open="profileOpen"
+      :profile-editor-open="profileEditorOpen"
+      :file-transfer-settings-open="fileTransferSettingsOpen"
+      :desktop-settings-open="desktopSettingsOpen"
+      :devices-open="devicesOpen"
+      :password-open="passwordOpen"
+      :password-reset-target="passwordResetTarget"
       :user="user"
-      :saving="profileSaving"
-      @close="profileOpen = false"
-      @save="saveProfile"
+      :friend-ids="friendIds"
+      :friends="friends"
+      :group-saving="groupSaving"
+      :room-saving="temporaryRooms.saving.value"
+      :administrator="isAdministrator"
+      :broadcast-saving="broadcasts.saving.value"
+      :emergency-broadcast="broadcasts.emergencyAlert.value?.broadcast"
+      :emergency-confirmation-options="broadcasts.emergencyAlert.value?.confirmationOptions"
+      :broadcast-confirming="broadcastConfirming"
+      :profile-saving="profileSaving"
+      :admin-busy-user-id="adminBusyUserId"
+      :connection-summary="profileConnectionSummary"
+      :desktop="nativeBridge.runtime() === 'tauri'"
+      @close-search="searchOpen = false"
+      @friend-request="sendFriendRequest"
+      @close-group="groupOpen = false"
+      @create-group="createGroup"
+      @close-room-create="roomCreateOpen = false"
+      @create-room="createTemporaryRoom"
+      @close-room-join="roomJoinOpen = false"
+      @join-room="joinTemporaryRoom"
+      @close-broadcast-create="broadcastCreateOpen = false"
+      @create-broadcast="createBroadcast"
+      @open-broadcast="openEmergencyBroadcast"
+      @confirm-broadcast="(broadcastId, status) => confirmBroadcast(status, broadcastId)"
+      @dismiss-emergency="broadcasts.closeEmergencyAlert"
+      @close-profile="profileOpen = false"
+      @open-profile-editor="profileEditorOpen = true"
+      @open-devices="devicesOpen = true"
+      @open-password="passwordOpen = true"
+      @open-file-transfer-settings="fileTransferSettingsOpen = true"
+      @open-desktop-settings="desktopSettingsOpen = true"
       @logout="logout"
-      @open-devices="profileOpen = false; devicesOpen = true"
-      @open-password="profileOpen = false; passwordOpen = true"
-    />
-    <DeviceManagerModal
-      :open="devicesOpen"
-      @close="devicesOpen = false"
+      @close-profile-editor="profileEditorOpen = false; profileOpen = true"
+      @save-profile="saveProfile"
+      @close-file-transfer-settings="fileTransferSettingsOpen = false"
+      @close-desktop-settings="desktopSettingsOpen = false"
+      @switch-node="switchDesktopNode"
+      @close-devices="devicesOpen = false"
       @current-device-logged-out="logout"
-    />
-    <ChangePasswordModal
-      :open="passwordOpen"
-      @close="passwordOpen = false"
+      @close-password="passwordOpen = false"
       @password-changed="logout"
-    />
-    <AdminPasswordResetModal
-      :user="passwordResetTarget"
-      :saving="Boolean(passwordResetTarget && adminBusyUserId === passwordResetTarget.id)"
-      @close="passwordResetTarget = null"
-      @reset="resetUserPassword"
-    />
-    <ConnectionDiagnosticsModal
-      :open="diagnosticsOpen"
-      :state="connectionState"
-      :connection-path="diagnostics.connectionPath.value"
-      :node-address="diagnostics.nodeAddress.value"
-      :web-socket-address="diagnostics.webSocketAddress.value"
-      :node-info="diagnostics.nodeInfo.value"
-      :admin-diagnostics="diagnostics.adminDiagnostics.value"
-      :reconnect-attempts="reconnectAttempts"
-      :latency-ms="latencyMs"
-      :last-heartbeat-at="lastHeartbeatAt"
-      :last-sync-at="lastSyncAt"
-      :pending-count="pendingCount"
-      :failed-count="failedCount"
-      :browser-capabilities="diagnostics.browserCapabilities"
-      :loading="diagnostics.loading.value"
-      :error="diagnostics.error.value"
-      @close="diagnosticsOpen = false"
-      @refresh="diagnostics.refresh"
-      @reconnect="chat.reconnect"
-      @retry="chat.retryOutbox"
-      @export="diagnostics.exportDiagnostics"
-      @clear-cache="clearBrowserCaches"
+      @close-password-reset="passwordResetTarget = null"
+      @reset-password="resetUserPassword"
     />
   </main>
 </template>
 
 <style scoped>
-.chat-page { width: 100%; min-height: 100dvh; padding: 18px; }
-.chat-shell { display: grid; width: 100%; height: calc(100dvh - 36px); margin: 0 auto; grid-template-columns: var(--rail-width, 72px) var(--sidebar-width, 320px) minmax(0, 1fr); gap: 10px; }
-.workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr) max-content; border-radius: 18px; overflow: hidden; }
-.workspace--broadcast { grid-template-rows: minmax(0, 1fr); }
-.connection-status-slot { min-width: 0; min-height: 0; }
-.workspace-header { display: flex; padding: 14px 19px; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.54); background: rgba(255,255,255,.16); }
-.workspace-title { display: grid; min-width: 0; flex: 1; gap: 3px; }
-.workspace-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-title span { color: #4d7ea7; font-size: 9px; font-weight: 650; }
-.workspace-title i { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(48,209,88,.1); }
-.workspace-title i.offline { background: var(--ink-faint); box-shadow: none; }
-.workspace-more,
-.back-button { display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid var(--glass-border); border-radius: 13px; color: var(--ink-faint); background: var(--surface-glass); cursor: pointer; }
-.workspace-more .ui-icon { width: 21px; }.back-button { display: none; }.back-button .ui-icon { width: 21px; }
-.mobile-module-header { display: none; }
-.boot-screen { display: grid; width: min(420px, calc(100vw - 40px)); min-height: 180px; margin: calc(50dvh - 90px) auto 0; place-items: center; align-content: center; gap: 18px; border-radius: 30px; }
-.boot-screen span { width: 30px; height: 30px; border: 2px solid rgba(10,132,255,.16); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }.boot-screen strong { font-size: 13px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-@media (max-width: 760px) {
-  .chat-page { padding: 9px; }
-  .chat-shell { height: calc(100dvh - 18px); grid-template-columns: minmax(0, 1fr); }
-  .chat-shell > :deep(.app-rail) { grid-column: 1; }
-  .chat-shell--thread > :deep(.conversation-sidebar),
-  .chat-shell--thread > :deep(.admin-sidebar),
-  .chat-shell--thread > :deep(.app-rail) { display: none !important; }
-  .chat-shell--thread > .workspace { grid-column: 1; grid-row: 1; width: 100%; height: 100%; }
-  .workspace { border-radius: 25px; }
-  .back-button { display: grid; }
-  .workspace-header { padding: 12px 13px; }
+.chat-page {
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+  padding: 20px;
+  overflow: hidden;
 }
-
-.chat-page { padding: 20px; }
 .chat-shell {
   --rail-width: 72px;
   position: relative;
+  display: grid;
   width: 100%;
-  height: calc(100dvh - 40px);
+  height: calc(100vh - 40px);
+  min-height: 0;
+  max-height: calc(100vh - 40px);
+  margin: 0 auto;
   grid-template-columns: var(--rail-width) var(--sidebar-width, 320px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--glass-border);
@@ -1060,6 +1056,26 @@ async function resetUserPassword(newPassword: string): Promise<void> {
   background: var(--surface-raise);
   box-shadow: 0 22px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
 }
+.workspace {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: minmax(0, auto) minmax(0, 1fr) max-content;
+  border-radius: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+.workspace--broadcast { grid-template-rows: minmax(0, 1fr); }
+.workspace--welcome { grid-template-rows: minmax(0, 1fr); }
+/* workspace-header/back-button 等标记已移入 ChatWorkspace/AdminWorkspace，
+ * 其样式以子组件内的版本为唯一来源。 */
+.workspace > :deep(.message-thread) { min-height: 0; overflow-y: auto; }
+.workspace > :deep(.composer-wrap) { min-height: 0; }
+.boot-screen { display: grid; width: min(420px, calc(100vw - 40px)); min-height: 180px; margin: calc(50dvh - 90px) auto 0; place-items: center; align-content: center; gap: 18px; border-radius: 22px; }
+.boot-screen span { width: 30px; height: 30px; border: 2px solid rgba(10,132,255,.16); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
+.boot-screen strong { font-size: 13px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .sidebar-resizer {
   position: absolute;
   z-index: 8;
@@ -1108,59 +1124,105 @@ async function resetUserPassword(newPassword: string): Promise<void> {
   box-shadow: 0 3px 12px color-mix(in srgb, var(--blue) 20%, transparent);
   opacity: 1;
 }
-.sidebar-resizer:focus-visible { outline: none; }
+.sidebar-resizer:focus-visible {
+  outline: 3px solid rgba(0, 122, 255, 0.26);
+  outline-offset: -3px;
+}
 .chat-shell--resizing,
 .chat-shell--resizing * { cursor: col-resize !important; user-select: none; }
-.workspace { border-radius: 0; background: var(--surface); }
-.workspace--welcome { grid-template-rows: minmax(0, 1fr); }
-.workspace--admin-module { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
-.connection-status-slot { overflow: visible; }
-.workspace > :deep(.message-thread) { min-height: 0; overflow-y: auto; }
-.workspace > :deep(.composer-wrap) { min-height: 0; }
-.workspace-header {
-  min-height: 70px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--separator);
-  background: var(--surface-glass);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
+
+/* A tablet uses the desktop three-column layout, but its WebView can resize
+ * while a thread is hydrated. Keep every structural column inside the single
+ * constrained grid row so loading content cannot grow the rail or sidebar. */
+@media (min-width: 761px) {
+  .chat-shell > :deep(.app-rail),
+  .chat-shell > :deep(.conversation-sidebar),
+  .chat-shell > :deep(.broadcast-sidebar),
+  .chat-shell > :deep(.admin-sidebar) {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
 }
-.header-profile { display: flex; padding: 0; border: 0; align-items: center; gap: 12px; background: none; cursor: pointer; border-radius: 12px; transition: background-color 150ms ease; }
-.header-profile:hover { background: var(--hover); }
-.workspace-title strong { font-size: 15px; }
-.workspace-title span { color: var(--ink-faint); font-size: 10px; font-weight: 500; }
-.workspace-title i { width: 6px; height: 6px; box-shadow: none; }
-.boot-screen { border-radius: 22px; }
+
+@media (min-width: 761px) and (max-width: 1024px) {
+  .chat-page { padding: 12px; }
+  .chat-shell {
+    --rail-width: 68px;
+    height: calc(100vh - 24px);
+    max-height: calc(100vh - 24px);
+    border-radius: 22px;
+  }
+}
 
 @media (max-width: 760px) {
   .chat-page { padding: 0; }
   .chat-shell {
-    height: 100dvh;
+    height: var(--app-viewport-height, 100vh);
+    max-height: var(--app-viewport-height, 100vh);
     border: 0;
     border-radius: 0;
     box-shadow: none;
     grid-template-columns: minmax(0, 1fr);
   }
+  /* 底部导航高度由各列表侧栏自行补偿（ConversationSidebar 等 88px），
+   * 外层不再重复预留，避免约 88px 的空带。 */
+  .chat-shell > :deep(.app-rail) { grid-column: 1; }
+  .chat-shell--thread > :deep(.conversation-sidebar),
+  .chat-shell--thread > :deep(.broadcast-sidebar),
+  .chat-shell--thread > :deep(.admin-sidebar),
+  .chat-shell--thread > :deep(.app-rail) { display: none !important; }
+  .chat-shell--thread > .workspace { grid-column: 1; grid-row: 1; width: 100%; height: 100%; }
   .workspace { border-radius: 0; }
-  .workspace-header {
-    padding: max(12px, env(safe-area-inset-top)) max(13px, env(safe-area-inset-right)) 12px max(13px, env(safe-area-inset-left));
+}
+
+/* 横屏矮视口（手机横置）：压缩装饰性留白，保证线程与输入框可用。 */
+@media (max-height: 480px) and (orientation: landscape) {
+  .chat-page { padding: 0; }
+  .chat-shell {
+    height: var(--app-viewport-height, 100vh);
+    max-height: var(--app-viewport-height, 100vh);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
-  .workspace--admin-module {
-    grid-template-rows: auto minmax(0, 1fr);
-    padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Keep the `vh` fallback as a separate feature query: the mobile optimizer
+ * otherwise folds it into `dvh`, which older Android WebViews then discard. */
+@supports (height: 100dvh) {
+  .chat-page { height: 100dvh; }
+  .chat-shell {
+    height: calc(100dvh - 40px);
+    max-height: calc(100dvh - 40px);
   }
-  .mobile-module-header {
-    display: flex;
-    min-height: 58px;
-    padding: max(9px, env(safe-area-inset-top)) 12px 9px;
-    align-items: center;
-    gap: 10px;
-    border-bottom: 1px solid var(--separator);
-    background: var(--surface-raise);
+
+  @media (max-width: 760px) {
+    .chat-shell {
+      height: var(--app-viewport-height, 100dvh);
+      max-height: var(--app-viewport-height, 100dvh);
+    }
   }
-  .mobile-module-header .back-button { display: grid; }
-  .mobile-module-header div { display: grid; gap: 2px; }
-  .mobile-module-header span { color: var(--ink-faint); font-size: 9px; }
-  .mobile-module-header strong { font-size: 13px; }
+  @media (min-width: 761px) and (max-width: 1024px) {
+    .chat-shell {
+      height: calc(100dvh - 24px);
+      max-height: calc(100dvh - 24px);
+    }
+  }
+  /* 横屏矮视口需要压过上面的平板高度规则，保持全出血。 */
+  @media (max-height: 480px) and (orientation: landscape) {
+    .chat-shell {
+      height: var(--app-viewport-height, 100dvh);
+      max-height: var(--app-viewport-height, 100dvh);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-screen span { animation: none; }
+  .header-profile,
+  .sidebar-resizer::before,
+  .sidebar-resizer::after { transition: none; }
 }
 </style>

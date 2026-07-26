@@ -1,0 +1,17 @@
+# Local development profile that advertises this node through the existing
+# Cloudflare Tunnel. The tunnel terminates TLS for this public origin, so
+# Android and browser clients can use HTTPS/WSS without trusting a local CA.
+auth:
+  refresh-cookie:
+    secure: true
+
+lanchat:
+  node:
+    advertised-host: ${LANCHAT_ADVERTISED_HOST:chat.atti.cc.cd}
+    advertised-port: ${LANCHAT_ADVERTISED_PORT:443}
+    secure: true
+  discovery:
+    enabled: ${LANCHAT_DISCOVERY_ENABLED:true}
+
+tunnel:
+  hostname: ${TUNNEL_HOSTNAME:chat.atti.cc.cd}

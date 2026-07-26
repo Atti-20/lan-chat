@@ -62,9 +62,9 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" role="presentation" @click.self="emit('close')">
-    <section class="password-sheet" role="dialog" aria-modal="true" aria-labelledby="password-title">
-      <button class="close-button" type="button" aria-label="关闭" @click="emit('close')">
+  <div v-if="open" class="modal-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+    <section class="password-sheet apple-modal-surface" role="dialog" aria-modal="true" aria-labelledby="password-title">
+      <button class="close-button apple-modal-close" type="button" aria-label="关闭" @click="emit('close')">
         <UiIcon name="close" :size="16" />
       </button>
 
@@ -112,10 +112,12 @@ async function submit(): Promise<void> {
   position: relative;
   display: grid;
   width: min(100%, 400px);
+  max-height: calc(100dvh - 40px);
   padding: 28px 26px 24px;
   gap: 2px;
   border-radius: 22px;
   background: var(--surface-raise);
+  overflow-y: auto;
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   backdrop-filter: blur(20px) saturate(150%);
   -webkit-backdrop-filter: blur(20px) saturate(150%);

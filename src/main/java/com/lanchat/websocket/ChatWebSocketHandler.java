@@ -7,6 +7,9 @@ import com.lanchat.cluster.LocalRealtimeDelivery;
 import com.lanchat.cluster.LocalRealtimeRouter;
 import com.lanchat.cluster.RealtimeRouter;
 import com.lanchat.common.ConversationIds;
+import com.lanchat.common.DeviceSessionsRevokedEvent;
+import com.lanchat.common.ConversationMembershipChangedEvent;
+import com.lanchat.common.ConversationReadChangedEvent;
 import com.lanchat.common.FileReferenceUtil;
 import com.lanchat.common.TemporaryRoomChangedEvent;
 import com.lanchat.dto.ReliableMessageResult;
@@ -35,6 +38,8 @@ import com.lanchat.service.GroupService;
 import com.lanchat.service.UserService;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -65,6 +70,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -115,6 +121,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final RealtimeRouter realtimeRouter;
     private final ClusterPresenceService clusterPresenceService;
     private final ScheduledExecutorService authTimeoutExecutor;
+    private final AtomicBoolean shuttingDown = new AtomicBoolean();
 
     public ChatWebSocketHandler(ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
@@ -187,7 +194,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     @PreDestroy
     void shutdownExecutor() {
+        shuttingDown.set(true);
         authTimeoutExecutor.shutdownNow();
+    }
+
+    @EventListener
+    void handleContextClosed(ContextClosedEvent ignored) {
+        shutdownExecutor();
     }
 
     @Override
@@ -293,13 +306,17 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             user = ONLINE_USERS.remove(userId);
         }
 
+        // ContextClosedEvent is published before infrastructure beans are
+        // destroyed. Once shutdown starts, local state is enough: Redis lease
+        // expiry/reconnect reconciliation owns the cluster-wide transition.
+        if (shuttingDown.get()) return;
         boolean becameGloballyOffline = clusterPresenceService.unregister(
                 userId,
                 attributeLong(session, DEVICE_ID_ATTRIBUTE),
                 session.getId(),
                 becameLocallyOffline
         );
-        if (!becameGloballyOffline) return;
+        if (!becameGloballyOffline || shuttingDown.get()) return;
 
         userService.updateOnlineStatus(userId, 0);
         broadcastPresence("offline", userId, user == null ? "" : user.getNickname());
@@ -312,6 +329,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         FAILURE_COUNT.increment();
         recordConnectionEvent("TRANSPORT_ERROR", session, getUserId(session),
                 exception == null ? null : exception.getClass().getSimpleName());
+        if (shuttingDown.get()) {
+            closeQuietly(session, CloseStatus.GOING_AWAY);
+            return;
+        }
         log.warn("WebSocket 传输错误: userId={}, error={}", getUserId(session),
                 exception == null ? "unknown" : exception.getMessage());
         closeQuietly(session, CloseStatus.SERVER_ERROR);
@@ -350,6 +371,23 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             ONLINE_USERS.put(userId, user);
             boolean becameGloballyOnline = clusterPresenceService.register(
                     userId, device.getId(), session.getId(), wasOffline);
+
+            // A replacement login can commit after the first device lookup but before
+            // this socket is visible to the device-targeted FORCE_LOGOUT event. Once
+            // registered, re-read the exact token/device so one of the two orderings
+            // always closes a stale socket: this check handles an earlier commit,
+            // while the after-commit event handles a later commit.
+            DeviceLogin revalidatedDevice = userService.getActiveDevice(token, userId, deviceType);
+            if (!session.isOpen()
+                    || revalidatedDevice == null
+                    || !Objects.equals(device.getId(), revalidatedDevice.getId())) {
+                removeRejectedAuthentication(session, userId, device.getId(), sessions);
+                sendEvent(session, envelope("FORCE_LOGOUT", incoming.getRequestId(), null, null,
+                        Map.of("message", "设备会话已经失效")));
+                closeQuietly(session, CloseStatus.POLICY_VIOLATION);
+                return;
+            }
+
             if (becameGloballyOnline) {
                 userService.updateOnlineStatus(userId, 1);
             }
@@ -376,6 +414,22 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     Map.of("message", "连接认证失败")));
             closeQuietly(session, CloseStatus.POLICY_VIOLATION);
         }
+    }
+
+    private void removeRejectedAuthentication(WebSocketSession session,
+                                              Long userId,
+                                              Long deviceId,
+                                              Set<WebSocketSession> sessions) {
+        boolean removed = sessions.remove(session);
+        boolean becameLocallyOffline = sessions.isEmpty();
+        if (becameLocallyOffline) {
+            ONLINE_SESSIONS.remove(userId, sessions);
+            ONLINE_USERS.remove(userId);
+        }
+        // Idempotent even when the close callback removed the local session
+        // just before cluster registration completed.
+        clusterPresenceService.unregister(
+                userId, deviceId, session.getId(), becameLocallyOffline);
     }
 
     private boolean ensureSessionActive(WebSocketSession session, WebSocketEnvelope incoming) {
@@ -514,7 +568,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         Map<String, Long> requestedPositions = payloadPositions(incoming);
         if (requestedPositions.isEmpty()) {
-            requestedPositions = conversationService.getReadPositions(userId);
+            requestedPositions = conversationService.getAccessibleConversationIds(userId).stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            conversationId -> conversationId,
+                            ignored -> 0L,
+                            (first, ignored) -> first,
+                            LinkedHashMap::new));
         }
 
         List<ChatMessage> missing = new ArrayList<>();
@@ -575,13 +634,33 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         Long userId = getUserId(session);
         long safeSequence = Math.min(sequence, conversationService.getLastSequence(conversationId));
         conversationService.markRead(conversationId, userId, safeSequence);
+    }
 
+    /** Broadcasts the committed read state, including the reader's other devices. */
+    public void notifyConversationRead(ConversationReadChangedEvent changed) {
+        if (changed == null || !StringUtils.hasText(changed.conversationId())) return;
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("userId", userId);
-        payload.put("lastReadSequence", safeSequence);
-        WebSocketEnvelope readEvent = envelope("CHAT_READ", incoming.getRequestId(), null,
-                conversationId, payload);
-        deliverToConversation(conversationId, readEvent, null);
+        payload.put("userId", changed.userId());
+        payload.put("lastSequence", changed.lastSequence());
+        payload.put("lastReadSequence", changed.lastReadSequence());
+        payload.put("unreadCount", changed.unreadCount());
+        deliverToConversation(changed.conversationId(),
+                envelope("CHAT_READ", null, null, changed.conversationId(), payload),
+                null);
+    }
+
+    /** Evicts a conversation from every connected device after membership removal. */
+    public void notifyConversationMembershipChanged(ConversationMembershipChangedEvent changed) {
+        if (changed == null || changed.userId() == null
+                || !StringUtils.hasText(changed.conversationId())) return;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("active", changed.active());
+        sendToUser(changed.userId(), envelope(
+                changed.active() ? "CONVERSATION_CHANGED" : "CONVERSATION_REMOVED",
+                null,
+                null,
+                changed.conversationId(),
+                payload));
     }
 
     private void handleRecall(WebSocketSession session, WebSocketEnvelope incoming) {
@@ -1336,12 +1415,17 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void sendToDeviceLocal(Long userId, Long deviceId, WebSocketEnvelope event) {
-        if (userId == null || deviceId == null) return;
+        if (userId == null || deviceId == null || event == null) return;
         Set<WebSocketSession> sessions = ONLINE_SESSIONS.get(userId);
         if (sessions == null) return;
         sessions.stream()
                 .filter(session -> deviceId.equals(attributeLong(session, DEVICE_ID_ATTRIBUTE)))
-                .forEach(session -> sendEvent(session, event));
+                .forEach(session -> {
+                    sendEvent(session, event);
+                    if ("FORCE_LOGOUT".equals(event.getEvent())) {
+                        closeQuietly(session, CloseStatus.POLICY_VIOLATION);
+                    }
+                });
     }
 
     private boolean sendEvent(WebSocketSession session, WebSocketEnvelope event) {
@@ -1384,6 +1468,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         WebSocketEnvelope event = envelope(
                 "ROOM_STATUS_CHANGED", null, null, change.conversationId(), payload);
         change.memberIds().stream().distinct().forEach(userId -> sendToUser(userId, event));
+    }
+
+    /** Routes a committed revocation to only the affected devices, including remote instances. */
+    public void forceLogoutDevices(DeviceSessionsRevokedEvent change) {
+        if (change == null || change.userId() == null || change.deviceIds().isEmpty()) return;
+        WebSocketEnvelope event = envelope("FORCE_LOGOUT", null, null, null,
+                Map.of("reason", change.reason(), "message", change.message()));
+        change.deviceIds().forEach(deviceId -> sendToDevice(change.userId(), deviceId, event));
     }
 
     public static List<User> getOnlineUsers() {

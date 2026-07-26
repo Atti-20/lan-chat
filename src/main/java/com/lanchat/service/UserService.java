@@ -61,11 +61,24 @@ public interface UserService extends IService<User> {
     /** 检查用户当前是否处于免打扰时段 */
     boolean isInMutePeriod(Long userId);
 
-    /** 管理员删除用户（连带清理关联数据） */
-    boolean deleteUserByAdmin(Long userId);
+    /**
+     * 管理员归档用户：匿名化账号、退出协作关系并清除会话，但保留历史消息与回执。
+     */
+    boolean archiveUserByAdmin(Long userId, Long actorUserId);
+
+    /**
+     * 高风险物理擦除：仅允许已归档账号，并要求精确确认短语和审计原因。
+     */
+    boolean physicallyEraseUserByAdmin(Long userId,
+                                       Long actorUserId,
+                                       String confirmationPhrase,
+                                       String reason);
 
     /** 管理员重置普通用户密码并撤销其全部设备会话 */
     boolean resetPasswordByAdmin(Long userId, String newPassword);
+
+    /** 管理员启用或停用普通账号；停用时撤销全部设备会话 */
+    boolean setStatusByAdmin(Long userId, Integer status);
 
     /** 管理员授予或撤销普通账号的广播发布权限。 */
     boolean setBroadcastPermission(Long userId, boolean enabled);

@@ -1,6 +1,7 @@
 package com.lanchat.service;
 
 import com.lanchat.config.LanChatNodeProperties;
+import com.lanchat.config.LanChatProtocol;
 import com.lanchat.config.LanChatPrivateDeploymentProperties;
 import com.lanchat.dto.AdminDiagnostics;
 import com.lanchat.dto.NodePublicInfo;
@@ -81,7 +82,14 @@ public class NodeDiagnosticsService {
                         "MDNS_DISCOVERY",
                         "MULTI_INSTANCE_ROUTING"
                 ),
-                System.currentTimeMillis()
+                System.currentTimeMillis(),
+                LanChatProtocol.PROTOCOL_VERSION,
+                LanChatProtocol.API_BASE_PATH,
+                LanChatProtocol.WEB_SOCKET_PATH,
+                LanChatProtocol.HEALTH_PATH,
+                LanChatProtocol.APP_PATH,
+                LanChatProtocol.DESKTOP_AUTH_SUPPORTED,
+                LanChatProtocol.REFRESH_TRANSPORT
         );
     }
 

@@ -85,9 +85,9 @@ function saveRemark(): void {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="context-backdrop detail-backdrop" role="presentation" @click.self="emit('close')">
-      <aside class="context-panel detail-panel" role="dialog" aria-modal="true" aria-label="详情">
-        <button class="context-close" type="button" aria-label="关闭" @click="emit('close')">
+    <div v-if="open" class="context-backdrop detail-backdrop apple-modal-backdrop" role="presentation" @click.self="emit('close')">
+      <aside class="context-panel detail-panel apple-modal-surface" role="dialog" aria-modal="true" aria-label="详情">
+        <button class="context-close apple-modal-close" type="button" aria-label="关闭" @click="emit('close')">
           <UiIcon name="close" :size="15" />
         </button>
 
@@ -378,7 +378,7 @@ function saveRemark(): void {
   place-items: center;
   border-radius: 8px;
   color: var(--blue);
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 600;
   background: rgba(0, 122, 255, 0.09);
 }
@@ -395,7 +395,7 @@ function saveRemark(): void {
 .member-item:hover { background: var(--hover); }
 .member-item > span { display: grid; min-width: 0; gap: 2px; }
 .member-item strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.member-item small { color: var(--ink-soft); font-size: 9px; }
+.member-item small { color: var(--ink-soft); font-size: var(--font-micro); }
 
 @media (max-width: 520px) {
   .context-panel { width: calc(100% - 32px); padding: 28px 18px 18px; border-radius: 20px; }
