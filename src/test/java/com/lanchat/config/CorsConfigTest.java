@@ -29,13 +29,16 @@ class CorsConfigTest {
                 "https://tauri.localhost",
                 "http://127.0.0.1:1420",
                 "http://localhost:1420",
-                "https://localhost"
+                "https://localhost",
+                "capacitor://localhost"
         )));
         assertEquals(Boolean.FALSE, policy.getAllowCredentials());
         assertEquals(List.of("Authorization", "Content-Type", "X-Request-ID"),
                 policy.getAllowedHeaders());
         assertEquals("tauri://localhost", policy.checkOrigin("tauri://localhost"));
         assertEquals("https://localhost", policy.checkOrigin("https://localhost"));
+        // iOS 外壳源必须被精确放行，否则登录后 REST/WebSocket 全部被 CORS 拒绝。
+        assertEquals("capacitor://localhost", policy.checkOrigin("capacitor://localhost"));
         assertNull(policy.checkOrigin("https://malicious.example"));
         assertFalse(policy.getAllowedOrigins().contains("*"));
     }
