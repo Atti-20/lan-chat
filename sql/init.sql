@@ -23,13 +23,34 @@ CREATE TABLE `user` (
     `last_login_at` DATETIME     DEFAULT NULL COMMENT '最后登录时间',
     `status`        TINYINT      DEFAULT 1 COMMENT '账号状态：0-锁定 1-正常',
     `can_send_broadcast` TINYINT NOT NULL DEFAULT 0 COMMENT '是否允许发布广播：0-否 1-是',
+    `archived_at`   DATETIME     DEFAULT NULL COMMENT '管理员归档时间；非空账号不可恢复为可登录状态',
+    `archived_by`   BIGINT       DEFAULT NULL COMMENT '执行归档的管理员用户ID',
+    `archive_reason` VARCHAR(255) DEFAULT NULL COMMENT '不含个人信息的归档原因',
     `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `mute_start`    VARCHAR(5)   DEFAULT NULL COMMENT '全局免打扰开始时段（如22:00）',
     `mute_end`      VARCHAR(5)   DEFAULT NULL COMMENT '全局免打扰结束时段（如08:00）',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_username` (`username`)
+    UNIQUE KEY `uk_username` (`username`),
+    KEY `idx_user_archive` (`status`, `archived_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
+
+-- ----------------------------
+-- 管理员用户生命周期审计
+-- ----------------------------
+DROP TABLE IF EXISTS `admin_user_lifecycle_audit`;
+CREATE TABLE `admin_user_lifecycle_audit` (
+    `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '审计ID',
+    `actor_user_id`  BIGINT       NOT NULL COMMENT '执行操作的管理员用户ID',
+    `target_user_id` BIGINT       NOT NULL COMMENT '目标用户ID；物理擦除后仍保留',
+    `action`         VARCHAR(30)  NOT NULL COMMENT 'ARCHIVED/PHYSICALLY_ERASED',
+    `reason`         VARCHAR(500) NOT NULL COMMENT '不含敏感个人信息的操作原因',
+    `detail`         VARCHAR(500) DEFAULT NULL COMMENT '仅保存保留/清理数量等机器信息',
+    `create_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_user_lifecycle_target_time` (`target_user_id`, `create_time`),
+    KEY `idx_user_lifecycle_actor_time` (`actor_user_id`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理员账号归档与物理擦除审计';
 
 -- ----------------------------
 -- 好友关系表
@@ -313,9 +334,15 @@ CREATE TABLE `device_login` (
     `login_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '登录时间',
     `expire_time`  DATETIME     NOT NULL COMMENT '过期时间',
     `status`       TINYINT      DEFAULT 1 COMMENT '状态：0-已退出 1-有效',
+    `active_device_type` VARCHAR(20)
+        GENERATED ALWAYS AS (CASE WHEN `status` = 1 THEN `device_type` ELSE NULL END) STORED
+        COMMENT '仅活跃会话映射设备类型，用于单活唯一约束',
     PRIMARY KEY (`id`),
     KEY `idx_user_id` (`user_id`),
-    KEY `idx_token` (`token`(100))
+    KEY `idx_token` (`token`(100)),
+    KEY `idx_device_user_status` (`user_id`, `status`, `id`),
+    KEY `idx_device_user_type_status` (`user_id`, `device_type`, `status`, `id`),
+    UNIQUE KEY `uk_device_active_type` (`user_id`, `active_device_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备登录表';
 
 -- ----------------------------

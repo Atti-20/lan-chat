@@ -29,6 +29,10 @@ public class User {
     private Integer status;
     /** 是否允许发布应急广播：0-否，1-是；系统管理员始终允许。 */
     private Integer canSendBroadcast;
+    /** 非空表示账号已由管理员归档；归档账号不能重新启用或登录。 */
+    private LocalDateTime archivedAt;
+    private Long archivedBy;
+    private String archiveReason;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 

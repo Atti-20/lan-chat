@@ -1,5 +1,7 @@
 package com.lanchat.service;
 
+import com.lanchat.dto.ConversationSummary;
+
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +26,8 @@ public interface ConversationService {
     List<Long> getActiveMemberIds(String conversationId);
 
     List<String> getAccessibleConversationIds(Long userId);
+
+    List<ConversationSummary> getConversationSummaries(Long userId);
 
     /** 根据消息目标解析并创建统一会话，同时拒绝伪造的 conversationId。 */
     String resolveForMessage(Long senderId,

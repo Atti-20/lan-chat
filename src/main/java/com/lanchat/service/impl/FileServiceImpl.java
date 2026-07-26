@@ -9,6 +9,7 @@ import com.lanchat.dto.StoredFileContent;
 import com.lanchat.entity.FileAccessLog;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.ChatMessage;
+import com.lanchat.mapper.ChatGroupMapper;
 import com.lanchat.mapper.ChatMessageMapper;
 import com.lanchat.mapper.FileAccessGrantMapper;
 import com.lanchat.mapper.FileAccessLogMapper;
@@ -92,6 +93,9 @@ public class FileServiceImpl implements FileService {
 
     @Autowired
     private com.lanchat.mapper.UserMapper userMapper;
+
+    @Autowired
+    private ChatGroupMapper chatGroupMapper;
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -226,7 +230,7 @@ public class FileServiceImpl implements FileService {
 
         // Full bytes were received and verified, therefore duplicate ownership can
         // now be granted without allowing hash-only probing.
-        FileMetadata existing = getByHash(actualSha256);
+        FileMetadata existing = fileMetadataMapper.selectByHashForUpdate(actualSha256);
         if (existing != null) {
             fileAccessGrantMapper.grant(existing.getId(), userId, "UPLOAD_PROOF");
             FileUploadVO vo = buildVOFromMetadata(existing);
@@ -311,6 +315,13 @@ public class FileServiceImpl implements FileService {
         LambdaQueryWrapper<com.lanchat.entity.User> thumbAvatarWrapper = new LambdaQueryWrapper<>();
         thumbAvatarWrapper.eq(com.lanchat.entity.User::getAvatar, thumbUrl);
         if (userMapper.selectCount(thumbAvatarWrapper) > 0) return true;
+
+        // Group avatars remain readable after their original uploader leaves.
+        // They are public profile imagery within the authenticated deployment,
+        // matching the visibility rule already used for user avatars above.
+        LambdaQueryWrapper<com.lanchat.entity.ChatGroup> groupAvatarWrapper = new LambdaQueryWrapper<>();
+        groupAvatarWrapper.in(com.lanchat.entity.ChatGroup::getAvatar, fileUrl, thumbUrl);
+        if (chatGroupMapper.selectCount(groupAvatarWrapper) > 0) return true;
 
         String storedName = metadata.getFilePath();
         List<ChatMessage> references = chatMessageMapper.selectList(

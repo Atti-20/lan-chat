@@ -3,49 +3,59 @@ package com.lanchat.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.lanchat.common.ConversationIds;
+import com.lanchat.common.DeviceSessionsRevokedEvent;
 import com.lanchat.dto.ChangePasswordDTO;
 import com.lanchat.dto.LoginDTO;
 import com.lanchat.dto.LoginVO;
 import com.lanchat.dto.RegisterDTO;
 import com.lanchat.dto.TokenRefreshDTO;
+import com.lanchat.entity.AdminUserLifecycleAudit;
+import com.lanchat.entity.ChatGroup;
+import com.lanchat.entity.ConversationMember;
 import com.lanchat.entity.DeviceLogin;
+import com.lanchat.entity.FileAccessGrant;
+import com.lanchat.entity.FileMetadata;
+import com.lanchat.entity.FriendRequest;
+import com.lanchat.entity.Friendship;
+import com.lanchat.entity.GroupMember;
+import com.lanchat.entity.TemporaryRoom;
 import com.lanchat.entity.User;
-import com.lanchat.security.UserContextHolder;
+import com.lanchat.mapper.AdminUserLifecycleAuditMapper;
+import com.lanchat.mapper.ChatGroupMapper;
+import com.lanchat.mapper.ConversationMemberMapper;
 import com.lanchat.mapper.DeviceLoginMapper;
+import com.lanchat.mapper.FileAccessGrantMapper;
+import com.lanchat.mapper.FileMetadataMapper;
+import com.lanchat.mapper.FriendRequestMapper;
+import com.lanchat.mapper.FriendshipMapper;
+import com.lanchat.mapper.GroupMemberMapper;
+import com.lanchat.mapper.TemporaryRoomMapper;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.security.JwtUtil;
-import com.lanchat.service.LoginAttemptService;
+import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.FileService;
+import com.lanchat.service.LoginAttemptService;
 import com.lanchat.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
-import com.lanchat.mapper.FriendshipMapper;
-import com.lanchat.mapper.FriendRequestMapper;
-import com.lanchat.mapper.GroupMemberMapper;
-import com.lanchat.mapper.ChatMessageMapper;
-import com.lanchat.mapper.FileMetadataMapper;
-import com.lanchat.mapper.MessageRecallMapper;
-import com.lanchat.mapper.ChatGroupMapper;
-import com.lanchat.entity.Friendship;
-import com.lanchat.entity.FriendRequest;
-import com.lanchat.entity.GroupMember;
-import com.lanchat.entity.ChatMessage;
-import com.lanchat.entity.MessageRecall;
-import com.lanchat.entity.FileMetadata;
-import com.lanchat.entity.ChatGroup;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
     private static final Set<String> ALLOWED_DEVICE_TYPES = Set.of("web", "desktop", "android", "ios");
+    private static final String ARCHIVE_REASON = "ADMIN_ACCOUNT_ARCHIVE";
 
     @Autowired
     private UserMapper userMapper;
@@ -63,6 +73,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private LoginAttemptService loginAttemptService;
 
     @Autowired
+    private ApplicationEventPublisher applicationEventPublisher;
+
+    @Autowired
     private FriendshipMapper friendshipMapper;
 
     @Autowired
@@ -72,16 +85,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private GroupMemberMapper groupMemberMapper;
 
     @Autowired
-    private ChatMessageMapper chatMessageMapper;
+    private ConversationMemberMapper conversationMemberMapper;
 
     @Autowired
     private FileMetadataMapper fileMetadataMapper;
 
     @Autowired
-    private MessageRecallMapper messageRecallMapper;
+    private FileAccessGrantMapper fileAccessGrantMapper;
 
     @Autowired
     private ChatGroupMapper chatGroupMapper;
+
+    @Autowired
+    private TemporaryRoomMapper temporaryRoomMapper;
+
+    @Autowired
+    private AdminUserLifecycleAuditMapper adminUserLifecycleAuditMapper;
 
     @Autowired
     private FileService fileService;
@@ -134,6 +153,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginVO login(LoginDTO dto) {
         if (dto == null || !StringUtils.hasText(dto.getUsername()) || !StringUtils.hasText(dto.getPassword())) {
             throw new IllegalArgumentException("用户名和密码不能为空");
@@ -168,8 +188,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new IllegalArgumentException("账号已被锁定，请联系管理员");
         }
 
-        // 登录成功，清除失败计数
-        loginAttemptService.clearAttempts(dto.getUsername());
+        // Lock and re-read before changing sessions so a concurrent password/status change wins.
+        User lockedUser = lockUser(user.getId());
+        if (lockedUser == null || !passwordEncoder.matches(dto.getPassword(), lockedUser.getPassword())) {
+            loginAttemptService.recordFailedAttempt(dto.getUsername());
+            int remaining = 5 - loginAttemptService.getFailedAttempts(dto.getUsername());
+            if (remaining > 0) {
+                throw new IllegalArgumentException("用户名或密码错误，剩余尝试次数：" + remaining);
+            }
+            return null;
+        }
+        if (!Integer.valueOf(1).equals(lockedUser.getStatus())) {
+            throw new IllegalArgumentException("账号已被锁定，请联系管理员");
+        }
 
         String requestedDeviceType = StringUtils.hasText(dto.getDeviceType())
                 ? dto.getDeviceType().trim().toLowerCase() : "web";
@@ -178,17 +209,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 ? dto.getDeviceName().trim().substring(0, Math.min(dto.getDeviceName().trim().length(), 100))
                 : deviceType;
 
-        // 同类型设备互踢逻辑
-        // PRD: 同类型终端后登录者提示"已在其他设备登录"，可选择强制下线旧设备
-        invalidateSameDeviceType(user.getId(), deviceType);
+        List<DeviceLogin> replacedDevices = activeByTypeForUpdate(lockedUser.getId(), deviceType);
 
         // 生成 Token
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), deviceType);
-        String refreshToken = jwtUtil.generateRefreshToken(user.getId(), deviceType);
+        String token = jwtUtil.generateToken(lockedUser.getId(), lockedUser.getUsername(), deviceType);
+        String refreshToken = jwtUtil.generateRefreshToken(lockedUser.getId(), deviceType);
+
+        List<Long> replacedDeviceIds = deactivateLockedDevices(replacedDevices);
 
         // 保存设备登录记录
         DeviceLogin deviceLogin = new DeviceLogin();
-        deviceLogin.setUserId(user.getId());
+        deviceLogin.setUserId(lockedUser.getId());
         deviceLogin.setDeviceType(deviceType);
         deviceLogin.setDeviceName(deviceName);
         deviceLogin.setToken(token);
@@ -196,20 +227,26 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         deviceLogin.setLoginTime(LocalDateTime.now());
         deviceLogin.setExpireTime(LocalDateTime.now().plusSeconds(jwtUtil.getRefreshExpiration() / 1000));
         deviceLogin.setStatus(1);
-        deviceLoginMapper.insert(deviceLogin);
+        if (deviceLoginMapper.insert(deviceLogin) != 1) {
+            throw new IllegalStateException("设备会话创建失败");
+        }
 
         // 在线状态只由 WebSocket 连接维护，登录接口仅记录最后登录时间。
         LambdaUpdateWrapper<User> updateWrapper = new LambdaUpdateWrapper<>();
-        updateWrapper.eq(User::getId, user.getId())
+        updateWrapper.eq(User::getId, lockedUser.getId())
                 .set(User::getLastLoginAt, LocalDateTime.now());
         userMapper.update(null, updateWrapper);
 
+        loginAttemptService.clearAttempts(dto.getUsername());
+        publishRevocations(lockedUser.getId(), replacedDeviceIds,
+                "SESSION_REPLACED", "同类型设备已在其他位置登录");
+
         // 构建返回结果
         LoginVO vo = new LoginVO();
-        vo.setUserId(user.getId());
-        vo.setUsername(user.getUsername());
-        vo.setNickname(user.getNickname());
-        vo.setAvatar(user.getAvatar());
+        vo.setUserId(lockedUser.getId());
+        vo.setUsername(lockedUser.getUsername());
+        vo.setNickname(lockedUser.getNickname());
+        vo.setAvatar(lockedUser.getAvatar());
         vo.setToken(token);
         vo.setRefreshToken(refreshToken);
         vo.setExpiresIn(jwtUtil.getExpiration() / 1000);
@@ -217,6 +254,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    @Transactional
     public LoginVO refreshToken(TokenRefreshDTO dto) {
         if (dto == null || !StringUtils.hasText(dto.getRefreshToken())
                 || !jwtUtil.isRefreshToken(dto.getRefreshToken())) {
@@ -224,7 +262,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         Long userId = jwtUtil.getUserIdFromToken(dto.getRefreshToken());
-        User user = userMapper.selectById(userId);
+        User user = lockUser(userId);
         if (user == null || !Integer.valueOf(1).equals(user.getStatus())) {
             return null;
         }
@@ -234,14 +272,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return null;
         }
 
-        LambdaQueryWrapper<DeviceLogin> deviceWrapper = new LambdaQueryWrapper<>();
-        deviceWrapper.eq(DeviceLogin::getUserId, userId)
-                .eq(DeviceLogin::getDeviceType, deviceType)
-                .eq(DeviceLogin::getRefreshToken, dto.getRefreshToken())
-                .eq(DeviceLogin::getStatus, 1)
-                .gt(DeviceLogin::getExpireTime, LocalDateTime.now())
-                .last("LIMIT 1");
-        DeviceLogin device = deviceLoginMapper.selectOne(deviceWrapper);
+        LocalDateTime now = LocalDateTime.now();
+        DeviceLogin device = activeByTypeForUpdate(userId, deviceType).stream()
+                .filter(candidate -> Objects.equals(dto.getRefreshToken(), candidate.getRefreshToken()))
+                .filter(candidate -> candidate.getExpireTime() != null && candidate.getExpireTime().isAfter(now))
+                .findFirst()
+                .orElse(null);
         if (device == null) {
             return null;
         }
@@ -322,12 +358,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    @Transactional
     public void logoutDevice(Long userId, Long deviceId) {
-        LambdaUpdateWrapper<DeviceLogin> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.eq(DeviceLogin::getId, deviceId)
-                .eq(DeviceLogin::getUserId, userId)
-                .set(DeviceLogin::getStatus, 0);
-        deviceLoginMapper.update(null, wrapper);
+        if (userId == null || deviceId == null || lockUser(userId) == null) return;
+        List<DeviceLogin> devices = activeForUpdate(userId).stream()
+                .filter(device -> Objects.equals(deviceId, device.getId()))
+                .toList();
+        List<Long> revokedIds = deactivateLockedDevices(devices);
+        publishRevocations(userId, revokedIds,
+                "DEVICE_REVOKED", "此设备已被退出登录");
     }
 
     @Override
@@ -371,37 +410,32 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    @Transactional
     public void logoutByToken(Long userId, String token) {
-        if (userId == null || !StringUtils.hasText(token)) return;
-        LambdaUpdateWrapper<DeviceLogin> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.eq(DeviceLogin::getUserId, userId)
-                .eq(DeviceLogin::getToken, token)
-                .eq(DeviceLogin::getStatus, 1)
-                .set(DeviceLogin::getStatus, 0);
-        deviceLoginMapper.update(null, wrapper);
+        if (userId == null || !StringUtils.hasText(token) || lockUser(userId) == null) return;
+        List<DeviceLogin> devices = activeForUpdate(userId).stream()
+                .filter(device -> Objects.equals(token, device.getToken()))
+                .toList();
+        List<Long> revokedIds = deactivateLockedDevices(devices);
+        publishRevocations(userId, revokedIds, "LOGOUT", "设备已退出登录");
     }
 
     @Override
+    @Transactional
     public void logoutByRefreshToken(String refreshToken) {
         if (!StringUtils.hasText(refreshToken)) return;
-        LambdaUpdateWrapper<DeviceLogin> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.eq(DeviceLogin::getRefreshToken, refreshToken)
+        DeviceLogin discovered = deviceLoginMapper.selectOne(new LambdaQueryWrapper<DeviceLogin>()
+                .eq(DeviceLogin::getRefreshToken, refreshToken)
                 .eq(DeviceLogin::getStatus, 1)
-                .set(DeviceLogin::getStatus, 0);
-        deviceLoginMapper.update(null, wrapper);
-    }
+                .last("LIMIT 1"));
+        if (discovered == null || lockUser(discovered.getUserId()) == null) return;
 
-    /**
-     * 使同类型设备的旧 Token 失效（互踢逻辑）
-     * 同类型终端后登录者踢掉前一个，被踢设备收到强制下线通知
-     */
-    private void invalidateSameDeviceType(Long userId, String deviceType) {
-        LambdaUpdateWrapper<DeviceLogin> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.eq(DeviceLogin::getUserId, userId)
-                .eq(DeviceLogin::getDeviceType, deviceType)
-                .eq(DeviceLogin::getStatus, 1)
-                .set(DeviceLogin::getStatus, 0);
-        deviceLoginMapper.update(null, wrapper);
+        List<DeviceLogin> devices = activeForUpdate(discovered.getUserId()).stream()
+                .filter(device -> Objects.equals(refreshToken, device.getRefreshToken()))
+                .toList();
+        List<Long> revokedIds = deactivateLockedDevices(devices);
+        publishRevocations(discovered.getUserId(), revokedIds,
+                "LOGOUT", "设备已退出登录");
     }
 
     @Override
@@ -444,78 +478,94 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     @Transactional
-    public boolean deleteUserByAdmin(Long userId) {
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            throw new IllegalArgumentException("用户不存在");
+    public boolean archiveUserByAdmin(Long userId, Long actorUserId) {
+        requireLifecycleActor(actorUserId);
+        User user = lockUser(userId);
+        requireArchivableUser(user);
+        if (user.getArchivedAt() != null) {
+            return true;
         }
-        if ("admin".equals(user.getUsername())) {
-            throw new IllegalArgumentException("不能删除管理员账号");
+
+        List<DeviceLogin> activeDevices = activeForUpdate(userId);
+        FileCleanupStats files = cleanupUnreferencedUploads(userId);
+        int transferredGroups = transferOwnedGroups(userId);
+        int transferredRooms = transferOwnedRooms(userId);
+        removeOperationalRelationships(userId, false);
+
+        LocalDateTime archivedAt = LocalDateTime.now();
+        String anonymousUsername = "archived-user-" + userId + "-"
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        String disabledPassword = passwordEncoder.encode(UUID.randomUUID().toString());
+        if (userMapper.archiveAccount(
+                userId,
+                actorUserId,
+                anonymousUsername,
+                disabledPassword,
+                ARCHIVE_REASON,
+                archivedAt) != 1) {
+            throw new IllegalStateException("账号归档失败");
         }
 
-        List<ChatGroup> ownedGroups = chatGroupMapper.selectList(new LambdaQueryWrapper<ChatGroup>()
-                .eq(ChatGroup::getOwnerId, userId));
-        List<Long> ownedGroupIds = ownedGroups.stream().map(ChatGroup::getId).toList();
-
-        LambdaQueryWrapper<ChatMessage> affectedMessageWrapper = new LambdaQueryWrapper<>();
-        affectedMessageWrapper.and(w -> {
-            w.eq(ChatMessage::getFromUserId, userId)
-                    .or()
-                    .eq(ChatMessage::getToUserId, userId);
-            if (!ownedGroupIds.isEmpty()) w.or().in(ChatMessage::getGroupId, ownedGroupIds);
-        });
-        List<ChatMessage> affectedMessages = chatMessageMapper.selectList(affectedMessageWrapper);
-        List<String> affectedMessageIds = affectedMessages.stream()
-                .map(ChatMessage::getMessageId)
-                .filter(Objects::nonNull)
-                .toList();
-
-        // 清理用户相关的所有关联数据
-        // 1. 好友关系（作为用户 或 作为好友）
-        friendshipMapper.delete(new LambdaQueryWrapper<Friendship>()
-                .eq(Friendship::getUserId, userId)
-                .or()
-                .eq(Friendship::getFriendId, userId));
-        // 2. 好友请求（发出方 或 接收方）
-        friendRequestMapper.delete(new LambdaQueryWrapper<FriendRequest>()
-                .eq(FriendRequest::getFromUserId, userId)
-                .or()
-                .eq(FriendRequest::getToUserId, userId));
-        // 3. 群成员关系（含该用户拥有并将被解散的群）
-        LambdaQueryWrapper<GroupMember> memberDelete = new LambdaQueryWrapper<>();
-        memberDelete.eq(GroupMember::getUserId, userId);
-        if (!ownedGroupIds.isEmpty()) memberDelete.or().in(GroupMember::getGroupId, ownedGroupIds);
-        groupMemberMapper.delete(memberDelete);
-        // 4. 设备登录记录
         deviceLoginMapper.delete(new LambdaQueryWrapper<DeviceLogin>()
                 .eq(DeviceLogin::getUserId, userId));
-        // 5. 消息撤回记录与聊天消息
-        LambdaQueryWrapper<MessageRecall> recallDelete = new LambdaQueryWrapper<>();
-        recallDelete.eq(MessageRecall::getOperatorId, userId);
-        if (!affectedMessageIds.isEmpty()) recallDelete.or().in(MessageRecall::getMessageId, affectedMessageIds);
-        messageRecallMapper.delete(recallDelete);
-        chatMessageMapper.delete(affectedMessageWrapper);
+        loginAttemptService.clearAttempts(user.getUsername());
+        recordLifecycleAudit(
+                actorUserId,
+                userId,
+                "ARCHIVED",
+                ARCHIVE_REASON,
+                lifecycleDetail(files, transferredGroups, transferredRooms));
+        publishRevocations(
+                userId,
+                deviceIds(activeDevices),
+                "ACCOUNT_ARCHIVED",
+                "账号已归档，请联系管理员");
+        return true;
+    }
 
-        // 6. 文件：仍被其他消息引用的秒传文件保留，否则连同缩略图一并清理。
-        List<FileMetadata> uploadedFiles = fileMetadataMapper.selectList(new LambdaQueryWrapper<FileMetadata>()
-                .eq(FileMetadata::getUploadUserId, userId));
-        for (FileMetadata metadata : uploadedFiles) {
-            String storedName = metadata.getFilePath();
-            long references = storedName == null ? 0 : chatMessageMapper.selectCount(
-                    new LambdaQueryWrapper<ChatMessage>()
-                            .eq(ChatMessage::getFilePath, storedName)
-                            .eq(ChatMessage::getIsRecalled, 0));
-            if (references > 0) continue;
-            fileService.deleteStoredObjects(metadata);
-            fileMetadataMapper.deleteById(metadata.getId());
+    @Override
+    @Transactional
+    public boolean physicallyEraseUserByAdmin(Long userId,
+                                              Long actorUserId,
+                                              String confirmationPhrase,
+                                              String reason) {
+        requireLifecycleActor(actorUserId);
+        String expectedPhrase = "ERASE USER " + userId;
+        if (!Objects.equals(expectedPhrase, confirmationPhrase)) {
+            throw new IllegalArgumentException("确认短语不匹配，应输入：" + expectedPhrase);
+        }
+        String auditReason = normalizeErasureReason(reason);
+
+        User user = lockUser(userId);
+        requireArchivableUser(user);
+        if (user.getArchivedAt() == null) {
+            throw new IllegalArgumentException("账号必须先归档，才能执行物理擦除");
         }
 
-        // 7. 删除用户拥有的群组
-        if (!ownedGroupIds.isEmpty()) {
-            chatGroupMapper.delete(new LambdaQueryWrapper<ChatGroup>().in(ChatGroup::getId, ownedGroupIds));
+        List<DeviceLogin> activeDevices = activeForUpdate(userId);
+        FileCleanupStats files = cleanupUnreferencedUploads(userId);
+        int transferredGroups = transferOwnedGroups(userId);
+        int transferredRooms = transferOwnedRooms(userId);
+        removeOperationalRelationships(userId, true);
+        deviceLoginMapper.delete(new LambdaQueryWrapper<DeviceLogin>()
+                .eq(DeviceLogin::getUserId, userId));
+
+        recordLifecycleAudit(
+                actorUserId,
+                userId,
+                "PHYSICALLY_ERASED",
+                auditReason,
+                lifecycleDetail(files, transferredGroups, transferredRooms));
+        if (userMapper.deleteById(userId) != 1) {
+            throw new IllegalStateException("账号物理擦除失败");
         }
-        // 8. 删除用户本身
-        userMapper.deleteById(userId);
+
+        loginAttemptService.clearAttempts(user.getUsername());
+        publishRevocations(
+                userId,
+                deviceIds(activeDevices),
+                "ACCOUNT_ERASED",
+                "账号数据已被管理员擦除");
         return true;
     }
 
@@ -526,7 +576,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new IllegalArgumentException("用户参数不能为空");
         }
 
-        User user = userMapper.selectById(userId);
+        User user = lockUser(userId);
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
@@ -535,6 +585,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         validateAccountPassword(newPassword);
+        List<DeviceLogin> devices = activeForUpdate(userId);
 
         LambdaUpdateWrapper<User> userWrapper = new LambdaUpdateWrapper<>();
         userWrapper.eq(User::getId, userId)
@@ -542,12 +593,47 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         boolean updated = userMapper.update(null, userWrapper) > 0;
         if (!updated) return false;
 
-        LambdaUpdateWrapper<DeviceLogin> deviceWrapper = new LambdaUpdateWrapper<>();
-        deviceWrapper.eq(DeviceLogin::getUserId, userId)
-                .eq(DeviceLogin::getStatus, 1)
-                .set(DeviceLogin::getStatus, 0);
-        deviceLoginMapper.update(null, deviceWrapper);
+        List<Long> revokedIds = deactivateLockedDevices(devices);
         loginAttemptService.clearAttempts(user.getUsername());
+        publishRevocations(userId, revokedIds,
+                "PASSWORD_RESET", "密码已重置，请重新登录");
+        return true;
+    }
+
+    @Override
+    @Transactional
+    public boolean setStatusByAdmin(Long userId, Integer status) {
+        if (userId == null || status == null || (status != 0 && status != 1)) {
+            throw new IllegalArgumentException("用户状态只能为0或1");
+        }
+
+        User user = lockUser(userId);
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在");
+        }
+        if ("admin".equals(user.getUsername())) {
+            throw new IllegalArgumentException("不能封禁管理员账号");
+        }
+        if (user.getArchivedAt() != null && status == 1) {
+            throw new IllegalArgumentException("已归档账号不能重新启用");
+        }
+
+        List<DeviceLogin> devices = status == 0 ? activeForUpdate(userId) : List.of();
+        boolean needsUpdate = !Objects.equals(status, user.getStatus())
+                || (status == 0 && !Integer.valueOf(0).equals(user.getOnline()));
+        if (needsUpdate) {
+            LambdaUpdateWrapper<User> wrapper = new LambdaUpdateWrapper<>();
+            wrapper.eq(User::getId, userId)
+                    .set(User::getStatus, status);
+            if (status == 0) wrapper.set(User::getOnline, 0);
+            if (userMapper.update(null, wrapper) != 1) return false;
+        }
+
+        if (status == 0) {
+            List<Long> revokedIds = deactivateLockedDevices(devices);
+            publishRevocations(userId, revokedIds,
+                    "ACCOUNT_DISABLED", "账号已被管理员停用");
+        }
         return true;
     }
 
@@ -600,6 +686,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    @Transactional
     public boolean changePassword(ChangePasswordDTO dto) {
         Long userId = UserContextHolder.getCurrentUserId();
         if (userId == null) {
@@ -611,7 +698,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new IllegalArgumentException("密码参数不完整");
         }
 
-        User user = userMapper.selectById(userId);
+        User user = lockUser(userId);
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
@@ -621,9 +708,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new IllegalArgumentException("原密码错误");
         }
 
-        // 校验新密码强度（复用注册时的密码校验逻辑）
         String newPassword = dto.getNewPassword();
         validateAccountPassword(newPassword);
+        List<DeviceLogin> devices = activeForUpdate(userId);
 
         // 更新密码并撤销所有设备会话，避免旧令牌继续访问。
         LambdaUpdateWrapper<User> wrapper = new LambdaUpdateWrapper<>();
@@ -631,13 +718,290 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .set(User::getPassword, passwordEncoder.encode(newPassword));
         boolean updated = userMapper.update(null, wrapper) > 0;
         if (updated) {
-            LambdaUpdateWrapper<DeviceLogin> deviceWrapper = new LambdaUpdateWrapper<>();
-            deviceWrapper.eq(DeviceLogin::getUserId, userId)
-                    .eq(DeviceLogin::getStatus, 1)
-                    .set(DeviceLogin::getStatus, 0);
-            deviceLoginMapper.update(null, deviceWrapper);
+            List<Long> revokedIds = deactivateLockedDevices(devices);
+            publishRevocations(userId, revokedIds,
+                    "PASSWORD_CHANGED", "密码已修改，请重新登录");
         }
         return updated;
+    }
+
+    private FileCleanupStats cleanupUnreferencedUploads(Long userId) {
+        List<FileMetadata> uploadedFiles = fileMetadataMapper.selectList(
+                new LambdaQueryWrapper<FileMetadata>()
+                        .eq(FileMetadata::getUploadUserId, userId)
+                        .orderByAsc(FileMetadata::getId));
+        if (uploadedFiles == null || uploadedFiles.isEmpty()) {
+            return new FileCleanupStats(0, 0);
+        }
+
+        int cleaned = 0;
+        int retained = 0;
+        for (FileMetadata metadata : uploadedFiles) {
+            if (metadata == null || metadata.getId() == null
+                    || !StringUtils.hasText(metadata.getFilePath())) {
+                retained++;
+                continue;
+            }
+            int deleted = fileMetadataMapper.deleteUnreferencedUpload(
+                    metadata.getId(), userId, metadata.getFilePath());
+            if (deleted == 1) {
+                fileAccessGrantMapper.delete(new LambdaQueryWrapper<FileAccessGrant>()
+                        .eq(FileAccessGrant::getFileId, metadata.getId()));
+                fileService.deleteStoredObjects(metadata);
+                cleaned++;
+            } else {
+                retained++;
+            }
+        }
+        return new FileCleanupStats(retained, cleaned);
+    }
+
+    private int transferOwnedGroups(Long userId) {
+        List<ChatGroup> ownedGroups = chatGroupMapper.selectList(
+                new LambdaQueryWrapper<ChatGroup>()
+                        .eq(ChatGroup::getOwnerId, userId)
+                        .orderByAsc(ChatGroup::getId));
+        if (ownedGroups == null || ownedGroups.isEmpty()) return 0;
+
+        int transferred = 0;
+        for (ChatGroup group : ownedGroups) {
+            if (group == null || group.getId() == null) continue;
+            Long nextOwnerId = selectActiveGroupSuccessor(group.getId(), userId);
+            // Never add the administrator to a private group merely because its owner was
+            // archived. With no active successor, retain the anonymous owner id as a
+            // history tombstone; physical erasure may later leave that non-authorizing id.
+            if (nextOwnerId == null) continue;
+            ensureGroupOwnerMembership(group.getId(), nextOwnerId);
+
+            group.setOwnerId(nextOwnerId);
+            group.setUpdateTime(LocalDateTime.now());
+            if (chatGroupMapper.updateById(group) != 1) {
+                throw new IllegalStateException("群组所有权转移失败");
+            }
+            conversationMemberMapper.insertIfAbsent(
+                    ConversationIds.groupConversation(group.getId()),
+                    nextOwnerId,
+                    "OWNER");
+            transferred++;
+        }
+        return transferred;
+    }
+
+    private Long selectActiveGroupSuccessor(Long groupId, Long archivedUserId) {
+        List<GroupMember> candidates = groupMemberMapper.selectList(
+                new LambdaQueryWrapper<GroupMember>()
+                        .eq(GroupMember::getGroupId, groupId)
+                        .ne(GroupMember::getUserId, archivedUserId)
+                        .orderByDesc(GroupMember::getRole)
+                        .orderByAsc(GroupMember::getJoinTime)
+                        .orderByAsc(GroupMember::getId));
+        if (candidates == null) return null;
+        for (GroupMember candidate : candidates) {
+            if (candidate == null || candidate.getUserId() == null) continue;
+            User candidateUser = userMapper.selectById(candidate.getUserId());
+            if (candidateUser != null
+                    && Integer.valueOf(1).equals(candidateUser.getStatus())
+                    && candidateUser.getArchivedAt() == null) {
+                return candidate.getUserId();
+            }
+        }
+        return null;
+    }
+
+    private void ensureGroupOwnerMembership(Long groupId, Long ownerId) {
+        GroupMember membership = groupMemberMapper.selectOne(
+                new LambdaQueryWrapper<GroupMember>()
+                        .eq(GroupMember::getGroupId, groupId)
+                        .eq(GroupMember::getUserId, ownerId)
+                        .last("LIMIT 1"));
+        if (membership == null) {
+            membership = new GroupMember();
+            membership.setGroupId(groupId);
+            membership.setUserId(ownerId);
+            membership.setRole(2);
+            membership.setJoinTime(LocalDateTime.now());
+            if (groupMemberMapper.insert(membership) != 1) {
+                throw new IllegalStateException("群组所有权转移失败");
+            }
+            return;
+        }
+        if (!Integer.valueOf(2).equals(membership.getRole())) {
+            membership.setRole(2);
+            if (groupMemberMapper.updateById(membership) != 1) {
+                throw new IllegalStateException("群组所有权转移失败");
+            }
+        }
+    }
+
+    private int transferOwnedRooms(Long userId) {
+        List<TemporaryRoom> rooms = temporaryRoomMapper.selectList(
+                new LambdaQueryWrapper<TemporaryRoom>()
+                        .eq(TemporaryRoom::getOwnerId, userId)
+                        .orderByAsc(TemporaryRoom::getId));
+        if (rooms == null || rooms.isEmpty()) return 0;
+
+        int transferred = 0;
+        for (TemporaryRoom room : rooms) {
+            if (room == null || room.getId() == null) continue;
+            Long nextOwnerId = selectActiveConversationSuccessor(
+                    ConversationIds.temporaryConversation(room.getId()), userId);
+            // As with groups, do not grant the administrator access to room history.
+            if (nextOwnerId == null) continue;
+            room.setOwnerId(nextOwnerId);
+            room.setUpdateTime(LocalDateTime.now());
+            if (temporaryRoomMapper.updateById(room) != 1) {
+                throw new IllegalStateException("临时房间所有权转移失败");
+            }
+            conversationMemberMapper.insertIfAbsent(
+                    ConversationIds.temporaryConversation(room.getId()),
+                    nextOwnerId,
+                    "OWNER");
+            transferred++;
+        }
+        return transferred;
+    }
+
+    private Long selectActiveConversationSuccessor(String conversationId, Long archivedUserId) {
+        List<ConversationMember> candidates = conversationMemberMapper.selectList(
+                new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, conversationId)
+                        .ne(ConversationMember::getUserId, archivedUserId)
+                        .isNull(ConversationMember::getLeftTime)
+                        .orderByAsc(ConversationMember::getId));
+        if (candidates == null) return null;
+        for (ConversationMember candidate : candidates) {
+            if (candidate == null || candidate.getUserId() == null) continue;
+            User candidateUser = userMapper.selectById(candidate.getUserId());
+            if (candidateUser != null
+                    && Integer.valueOf(1).equals(candidateUser.getStatus())
+                    && candidateUser.getArchivedAt() == null) {
+                return candidate.getUserId();
+            }
+        }
+        return null;
+    }
+
+    private void removeOperationalRelationships(Long userId, boolean physicalErasure) {
+        friendshipMapper.delete(new LambdaQueryWrapper<Friendship>()
+                .eq(Friendship::getUserId, userId)
+                .or()
+                .eq(Friendship::getFriendId, userId));
+        friendRequestMapper.delete(new LambdaQueryWrapper<FriendRequest>()
+                .eq(FriendRequest::getFromUserId, userId)
+                .or()
+                .eq(FriendRequest::getToUserId, userId));
+        groupMemberMapper.delete(new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getUserId, userId));
+        fileAccessGrantMapper.delete(new LambdaQueryWrapper<FileAccessGrant>()
+                .eq(FileAccessGrant::getUserId, userId));
+        if (physicalErasure) {
+            conversationMemberMapper.deleteByUserId(userId);
+        } else {
+            conversationMemberMapper.markUserLeft(userId);
+        }
+    }
+
+    private void recordLifecycleAudit(Long actorUserId,
+                                      Long targetUserId,
+                                      String action,
+                                      String reason,
+                                      String detail) {
+        AdminUserLifecycleAudit audit = new AdminUserLifecycleAudit();
+        audit.setActorUserId(actorUserId);
+        audit.setTargetUserId(targetUserId);
+        audit.setAction(action);
+        audit.setReason(reason);
+        audit.setDetail(detail);
+        audit.setCreateTime(LocalDateTime.now());
+        if (adminUserLifecycleAuditMapper.insert(audit) != 1) {
+            throw new IllegalStateException("账号生命周期审计写入失败");
+        }
+    }
+
+    private String lifecycleDetail(FileCleanupStats files,
+                                   int transferredGroups,
+                                   int transferredRooms) {
+        return "retainedFiles=" + files.retained()
+                + ";cleanedFiles=" + files.cleaned()
+                + ";transferredGroups=" + transferredGroups
+                + ";transferredRooms=" + transferredRooms;
+    }
+
+    private void requireLifecycleActor(Long actorUserId) {
+        if (actorUserId == null || actorUserId <= 0) {
+            throw new IllegalArgumentException("管理员身份无效");
+        }
+    }
+
+    private void requireArchivableUser(User user) {
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在");
+        }
+        if ("admin".equals(user.getUsername())) {
+            throw new IllegalArgumentException("不能归档或擦除管理员账号");
+        }
+    }
+
+    private String normalizeErasureReason(String reason) {
+        if (!StringUtils.hasText(reason)) {
+            throw new IllegalArgumentException("数据擦除原因不能为空");
+        }
+        String sanitized = reason.replaceAll("[\\p{Cntrl}]", "").trim();
+        if (sanitized.length() < 4 || sanitized.length() > 500) {
+            throw new IllegalArgumentException("数据擦除原因需为4-500个字符");
+        }
+        return sanitized;
+    }
+
+    private List<Long> deviceIds(List<DeviceLogin> devices) {
+        if (devices == null) return List.of();
+        return devices.stream()
+                .map(DeviceLogin::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    private User lockUser(Long userId) {
+        if (userId == null || userMapper.lockById(userId) == null) return null;
+        return userMapper.selectById(userId);
+    }
+
+    private List<DeviceLogin> activeByTypeForUpdate(Long userId, String deviceType) {
+        List<DeviceLogin> devices = deviceLoginMapper.selectActiveByTypeForUpdate(userId, deviceType);
+        return devices == null ? List.of() : devices;
+    }
+
+    private List<DeviceLogin> activeForUpdate(Long userId) {
+        List<DeviceLogin> devices = deviceLoginMapper.selectActiveForUpdate(userId);
+        return devices == null ? List.of() : devices;
+    }
+
+    private List<Long> deactivateLockedDevices(List<DeviceLogin> devices) {
+        List<Long> deviceIds = devices == null ? List.of() : devices.stream()
+                .map(DeviceLogin::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (deviceIds.isEmpty()) return List.of();
+
+        LambdaUpdateWrapper<DeviceLogin> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.in(DeviceLogin::getId, deviceIds)
+                .eq(DeviceLogin::getStatus, 1)
+                .set(DeviceLogin::getStatus, 0);
+        if (deviceLoginMapper.update(null, wrapper) != deviceIds.size()) {
+            throw new IllegalStateException("设备会话撤销失败");
+        }
+        return deviceIds;
+    }
+
+    private void publishRevocations(Long userId,
+                                    List<Long> deviceIds,
+                                    String reason,
+                                    String message) {
+        if (userId == null || deviceIds == null || deviceIds.isEmpty()) return;
+        applicationEventPublisher.publishEvent(
+                new DeviceSessionsRevokedEvent(userId, deviceIds, reason, message));
     }
 
     private void validateAccountPassword(String password) {
@@ -662,5 +1026,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         } catch (java.time.format.DateTimeParseException e) {
             return false;
         }
+    }
+
+    private record FileCleanupStats(int retained, int cleaned) {
     }
 }

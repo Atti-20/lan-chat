@@ -2,6 +2,7 @@ package com.lanchat.controller;
 
 import com.lanchat.common.Result;
 import com.lanchat.entity.ChatMessage;
+import com.lanchat.dto.ConversationSummary;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.ConversationService;
@@ -32,6 +33,12 @@ public class ChatController {
         Long userId = UserContextHolder.getCurrentUserId();
         return Result.success(chatMessageService.getConversationHistory(
                 conversationId, userId, beforeSequence, limit));
+    }
+
+    @GetMapping("/conversations")
+    public Result<List<ConversationSummary>> getConversationSummaries() {
+        Long userId = UserContextHolder.getCurrentUserId();
+        return Result.success(conversationService.getConversationSummaries(userId));
     }
 
     @GetMapping("/history/group")
