@@ -353,6 +353,7 @@ async fn atomic_replace(source: &Path, destination: &Path) -> std::io::Result<()
     let source = source.to_path_buf();
     let destination = destination.to_path_buf();
     tokio::task::spawn_blocking(move || {
+        use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND};
         use windows_sys::Win32::Storage::FileSystem::{
             MoveFileExW, ReplaceFileW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
             REPLACEFILE_WRITE_THROUGH,
@@ -364,8 +365,19 @@ async fn atomic_replace(source: &Path, destination: &Path) -> std::io::Result<()
 
         let source_wide = wide(source.as_os_str());
         let destination_wide = wide(destination.as_os_str());
-        let success = unsafe {
-            if destination.exists() {
+        let move_into_place = || unsafe {
+            MoveFileExW(
+                source_wide.as_ptr(),
+                destination_wide.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        let success = if destination.exists() {
+            // ReplaceFileW keeps the destination's attributes and ACLs, but it
+            // requires the destination to still exist. If it disappears
+            // between the check above and this call, fall back to a plain
+            // replace-if-exists move instead of failing the whole save.
+            let replaced = unsafe {
                 ReplaceFileW(
                     destination_wide.as_ptr(),
                     source_wide.as_ptr(),
@@ -374,13 +386,20 @@ async fn atomic_replace(source: &Path, destination: &Path) -> std::io::Result<()
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
                 )
-            } else {
-                MoveFileExW(
-                    source_wide.as_ptr(),
-                    destination_wide.as_ptr(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            };
+            if replaced == 0
+                && matches!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(code) if code == ERROR_FILE_NOT_FOUND as i32
+                        || code == ERROR_PATH_NOT_FOUND as i32
                 )
+            {
+                move_into_place()
+            } else {
+                replaced
             }
+        } else {
+            move_into_place()
         };
         if success == 0 {
             Err(std::io::Error::last_os_error())

@@ -24,11 +24,9 @@ pub fn install(app: &App) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id("lanchat")
         .menu(&menu)
         .tooltip("MeshX")
-        // The menu-bar image is a transparent, monochrome brand mark. Marking
-        // it as a macOS template lets the system render it legibly on both
-        // light and dark menu bars; it is deliberately independent of the
-        // full square application/Dock icon.
-        .icon_as_template(true)
+        // Template rendering is a macOS-only concept; requesting it elsewhere
+        // is at best a no-op, so only mark the icon on macOS.
+        .icon_as_template(cfg!(target_os = "macos"))
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
             if matches!(
@@ -63,11 +61,17 @@ pub fn install(app: &App) -> tauri::Result<()> {
             }
             _ => {}
         });
-    // Do not reuse the full application icon here. The status item needs the
-    // supplied, transparent MeshX mark so macOS can safely apply template
-    // coloring on either menu-bar appearance.
-    let menu_bar_icon = Image::from_bytes(include_bytes!("../icons/menu-bar-template.png"))?;
-    builder = builder.icon(menu_bar_icon);
+    // On macOS the status item must use the transparent, monochrome MeshX
+    // mark so the system can apply template coloring on either menu-bar
+    // appearance. Windows and Linux trays render icons as-is, so the
+    // template mark would be near-invisible there; those platforms get the
+    // full-color application icon instead.
+    let tray_icon = if cfg!(target_os = "macos") {
+        Image::from_bytes(include_bytes!("../icons/menu-bar-template.png"))?
+    } else {
+        Image::from_bytes(include_bytes!("../icons/32x32.png"))?
+    };
+    builder = builder.icon(tray_icon);
     builder.build(app)?;
     Ok(())
 }

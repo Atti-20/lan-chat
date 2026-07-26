@@ -130,3 +130,55 @@ pub fn run() {
             }
         });
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn windows_bundle_configuration_stays_polished() {
+        // The Windows smoke build runs with --no-bundle, so installer config
+        // is only exercised when a release is tagged. Pin the invariants the
+        // release gate depends on here so regressions surface in every CI run.
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.windows.conf.json")).unwrap();
+        let bundle = &config["bundle"];
+
+        let targets: Vec<&str> = bundle["targets"]
+            .as_array()
+            .expect("windows bundle targets")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect();
+        assert!(
+            targets.contains(&"nsis") && targets.contains(&"msi"),
+            "release verification expects both NSIS and MSI artifacts"
+        );
+
+        assert!(
+            bundle["publisher"]
+                .as_str()
+                .is_some_and(|publisher| !publisher.trim().is_empty()),
+            "without a publisher, Add/Remove Programs falls back to an identifier segment"
+        );
+
+        let nsis = &bundle["windows"]["nsis"];
+        assert_eq!(
+            nsis["installMode"].as_str(),
+            Some("currentUser"),
+            "per-user install must not require Administrator access"
+        );
+        assert_eq!(nsis["installerIcon"].as_str(), Some("icons/icon.ico"));
+        let languages: Vec<&str> = nsis["languages"]
+            .as_array()
+            .expect("nsis languages")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect();
+        assert!(
+            languages.contains(&"SimpChinese"),
+            "the product UI is Chinese-first; the installer must offer it"
+        );
+
+        // The referenced installer icon must exist in the repository.
+        assert!(!include_bytes!("../icons/icon.ico").is_empty());
+    }
+}
