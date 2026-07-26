@@ -10,11 +10,23 @@ export interface WsEnvelope {
   payload: Record<string, unknown>
 }
 
+export interface WsClose {
+  code: number
+  reason: string
+}
+
 type Predicate = (envelope: WsEnvelope) => boolean
 
 interface Waiter {
   predicate: Predicate
+  afterIndex: number
   resolve: (envelope: WsEnvelope) => void
+  reject: (error: Error) => void
+  timer: NodeJS.Timeout
+}
+
+interface CloseWaiter {
+  resolve: (close: WsClose) => void
   reject: (error: Error) => void
   timer: NodeJS.Timeout
 }
@@ -23,32 +35,53 @@ export class WsClient {
   private socket?: WebSocket
   private readonly received: WsEnvelope[] = []
   private readonly waiters = new Set<Waiter>()
+  private readonly closeWaiters = new Set<CloseWaiter>()
+  private lastClose?: WsClose
 
   constructor(
     private readonly baseUrl: string,
     private readonly token: string,
   ) {}
 
+  get messageCount(): number {
+    return this.received.length
+  }
+
+  get isOpen(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN
+  }
+
   async connect(): Promise<void> {
+    if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
+      throw new Error('WebSocket is already connected or connecting')
+    }
+    this.lastClose = undefined
     const wsUrl = new URL('/ws/chat', this.baseUrl)
     wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(wsUrl, {
-      origin: this.baseUrl,
-    })
+    const socket = new WebSocket(wsUrl, { origin: this.baseUrl })
     this.socket = socket
     this.bindSocket(socket)
 
     await new Promise<void>((resolve, reject) => {
-      socket.once('open', resolve)
-      socket.once('error', reject)
+      const onOpen = () => {
+        socket.off('error', onError)
+        resolve()
+      }
+      const onError = (error: Error) => {
+        socket.off('open', onOpen)
+        reject(error)
+      }
+      socket.once('open', onOpen)
+      socket.once('error', onError)
     })
 
+    const cursor = this.messageCount
     const authenticated = this.waitFor(
       (envelope) => envelope.event === 'AUTH_OK',
+      15_000,
+      cursor,
     )
-    this.send('AUTH', { token: this.token }, {
-      requestId: this.id('auth'),
-    })
+    this.send('AUTH', { token: this.token }, { requestId: this.id('auth') })
     await authenticated
   }
 
@@ -72,19 +105,24 @@ export class WsClient {
     }))
   }
 
-  waitFor(predicate: Predicate, timeoutMs = 15_000): Promise<WsEnvelope> {
-    const existing = this.received.find(predicate)
+  waitFor(
+    predicate: Predicate,
+    timeoutMs = 15_000,
+    afterIndex = 0,
+  ): Promise<WsEnvelope> {
+    const existing = this.received.slice(afterIndex).find(predicate)
     if (existing) return Promise.resolve(existing)
 
     return new Promise((resolve, reject) => {
       const waiter: Waiter = {
         predicate,
+        afterIndex,
         resolve,
         reject,
         timer: setTimeout(() => {
           this.waiters.delete(waiter)
           reject(new Error(
-            `Timed out waiting for WebSocket event; received: ${
+            `Timed out waiting for WebSocket event after index ${afterIndex}; received: ${
               this.received.map((item) => item.event).join(', ')
             }`,
           ))
@@ -94,14 +132,34 @@ export class WsClient {
     })
   }
 
+  waitForClose(timeoutMs = 15_000): Promise<WsClose> {
+    if (this.lastClose) return Promise.resolve(this.lastClose)
+    return new Promise((resolve, reject) => {
+      const waiter: CloseWaiter = {
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.closeWaiters.delete(waiter)
+          reject(new Error('Timed out waiting for WebSocket close'))
+        }, timeoutMs),
+      }
+      this.closeWaiters.add(waiter)
+    })
+  }
+
+  async disconnect(): Promise<WsClose | null> {
+    const socket = this.socket
+    if (!socket || socket.readyState === WebSocket.CLOSED) return this.lastClose || null
+    const closed = this.waitForClose(5_000)
+    socket.close(1000, 'E2E complete')
+    return closed.catch(() => null)
+  }
+
   close(): void {
-    for (const waiter of this.waiters) {
-      clearTimeout(waiter.timer)
-      waiter.reject(new Error('WebSocket closed before event arrived'))
-    }
-    this.waiters.clear()
-    this.socket?.close()
+    const socket = this.socket
+    if (socket && socket.readyState !== WebSocket.CLOSED) socket.close()
     this.socket = undefined
+    this.rejectEventWaiters(new Error('WebSocket closed by E2E client'))
   }
 
   id(prefix: string): string {
@@ -111,17 +169,52 @@ export class WsClient {
   }
 
   private onMessage(raw: WebSocket.RawData): void {
-    const envelope = JSON.parse(raw.toString()) as WsEnvelope
+    let envelope: WsEnvelope
+    try {
+      envelope = JSON.parse(raw.toString()) as WsEnvelope
+    } catch {
+      this.rejectEventWaiters(new Error(`WebSocket returned invalid JSON: ${raw.toString()}`))
+      return
+    }
     this.received.push(envelope)
+    const index = this.received.length - 1
     for (const waiter of this.waiters) {
-      if (!waiter.predicate(envelope)) continue
+      if (index < waiter.afterIndex || !waiter.predicate(envelope)) continue
       clearTimeout(waiter.timer)
       this.waiters.delete(waiter)
       waiter.resolve(envelope)
     }
   }
 
+  private onClose(code: number, reason: Buffer): void {
+    const close = { code, reason: reason.toString() }
+    this.lastClose = close
+    this.socket = undefined
+    for (const waiter of this.closeWaiters) {
+      clearTimeout(waiter.timer)
+      waiter.resolve(close)
+    }
+    this.closeWaiters.clear()
+    this.rejectEventWaiters(
+      new Error(`WebSocket closed (${close.code}${close.reason ? `: ${close.reason}` : ''})`),
+    )
+  }
+
+  private rejectEventWaiters(error: Error): void {
+    for (const waiter of this.waiters) {
+      clearTimeout(waiter.timer)
+      waiter.reject(error)
+    }
+    this.waiters.clear()
+  }
+
   private bindSocket(socket: WebSocket): void {
     socket.on('message', (raw) => this.onMessage(raw))
+    socket.on('close', (code, reason) => this.onClose(code, reason))
+    socket.on('error', (error) => {
+      if (socket.readyState === WebSocket.OPEN) {
+        this.rejectEventWaiters(error)
+      }
+    })
   }
 }
