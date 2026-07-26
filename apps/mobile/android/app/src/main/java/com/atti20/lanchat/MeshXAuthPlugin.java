@@ -31,7 +31,7 @@ public class MeshXAuthPlugin extends Plugin {
 
     @PluginMethod
     public void login(PluginCall call) {
-        execute(call, () -> {
+        executeExclusive(call, () -> {
             MeshXAuthClient.AuthSession session = client.login(
                     call.getString("origin"),
                     call.getString("apiBasePath", MeshXAuthClient.API_BASE_PATH),
@@ -44,7 +44,7 @@ public class MeshXAuthPlugin extends Plugin {
 
     @PluginMethod
     public void refresh(PluginCall call) {
-        execute(call, () -> {
+        executeExclusive(call, () -> {
             MeshXAuthClient.AuthSession session = client.refresh(
                     call.getString("origin"),
                     call.getString("apiBasePath", MeshXAuthClient.API_BASE_PATH),
@@ -55,7 +55,7 @@ public class MeshXAuthPlugin extends Plugin {
 
     @PluginMethod
     public void logout(PluginCall call) {
-        execute(call, () -> {
+        executeExclusive(call, () -> {
             client.logout(
                     call.getString("origin"),
                     call.getString("apiBasePath", MeshXAuthClient.API_BASE_PATH),
@@ -70,6 +70,22 @@ public class MeshXAuthPlugin extends Plugin {
             client.clearNodeSession(call.getString("origin"));
             call.resolve();
         });
+    }
+
+    /**
+     * The single-thread executor queues submissions, so the client's
+     * requireIdle guard can never observe a busy state from a call routed
+     * through it: a second request would silently wait behind an in-flight
+     * one (up to the 12s call timeout) instead of failing fast. Capacitor
+     * dispatches plugin methods from a single thread, so this check-then-submit
+     * cannot race; requireIdle stays in the client as the defensive invariant.
+     */
+    private void executeExclusive(PluginCall call, AuthAction action) {
+        if (client.isBusy(call.getString("origin"))) {
+            call.reject("a native authentication request is already in progress", "AUTH_BUSY");
+            return;
+        }
+        execute(call, action);
     }
 
     private void execute(PluginCall call, AuthAction action) {

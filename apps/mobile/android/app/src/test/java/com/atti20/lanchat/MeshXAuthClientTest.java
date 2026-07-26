@@ -269,6 +269,36 @@ public class MeshXAuthClientTest {
     }
 
     @Test
+    public void isBusyIsTrueOnlyWhileAnOperationIsInFlightForThatOrigin() throws Exception {
+        server.enqueue(authResponse("access", "refresh-before"));
+        server.enqueue(authResponse("rotated-access", "refresh-after")
+                .setHeadersDelay(300, TimeUnit.MILLISECONDS));
+        assertFalse(client.isBusy(origin(server)));
+        client.login(origin(server), "/api/v1", "atti", "secret", "Pixel");
+        assertFalse(client.isBusy(origin(server)));
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<MeshXAuthClient.AuthSession> refresh = executor.submit(() -> client.refresh(
+                    origin(server), "/api/v1", "Pixel"));
+            server.takeRequest(1, TimeUnit.SECONDS);
+            assertTrue(server.takeRequest(1, TimeUnit.SECONDS) != null);
+
+            // The refresh has reached the node but its response is delayed, so
+            // the origin's guard is observably held...
+            assertTrue(client.isBusy(origin(server)));
+            // ...for that origin only, and never for unparseable origins.
+            assertFalse(client.isBusy("http://other-node.invalid:8080"));
+            assertFalse(client.isBusy("not a node origin"));
+
+            assertEquals("rotated-access", refresh.get(2, TimeUnit.SECONDS).token());
+            assertFalse(client.isBusy(origin(server)));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void switchingNodesClearsOriginASessionAndRotatesOriginB() throws Exception {
         try (MockWebServer other = new MockWebServer()) {
             other.start();

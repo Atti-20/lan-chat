@@ -4,11 +4,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
-import android.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -30,10 +28,8 @@ final class EncryptedOriginSessionStore implements OriginSessionStore {
     private static final String KEY_ALIAS = "meshx_auth_cookie_key_v1";
     private static final String PREFERENCES = "meshx_native_auth_v1";
     private static final String CIPHER = "AES/GCM/NoPadding";
-    private static final int IV_BYTES = 12;
 
     private final SharedPreferences preferences;
-    private final SecureRandom secureRandom = new SecureRandom();
 
     EncryptedOriginSessionStore(Context context) {
         preferences = context.getApplicationContext()
@@ -97,26 +93,27 @@ final class EncryptedOriginSessionStore implements OriginSessionStore {
     }
 
     private String encrypt(String origin, byte[] plaintext) throws Exception {
-        byte[] iv = new byte[IV_BYTES];
-        secureRandom.nextBytes(iv);
         Cipher cipher = Cipher.getInstance(CIPHER);
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey(), new GCMParameterSpec(128, iv));
+        // Android Keystore keys enforce randomized encryption: initializing
+        // ENCRYPT_MODE with a caller-supplied GCMParameterSpec throws
+        // InvalidAlgorithmParameterException. Let the Keystore generate the IV
+        // and persist it in the blob's self-describing IV segment; DECRYPT_MODE
+        // with the stored IV remains allowed.
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey());
         cipher.updateAAD(origin.getBytes(StandardCharsets.UTF_8));
-        byte[] encrypted = cipher.doFinal(plaintext);
-        return Base64.encodeToString(iv, Base64.NO_WRAP)
-                + "." + Base64.encodeToString(encrypted, Base64.NO_WRAP);
+        byte[] iv = cipher.getIV();
+        if (iv == null || iv.length == 0) {
+            throw new SessionStoreException("cipher did not provide an encryption IV");
+        }
+        return SessionBlobCodec.encode(iv, cipher.doFinal(plaintext));
     }
 
     private byte[] decrypt(String origin, String value) throws Exception {
-        String[] parts = value.split("\\.", -1);
-        if (parts.length != 2) throw new IllegalArgumentException("invalid encrypted session");
-        byte[] iv = Base64.decode(parts[0], Base64.NO_WRAP);
-        if (iv.length != IV_BYTES) throw new IllegalArgumentException("invalid encrypted session IV");
-        byte[] encrypted = Base64.decode(parts[1], Base64.NO_WRAP);
+        SessionBlobCodec.Blob blob = SessionBlobCodec.decode(value);
         Cipher cipher = Cipher.getInstance(CIPHER);
-        cipher.init(Cipher.DECRYPT_MODE, secretKey(), new GCMParameterSpec(128, iv));
+        cipher.init(Cipher.DECRYPT_MODE, secretKey(), new GCMParameterSpec(128, blob.iv()));
         cipher.updateAAD(origin.getBytes(StandardCharsets.UTF_8));
-        return cipher.doFinal(encrypted);
+        return cipher.doFinal(blob.ciphertext());
     }
 
     private SecretKey secretKey() throws Exception {

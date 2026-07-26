@@ -159,6 +159,29 @@ final class MeshXAuthClient {
         }
     }
 
+    /**
+     * Cheap view of the same per-origin guard {@link #requireIdle} enforces,
+     * for callers that would otherwise queue behind an in-flight request
+     * instead of observing it. Never touches the session store, so it is safe
+     * to call from latency-sensitive threads. {@code requireIdle} remains the
+     * defensive invariant inside every operation.
+     */
+    boolean isBusy(String rawOrigin) {
+        CanonicalOrigin origin;
+        try {
+            origin = canonicalOrigin(rawOrigin);
+        } catch (AuthException exception) {
+            // An invalid origin can never hold the guard; the subsequent
+            // operation reports the proper validation error.
+            return false;
+        }
+        OriginState state = origins.get(origin.value());
+        if (state == null) return false;
+        synchronized (state) {
+            return state.operationInFlight;
+        }
+    }
+
     private OriginState stateFor(CanonicalOrigin origin) {
         OriginState state = origins.computeIfAbsent(origin.value(), ignored -> new OriginState());
         synchronized (state) {
