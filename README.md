@@ -2,7 +2,7 @@
 
 LanChat 面向校园、工厂、办公室、项目现场和应急环境，目标是在组织自有网络中提供可控、可靠的即时沟通能力。
 
-当前开发版本为 **V3.0.0**，正式发布基线仍为 V2.3.0。V3.0 继承了可靠消息、断网文本发件箱、重连补拉、文件安全、WebRTC、临时房间、应急广播、分片上传、LOCAL/MinIO 私有对象存储及多实例实时路由，并在本轮加入 macOS Tauri 桌面端 P0、原生局域网发现和 CI/Release/E2E 代码。尚未生成经外部证书签名、公证并正式发布的 V3.0 安装包。
+当前开发版本为 **v0.3.0**。`VERSION` 是 Maven、npm、Cargo、Tauri 与 Android `versionName` 的唯一发布版本基线，CI 会拒绝任一清单或发布 Tag 与它不一致。此前文档中的 V2.3/V3.0 是历史能力阶段名称，不再作为当前安装包的语义版本。v0.3.0 仍是候选发布版本；在签名、公证、Updater 和实体设备证据齐全前，不标记为正式发布。
 
 V2.3 的多实例能力属于同一逻辑 LanChat 节点的横向扩展：实例共享持久化数据和对象存储，并通过 Redis 分发实时事件。它不等同于两个独立数据库节点之间的双向复制；独立节点的数据同步、冲突检测和冲突合并仍在后续路线图中。
 
@@ -27,7 +27,7 @@ V2.3 的多实例能力属于同一逻辑 LanChat 节点的横向扩展：实例
 | 多实例实时路由与全局 Presence | 已实现 | 共享 MySQL、Redis、MinIO 的单逻辑节点；跨实例消息、业务通知、WebRTC 信令和在线状态 |
 | macOS 桌面端 P0 | 代码已实现，待安装回归 | Tauri 壳、托盘、通知、单实例、开机自启、受限深链、动态节点与原生 Refresh Cookie Jar |
 | Android 客户端 P1 | 工程已实现，待设备/签名回归 | Capacitor 8、共享 Vue UI、手动节点握手、前后台重连、文件选择上传、本地通知、HTTPS/WSS 默认与受控 LAN Debug HTTP 变体 |
-| CI、Release 与 E2E | 流水线代码已实现，待外部验证 | 通用 CI、三平台无签名 smoke build、签名草稿 Release、服务端镜像、双实例与断网测试 |
+| CI、Release 与 E2E | 候选流水线，待外部运行证据 | 版本一致性门禁、三平台无签名 smoke build、双实例与断网测试；签名草稿 Release 只有在平台签名及产物验证全部通过后才创建 |
 | 独立节点数据同步 | 规划中 | 尚未实现独立数据库节点间双向复制、权限传播和冲突合并 |
 | 端到端加密、本地 AI | 暂缓 | 不属于当前版本 |
 
@@ -210,6 +210,9 @@ sql/
   migration-v2.2-emergency-broadcast.sql 应急广播升级脚本
   migration-v2.2-broadcast-permission.sql 广播发布权限升级脚本
   migration-v2.3-resumable-object-storage.sql 分片上传与对象存储升级脚本
+  migration-v2.4-broadcast-task-workflow.sql 广播任务证据与完成状态升级脚本
+  migration-v2.5-user-lifecycle.sql    用户归档与高风险擦除审计升级脚本
+  migration-v2.6-device-session-single-active.sql 设备会话单活约束升级脚本
 deploy/nginx.conf                      两个应用实例的 HTTP/WebSocket 统一网关
 compose.yaml                           MySQL、Redis、MinIO、双应用实例与网关
 compose.e2e.yaml                       隔离双实例端口与 E2E 配置覆盖
@@ -301,7 +304,7 @@ npm run build:app --prefix apps/desktop
 npm run build:dmg --prefix apps/desktop
 ```
 
-本地 `.app` 会使用 ad-hoc Bundle 签名，确保 Info.plist、资源和 entitlements 被完整密封，但该签名不建立发布者信任，`.app`/`.dmg` 仍仅用于开发回归。正式 macOS 分发还必须配置 Developer ID 证书和 Apple 公证凭据，并在真实 Release 中验证签名、公证、stapling、安装和 Updater 升级。仓库不会提交或生成占位私钥。
+本地 `.app` 会使用 ad-hoc Bundle 签名，确保 Info.plist、资源和 entitlements 被完整密封，但该签名不建立发布者信任，`.app`/`.dmg` 仍仅用于开发回归。正式 macOS 分发还必须配置 Developer ID 证书和 Apple 公证凭据；发布流水线会强制验证 universal 架构、签名链、Team ID、Gatekeeper、公证票据、DMG 完整性和挂载后的应用副本，任一检查失败都不会创建草稿 Release。真实 Mac 上的安装、首次启动及旧版本 Updater 升级仍需单独留存证据。仓库不会提交或生成占位私钥。
 
 ### 已有 V1 数据库升级
 
@@ -325,9 +328,12 @@ mysql -u root -p lan_chat < sql/migration-v2.2-temporary-rooms.sql
 mysql -u root -p lan_chat < sql/migration-v2.2-emergency-broadcast.sql
 mysql -u root -p lan_chat < sql/migration-v2.2-broadcast-permission.sql
 mysql -u root -p lan_chat < sql/migration-v2.3-resumable-object-storage.sql
+mysql -u root -p lan_chat < sql/migration-v2.4-broadcast-task-workflow.sql
+mysql -u root -p lan_chat < sql/migration-v2.5-user-lifecycle.sql
+mysql -u root -p lan_chat < sql/migration-v2.6-device-session-single-active.sql
 ```
 
-V2.0 迁移会创建统一会话、会话成员和文件授权表，回填旧消息的 `conversation_id` 与 `sequence`，并增加幂等唯一索引；V2.1/V2.2 迁移补充审计、文件传输、临时房间、广播及账号广播权限；V2.3 增加上传会话、上传分片、持久化对象清理任务以及 `file_metadata.storage_type`，现有 `file_path` 同时承担本地相对路径或 MinIO 对象键。历史文件会回填为 `LOCAL`，不会因为默认存储切换为 MinIO 而改变读取位置。跨实例路由使用 Redis，无额外数据库迁移。不要对已有数据执行 `sql/init.sql`，因为初始化脚本会重建表。
+V2.0 迁移会创建统一会话、会话成员和文件授权表，回填旧消息的 `conversation_id` 与 `sequence`，并增加幂等唯一索引；V2.1/V2.2 迁移补充审计、文件传输、临时房间、广播及账号广播权限；V2.3 增加上传会话、上传分片、持久化对象清理任务以及 `file_metadata.storage_type`；V2.4 增加广播任务证据、目标状态和完成字段；V2.5 增加非破坏性用户归档字段和独立的物理擦除审计表；V2.6 在停服迁移窗口去重活跃设备会话，并增加 `userId + deviceType` 单活唯一约束。升级时应停止所有应用实例，并且只按顺序执行尚未应用的迁移；其中 V2.4 不是重复执行脚本。现有 `file_path` 同时承担本地相对路径或 MinIO 对象键。历史文件会回填为 `LOCAL`，不会因为默认存储切换为 MinIO 而改变读取位置。跨实例路由使用 Redis，无额外数据库迁移。不要对已有数据执行 `sql/init.sql`，因为初始化脚本会重建表。
 
 若沿用旧版 Compose 的 `mysql-data` 卷，镜像不会在已有数据库中自动创建新的 `lanchat` 应用用户。切换新版 Compose 前应使用数据库管理员账号创建/更新该用户，以 `.env` 中同一 `DB_PASSWORD` 授予 `lan_chat` 的运行时读写权限；也可以备份数据后使用全新卷初始化。旧卷的 `DB_ROOT_PASSWORD` 同样不会被环境变量自动重置。
 
@@ -376,6 +382,8 @@ mysql -u root -p lan_chat < sql/demo-data.sql
 | POST | `/api/v1/broadcast` | 按权限发布应急广播 |
 | POST | `/api/v1/broadcast/{id}/cancel` | 管理员撤销广播并保留历史 |
 | POST | `/api/v1/admin/users` | 管理员创建普通账号 |
+| DELETE | `/api/v1/admin/user/{id}` | 归档并匿名化用户，保留消息、回执与审计 |
+| POST | `/api/v1/admin/user/{id}/physical-erasure` | 已归档用户的独立高风险数据擦除流程 |
 | PUT | `/api/v1/admin/user/{id}/broadcast-permission?enabled=true|false` | 管理员授予或撤销广播发布权限 |
 | GET | `/api/v1/admin/diagnostics` | 管理员依赖、存储、JVM 与连接诊断 |
 | GET | `/api/v1/admin/logs` | 管理员按级别、关键字读取受限日志尾部 |
@@ -407,7 +415,7 @@ git diff --check
 
 后端测试应覆盖会话 ID、消息幂等、序列分配、WebSocket 连接后认证、Refresh Cookie 轮换、文件内容识别与权限撤销、上传会话/分片幂等/缺片恢复/完整复核、LOCAL/MinIO 存储适配、跨实例去重/目标路由/全局 Presence、WebRTC 传输任务、临时房间生命周期、广播授权/好友边界/回执/撤销、私有部署、诊断、运行日志、mDNS 节点解析、控制器权限和应用上下文。最终测试数量以本次 `./mvnw test` 输出为准，不在文档中写死。
 
-Compose 配置至少执行一次带完整强密钥的解析校验；具备 Docker 环境时，使用 `compose.e2e.yaml` 启动共享 MySQL、Redis、MinIO 和两个应用实例，再执行 `npm test --prefix tests/e2e`。当前自动 E2E 覆盖跨实例消息幂等与浏览器断网文本发件箱恢复；Presence、WebRTC、Redis 中断补偿、上传恢复和真实 mDNS 多播仍需补充自动化证据。
+Compose 配置至少执行一次带完整强密钥的解析校验；具备 Docker 环境时，使用 `compose.e2e.yaml` 启动共享 MySQL、Redis、MinIO 和两个应用实例，再执行 `npm test --prefix tests/e2e`。当前自动 E2E 覆盖 Web 注册/登录/刷新轮换、同类设备登录失败回滚与并发单活、私聊、群聊、ACK 与 `clientMsgId` 幂等、实例重启后的 SYNC、浏览器离线发件箱恢复、分片上传与签名下载、跨用户去重文件在首个上传者归档后的可用性、跨实例投递、广播回执统计、强制下线、登录后消费 pending 通知目标的降级提示，以及原生节点切换后的缓存隔离。通知用例在浏览器中从持久化 pending target 开始，不等价于 Android 系统通知冷启动；Presence 故障恢复、WebRTC 真实 DataChannel、Redis 中断补偿、上传中途恢复和真实 mDNS 多播仍需补充自动化或实体环境证据。
 
 ### 原生启动 mDNS 节点发现
 
@@ -475,7 +483,7 @@ export LANCHAT_ADVERTISED_PORT=8080
 
 ## 文档说明
 
-- 当前正式发布基线为 V2.3.0，V3.0.0 仍是开发版本。V3.0 P0 的代码边界和未完成验收以 [V3.0 实施状态](PRD/v3/docs/v3/实施状态-V3.0.md) 为准。
+- 当前候选发布版本为 v0.3.0，以仓库根目录的 `VERSION` 为准；尚未创建通过全部发布门禁的正式版本。V3.0 P0 的文档保留为历史能力阶段说明，其代码边界和未完成验收见 [V3.0 实施状态](PRD/v3/docs/v3/实施状态-V3.0.md)。
 - 《需求分析-LAN-first-V2.0》和《功能分析-LAN-first-V2.0》中的独立节点复制、冲突合并和性能目标不等于已经完成。
 - 仓库内 [需求分析.md](需求分析.md) 与 [功能分析.md](功能分析.md) 是 V1.0 历史稿，仅用于版本对照。
 - P1/P2 的 Server Manager、iOS、离线任务增强和完整可观测性仍未实现；Android 工程和无签名 CI 构建已接线，但真实设备安装、内网 HTTP 回归、签名 AAB 与发布仍需要 Android SDK、受保护 keystore 和发布环境，不能仅凭工程或工作流文件标记完成。
