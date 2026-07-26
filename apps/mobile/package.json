@@ -6,17 +6,22 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "build:web": "npm run build:mobile --prefix ../../frontend",
-    "sync": "npm run build:web && cap sync android",
+    "sync": "npm run build:web && cap sync",
     "open:android": "cap open android",
     "run:android": "npm run sync && cap run android",
     "build:apk:debug": "npm run sync && cd android && ./gradlew assembleSecureDebug",
     "build:aab:release": "npm run sync && cd android && ./gradlew bundleSecureRelease",
-    "build:apk:lan-debug": "npm run sync && cd android && ./gradlew assembleLanDebug"
+    "build:apk:lan-debug": "npm run sync && cd android && ./gradlew assembleLanDebug",
+    "sync:android": "npm run build:web && cap sync android",
+    "sync:ios": "npm run build:web && cap sync ios",
+    "open:ios": "cap open ios",
+    "run:ios": "npm run sync:ios && cap run ios"
   },
   "dependencies": {
     "@capacitor/android": "8.4.2",
     "@capacitor/app": "8.1.1",
     "@capacitor/core": "8.4.2",
+    "@capacitor/ios": "^8.4.2",
     "@capacitor/local-notifications": "8.2.1"
   },
   "devDependencies": {
