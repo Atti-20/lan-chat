@@ -14,6 +14,8 @@ export interface User {
 export interface AdminUser extends User {
   muteStart?: string
   muteEnd?: string
+  /** 归档（注销）时间；有值代表账号已归档，只保留历史记录。 */
+  archivedAt?: string
 }
 
 export interface AuthSession {
@@ -109,10 +111,26 @@ export interface GroupMember {
   muteUntil?: string
 }
 
+export type ConversationKind = 'private' | 'group' | 'temporary'
+
+export interface ConversationSummary {
+  conversationId: string
+  kind: ConversationKind
+  targetId: number
+  lastSequence: number
+  lastReadSequence: number
+  unreadCount: number
+  lastMessage?: string
+  lastMessageType?: string
+  lastMessageAt?: string
+  pinned: boolean
+  muted: boolean
+}
+
 export interface Conversation {
   id: number
   conversationId: string
-  kind: 'private' | 'group' | 'temporary'
+  kind: ConversationKind
   name: string
   avatar?: string
   subtitle?: string
@@ -123,6 +141,8 @@ export interface Conversation {
   pinned?: boolean
   muted?: boolean
   unreadCount?: number
+  lastSequence?: number
+  lastReadSequence?: number
   pendingCount?: number
   source: Friend | ChatGroup | TemporaryRoom
 }

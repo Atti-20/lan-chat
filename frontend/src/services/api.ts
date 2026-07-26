@@ -3,6 +3,7 @@ import type {
   AuthSession,
   ChatGroup,
   ChatMessage,
+  ConversationSummary,
   BroadcastCreatePayload,
   BroadcastCompletePayload,
   BroadcastDetail,
@@ -28,13 +29,17 @@ import type {
   User,
 } from '../types'
 import { nativeBridge } from '../platform/nativeBridge'
+import { nodeFetch } from '../platform/nativeTransport'
 import {
   apiUrl,
   currentNodeApiBasePath,
+  currentNodeKey,
   currentNodeOrigin,
   resourceUrl,
 } from '../platform/nodeContext'
 import { clearSession, readSession, writeSession } from '../utils/storage'
+import { resolveUnauthorized } from './authRetry'
+import { NodeRefreshCoordinator } from './nodeRefreshCoordinator'
 
 interface ApiResult<T> {
   code: number
@@ -49,7 +54,7 @@ export class ApiError extends Error {
   }
 }
 
-let refreshPromise: Promise<boolean> | null = null
+const refreshCoordinator = new NodeRefreshCoordinator<AuthSession>()
 
 function clientDeviceType(): 'web' | 'android' | 'ios' {
   const runtime = nativeBridge.runtime()
@@ -70,21 +75,18 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function refreshAccessToken(): Promise<boolean> {
-  if (refreshPromise) return refreshPromise
-  refreshPromise = (async () => {
-    try {
-      if (nativeBridge.runtime() === 'tauri') {
-        const refreshed = await nativeBridge.desktopRefresh(
-          currentNodeOrigin(),
-          currentNodeApiBasePath(),
-        )
-        if (!refreshed) return false
-        writeSession(refreshed)
-        return true
+async function refreshAccessToken(expectedNodeKey = currentNodeKey()): Promise<boolean> {
+  if (currentNodeKey() !== expectedNodeKey) return false
+  const runtime = nativeBridge.runtime()
+  const origin = runtime === 'web' ? null : currentNodeOrigin()
+  const apiBasePath = runtime === 'web' ? null : currentNodeApiBasePath()
+  return refreshCoordinator.run(
+    expectedNodeKey,
+    async () => {
+      if (runtime !== 'web') {
+        return nativeBridge.nativeRefresh(origin!, apiBasePath!)
       }
-
-      const response = await fetch(apiUrl('/auth/refresh'), {
+      const response = await nodeFetch(apiUrl('/auth/refresh'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -94,22 +96,15 @@ async function refreshAccessToken(): Promise<boolean> {
         }),
       })
       const result = await response.json() as ApiResult<AuthSession>
-      if (!response.ok || result.code !== 200 || !result.data) return false
-      writeSession(result.data)
-      return true
-    } catch {
-      return false
-    }
-  })()
-
-  try {
-    return await refreshPromise
-  } finally {
-    refreshPromise = null
-  }
+      return response.ok && result.code === 200 && result.data ? result.data : null
+    },
+    (nodeKey) => currentNodeKey() === nodeKey,
+    writeSession,
+  )
 }
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+  const requestNodeKey = currentNodeKey()
   const isFormData = init.body instanceof FormData
   const headers = new Headers(init.headers)
   headers.set('X-Request-ID', `req_${crypto.randomUUID?.().replace(/-/g, '') || Date.now()}`)
@@ -120,15 +115,18 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 
   let response: Response
   try {
-    response = await fetch(apiUrl(path), { ...init, headers })
+    response = await nodeFetch(apiUrl(path), { ...init, headers })
   } catch (cause) {
     if (cause instanceof Error && cause.name === 'AbortError') throw cause
     throw new ApiError('无法连接服务器，请检查网络', 0)
   }
 
   if (response.status === 401 && retry) {
-    if (await refreshAccessToken()) return request<T>(path, init, false)
-    clearSession()
+    const outcome = await resolveUnauthorized(
+      { currentNodeKey, refreshAccessToken, clearSession },
+      requestNodeKey,
+    )
+    if (outcome === 'retry') return request<T>(path, init, false)
     throw new ApiError('登录已过期，请重新登录', 401)
   }
 
@@ -146,20 +144,24 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 }
 
 async function download(path: string, fallbackName: string, retry = true): Promise<{ blob: Blob; fileName: string }> {
+  const requestNodeKey = currentNodeKey()
   const headers = new Headers()
   headers.set('X-Request-ID', `req_${crypto.randomUUID?.().replace(/-/g, '') || Date.now()}`)
   Object.entries(authHeaders()).forEach(([key, value]) => headers.set(key, value))
 
   let response: Response
   try {
-    response = await fetch(apiUrl(path), { headers })
+    response = await nodeFetch(apiUrl(path), { headers })
   } catch {
     throw new ApiError('无法连接服务器，请检查网络', 0)
   }
 
   if (response.status === 401 && retry) {
-    if (await refreshAccessToken()) return download(path, fallbackName, false)
-    clearSession()
+    const outcome = await resolveUnauthorized(
+      { currentNodeKey, refreshAccessToken, clearSession },
+      requestNodeKey,
+    )
+    if (outcome === 'retry') return download(path, fallbackName, false)
     throw new ApiError('登录已过期，请重新登录', 401)
   }
 
@@ -209,28 +211,39 @@ export const api = {
     discoveries: () => request<DiscoveredNode[]>('/node/discoveries'),
   },
   auth: {
-    login: (username: string, password: string) => nativeBridge.runtime() === 'tauri'
-      ? nativeBridge.desktopLogin(
-        currentNodeOrigin(),
-        currentNodeApiBasePath(),
-        username,
-        password,
-      )
-      : request<AuthSession>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({
+    login: async (username: string, password: string) => {
+      const nodeKey = currentNodeKey()
+      const runtime = nativeBridge.runtime()
+      const origin = runtime === 'web' ? null : currentNodeOrigin()
+      const apiBasePath = runtime === 'web' ? null : currentNodeApiBasePath()
+      const session = runtime !== 'web'
+        ? await nativeBridge.nativeLogin(
+          origin!,
+          apiBasePath!,
           username,
           password,
-          deviceType: clientDeviceType(),
-          deviceName: clientDeviceName(),
-        }),
-      }),
+        )
+        : await request<AuthSession>('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            username,
+            password,
+            deviceType: clientDeviceType(),
+            deviceName: clientDeviceName(),
+          }),
+        })
+      if (currentNodeKey() !== nodeKey) {
+        if (origin) await nativeBridge.clearNodeSession(origin).catch(() => undefined)
+        throw new ApiError('节点已切换，请在当前节点重新登录', 409)
+      }
+      return session
+    },
     register: (username: string, password: string, nickname: string) => request<void>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, password, nickname }),
     }),
-    logout: () => nativeBridge.runtime() === 'tauri'
-      ? nativeBridge.desktopLogout(
+    logout: () => nativeBridge.runtime() !== 'web'
+      ? nativeBridge.nativeLogout(
         currentNodeOrigin(),
         currentNodeApiBasePath(),
         readSession()?.token,
@@ -339,6 +352,7 @@ export const api = {
     ),
   },
   chat: {
+    conversations: () => request<ConversationSummary[]>('/chat/conversations'),
     history: (conversationId: string, limit = 50, beforeSequence?: number) => request<ChatMessage[]>(
       `/chat/history?conversationId=${encodeURIComponent(conversationId)}&limit=${limit}${
         beforeSequence ? `&beforeSequence=${beforeSequence}` : ''

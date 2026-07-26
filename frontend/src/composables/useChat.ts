@@ -3,6 +3,19 @@ import { navigateToApp } from '../platform/appNavigation'
 import { nativeBridge } from '../platform/nativeBridge'
 import { selectedNode } from '../platform/nodeContext'
 import { api } from '../services/api'
+import {
+  applyConversationMessage,
+  applyConversationRead,
+  conversationReadRequiresSnapshot,
+  indexConversationSummaries,
+  removeConversationSummary,
+} from '../services/conversationSummaryState'
+import type {
+  ConversationMessageDelta,
+  ConversationReadDelta,
+  ConversationSummaryMap,
+} from '../services/conversationSummaryState'
+import { ConversationSelectionGeneration } from '../services/conversationSelectionState'
 import { playNotificationSound } from '../services/notificationSound'
 import { publishRealtimeEvent } from '../services/realtimeEvents'
 import {
@@ -20,6 +33,7 @@ import type {
   ChatMessage,
   ChatSendPayload,
   Conversation,
+  ConversationSummary,
   FileAttachmentData,
   Friend,
   FriendRequest,
@@ -52,11 +66,14 @@ interface AckWaiter {
   timer: number
 }
 
-interface ConversationRuntimeState {
-  lastMessage?: string
-  lastMessageType?: string
-  lastMessageTime?: string
-  unreadCount: number
+type ConversationSummaryDelta =
+  | { kind: 'message'; value: ConversationMessageDelta }
+  | { kind: 'read'; value: ConversationReadDelta }
+  | { kind: 'remove'; conversationId: string }
+
+interface VersionedConversationSummaryDelta {
+  revision: number
+  delta: ConversationSummaryDelta
 }
 
 export function useChat() {
@@ -82,13 +99,19 @@ export function useChat() {
   const typingLabel = shallowRef('')
   const onlineIds = ref<Set<number>>(new Set())
   const relayTransferLabel = shallowRef('')
-  const conversationRuntime = ref<Record<string, ConversationRuntimeState>>({})
+  const conversationSummaries = shallowRef<ConversationSummaryMap>({})
 
   const ackWaiters = new Map<string, AckWaiter>()
   const burnTimers = new Map<string, number>()
   const burnConversationIds = new Map<string, string>()
   const runtimePositions = new Map<string, number>()
+  const pendingReadPositions = new Map<string, number>()
+  const inaccessibleConversationIds = new Set<string>()
+  const summaryDeltaLog: VersionedConversationSummaryDelta[] = []
+  const conversationSelection = new ConversationSelectionGeneration()
   let flushPromise: Promise<void> | null = null
+  let conversationSummaryRefreshPromise: Promise<void> | null = null
+  let summaryRevision = 0
   let warnedAboutVolatileOutbox = false
   let syncResolver: ((hasMore: boolean) => void) | null = null
   let syncRejecter: ((cause: Error) => void) | null = null
@@ -103,6 +126,7 @@ export function useChat() {
     burnTimers.forEach((timer) => window.clearTimeout(timer))
     burnTimers.clear()
     burnConversationIds.clear()
+    conversationSelection.invalidate()
     if (messageSearchTimer !== null) window.clearTimeout(messageSearchTimer)
     if (backgroundSyncTimer !== null) window.clearInterval(backgroundSyncTimer)
   })
@@ -141,52 +165,32 @@ export function useChat() {
     },
   )
 
-  function getConversationRuntime(conversationId:string): ConversationRuntimeState {
-    return conversationRuntime.value[conversationId] || {
-      unreadCount: 0,
+  function getConversationSummary(conversationId: string): ConversationSummary | undefined {
+    return conversationSummaries.value[conversationId]
+  }
+
+  function applySummaryDelta(
+    source: ConversationSummaryMap,
+    delta: ConversationSummaryDelta,
+  ): ConversationSummaryMap {
+    if (delta.kind === 'message') return applyConversationMessage(source, delta.value)
+    if (delta.kind === 'read') return applyConversationRead(source, delta.value)
+    return removeConversationSummary(source, delta.conversationId)
+  }
+
+  function recordSummaryDelta(delta: ConversationSummaryDelta): void {
+    summaryRevision += 1
+    if (conversationSummaryRefreshPromise) {
+      summaryDeltaLog.push({ revision: summaryRevision, delta })
     }
-  }
-
-  function patchConversationRuntime(
-      conversationId: string,
-      patch: Partial<ConversationRuntimeState>,
-  ): void {
-    if (!conversationId) return
-    const current = getConversationRuntime(conversationId)
-    conversationRuntime.value = {
-      ...conversationRuntime.value,
-      [conversationId]: {
-        ...current,
-        ...patch,
-      },
-    }
-  }
-
-  function increaseConversationUnread(
-      conversationId: string,
-      amount = 1,
-  ): void {
-    if (!conversationId || amount <= 0) return
-    const current = getConversationRuntime(conversationId)
-    patchConversationRuntime(conversationId, {
-      unreadCount: current.unreadCount + amount,
-    })
-  }
-
-  function clearConversationUnread(conversationId: string): void {
-    if(!conversationId) return
-    patchConversationRuntime(conversationId, {
-      unreadCount: 0,
-    })
+    conversationSummaries.value = applySummaryDelta(conversationSummaries.value, delta)
+    void persistConversationDirectory()
   }
 
   function forgetConversation(conversationId: string): void {
-    if(!conversationId) return
-    const next = {
-      ...conversationRuntime.value,
-    }
-    delete next[conversationId]
-    conversationRuntime.value = next
+    if (!conversationId) return
+    inaccessibleConversationIds.add(conversationId)
+    recordSummaryDelta({ kind: 'remove', conversationId })
   }
 
   const conversations = computed<Conversation[]>(() => {
@@ -194,14 +198,14 @@ export function useChat() {
 
     const privateChats = friends.value.map((friend): Conversation => {
       const conversationId = me ? privateConversationId(me, friend.friendId) : ''
-      const runtime = getConversationRuntime(conversationId)
+      const summary = getConversationSummary(conversationId)
 
-      const lastMessage = runtime.lastMessage !== undefined
-          ? runtime.lastMessage
+      const lastMessage = summary?.lastMessage !== undefined
+          ? summary.lastMessage
           : friend.lastMessage
 
-      const lastMessageType = runtime.lastMessageType !== undefined
-          ? runtime.lastMessageType
+      const lastMessageType = summary?.lastMessageType !== undefined
+          ? summary.lastMessageType
           : friend.lastMessageType
 
       return {
@@ -213,11 +217,13 @@ export function useChat() {
         subtitle: friend.signature,
         lastMessage: conversationPreview(lastMessageType, lastMessage),
         lastMessageType,
-        lastMessageTime: runtime.lastMessageTime || friend.lastMessageTime,
+        lastMessageTime: summary?.lastMessageAt || friend.lastMessageTime,
         online: onlineIds.value.has(friend.friendId) || friend.online === 1,
-        pinned: friend.isPinned === 1,
-        muted: friend.isMuted === 1,
-        unreadCount: runtime.unreadCount,
+        pinned: summary?.pinned ?? friend.isPinned === 1,
+        muted: summary?.muted ?? friend.isMuted === 1,
+        unreadCount: summary?.unreadCount || 0,
+        lastSequence: summary?.lastSequence || 0,
+        lastReadSequence: summary?.lastReadSequence || 0,
         pendingCount: outbox.entries.value.filter(
             (entry) => entry.conversationId === conversationId,
         ).length,
@@ -227,14 +233,14 @@ export function useChat() {
 
     const groupChats = groups.value.map((group): Conversation => {
       const conversationId = groupConversationId(group.id)
-      const runtime = getConversationRuntime(conversationId)
+      const summary = getConversationSummary(conversationId)
 
-      const lastMessage = runtime.lastMessage !== undefined
-          ? runtime.lastMessage
+      const lastMessage = summary?.lastMessage !== undefined
+          ? summary.lastMessage
           : group.lastMessage
 
-      const lastMessageType = runtime.lastMessageType !== undefined
-          ? runtime.lastMessageType
+      const lastMessageType = summary?.lastMessageType !== undefined
+          ? summary.lastMessageType
           : group.lastMessageType
 
       return {
@@ -246,8 +252,12 @@ export function useChat() {
         subtitle: group.announcement,
         lastMessage: conversationPreview(lastMessageType, lastMessage),
         lastMessageType,
-        lastMessageTime: runtime.lastMessageTime || group.lastMessageTime,
-        unreadCount: runtime.unreadCount,
+        lastMessageTime: summary?.lastMessageAt || group.lastMessageTime,
+        pinned: summary?.pinned || false,
+        muted: summary?.muted || false,
+        unreadCount: summary?.unreadCount || 0,
+        lastSequence: summary?.lastSequence || 0,
+        lastReadSequence: summary?.lastReadSequence || 0,
         pendingCount: outbox.entries.value.filter(
             (entry) => entry.conversationId === conversationId,
         ).length,
@@ -256,8 +266,8 @@ export function useChat() {
     })
 
     const temporaryChats = rooms.value.map((room): Conversation => {
-      const runtime = getConversationRuntime(room.conversationId)
-      const hasRuntimeMessage = runtime.lastMessage !== undefined
+      const summary = getConversationSummary(room.conversationId)
+      const hasSummaryMessage = summary?.lastMessage !== undefined
 
       return {
         id: room.id,
@@ -265,12 +275,16 @@ export function useChat() {
         kind: 'temporary',
         name: room.roomName,
         subtitle: room.purpose || temporaryRoomStatusLabel(room.status),
-        lastMessage: hasRuntimeMessage
-            ? conversationPreview(runtime.lastMessageType, runtime.lastMessage)
+        lastMessage: hasSummaryMessage
+            ? conversationPreview(summary.lastMessageType, summary.lastMessage)
             : temporaryRoomStatusLabel(room.status),
-        lastMessageType: runtime.lastMessageType,
-        lastMessageTime: runtime.lastMessageTime || room.updateTime || room.createTime,
-        unreadCount: runtime.unreadCount,
+        lastMessageType: summary?.lastMessageType,
+        lastMessageTime: summary?.lastMessageAt || room.updateTime || room.createTime,
+        pinned: summary?.pinned || false,
+        muted: summary?.muted || false,
+        unreadCount: summary?.unreadCount || 0,
+        lastSequence: summary?.lastSequence || 0,
+        lastReadSequence: summary?.lastReadSequence || 0,
         pendingCount: outbox.entries.value.filter(
             (entry) => entry.conversationId === room.conversationId,
         ).length,
@@ -313,10 +327,11 @@ export function useChat() {
   const ws = useWebSocket({
     onMessage: handleSocketMessage,
     onReady: async () => {
+      await refreshConversationSummaries()
       await synchronizeAfterReconnect()
       try {
         await Promise.all([
-          refreshLists(),
+          refreshLists({ includeSummaries: false }),
           auth.hydrate(),
         ])
       } catch {
@@ -326,7 +341,10 @@ export function useChat() {
     // synchronizeAfterReconnect finishes while the socket still reports
     // SYNCING, so its defensive flush is intentionally skipped. Retry once the
     // connection has actually transitioned to ONLINE.
-    onOnline: () => flushOutbox(),
+    onOnline: () => {
+      flushPendingReadPositions()
+      return flushOutbox()
+    },
     onError: (message) => toast.push(message, 'warning'),
     refreshAuth: api.auth.refreshSession,
     onAuthFailed: (reason) => {
@@ -348,7 +366,7 @@ export function useChat() {
   })
   const resumableFiles = useResumableUpload()
   backgroundSyncTimer = window.setInterval(() => {
-    if (ws.connected.value) void synchronizeAfterReconnect().catch(() => undefined)
+    if (ws.connected.value) void refreshAndSynchronize().catch(() => undefined)
   }, 60_000)
   const fileTransferLabel = computed(() => {
     if (resumableFiles.phase.value === 'HASHING') return '正在校验中转文件完整性…'
@@ -377,19 +395,23 @@ export function useChat() {
         friends.value = cachedDirectory.friends || []
         groups.value = cachedDirectory.groups || []
         rooms.value = cachedDirectory.rooms || []
+        conversationSummaries.value =
+          indexConversationSummaries(cachedDirectory.summaries || [])
       }
       try {
-        const [friendList, groupList, roomList, requestList] = await Promise.all([
+        const [friendList, groupList, roomList, requestList, summaryList] = await Promise.all([
           api.friends.list(),
           api.groups.list(),
           api.rooms.list(),
           api.friends.requests(),
+          api.chat.conversations(),
         ])
         friends.value = friendList || []
         groups.value = groupList || []
         rooms.value = roomList || []
         requests.value = await enrichRequests(requestList || [])
-        await saveConversationDirectory(friends.value, groups.value, rooms.value).catch(() => undefined)
+        conversationSummaries.value = indexConversationSummaries(summaryList || [])
+        await persistConversationDirectory()
       } catch (cause) {
         if (!cachedDirectory) throw cause
         requests.value = []
@@ -424,7 +446,10 @@ export function useChat() {
     }))
   }
 
-  async function refreshLists(): Promise<void> {
+  async function refreshLists(
+    options: { includeSummaries?: boolean } = {},
+  ): Promise<void> {
+    const includeSummaries = options.includeSummaries !== false
     const [friendList, groupList, roomList, requestList] = await Promise.all([
       api.friends.list(),
       api.groups.list(),
@@ -435,44 +460,89 @@ export function useChat() {
     groups.value = groupList || []
     rooms.value = roomList || []
     requests.value = await enrichRequests(requestList || [])
-    await saveConversationDirectory(friends.value, groups.value, rooms.value).catch(() => undefined)
+    if (includeSummaries) await refreshConversationSummaries()
+    await persistConversationDirectory()
+  }
+
+  function refreshConversationSummaries(): Promise<void> {
+    if (conversationSummaryRefreshPromise) return conversationSummaryRefreshPromise
+    const startedAtRevision = summaryRevision
+    conversationSummaryRefreshPromise = (async () => {
+      const snapshot = await api.chat.conversations()
+      let next = indexConversationSummaries(snapshot || [])
+      summaryDeltaLog
+        .filter((entry) => entry.revision > startedAtRevision)
+        .forEach((entry) => {
+          next = applySummaryDelta(next, entry.delta)
+        })
+      conversationSummaries.value = next
+      Object.keys(next).forEach((conversationId) => {
+        inaccessibleConversationIds.delete(conversationId)
+      })
+    })().finally(() => {
+      summaryDeltaLog.splice(0, summaryDeltaLog.length)
+      conversationSummaryRefreshPromise = null
+    })
+    return conversationSummaryRefreshPromise
+  }
+
+  async function refreshConversationSummariesAfterCurrent(): Promise<void> {
+    const activeRefresh = conversationSummaryRefreshPromise
+    if (activeRefresh) await activeRefresh.catch(() => undefined)
+    await refreshConversationSummaries()
   }
 
   async function selectConversation(conversation: Conversation): Promise<void> {
     const user = currentUser.value
     if (!user) throw new Error('登录状态已失效')
     const conversationId = conversation.conversationId || resolveConversationId(conversation, user.id)
-    clearConversationUnread(conversationId)
+    const selectionToken = conversationSelection.begin(conversationId)
+    const isCurrentSelection = () => conversationSelection.isCurrent(
+      selectionToken,
+      selected.value?.conversationId,
+    )
     selected.value = { ...conversation, conversationId, unreadCount: 0 }
     loadingMessages.value = true
     typingLabel.value = ''
-
-    const cached = await loadCachedMessages(conversationId)
-      .then((items) => items.map(normalizeMessage))
-      .catch(() => [] as ChatMessage[])
-    const optimistic = outbox.entries.value
-      .filter((entry) => entry.conversationId === conversationId)
-      .map((entry) => optimisticMessage(entry, user))
-    messages.value = mergeMessages(cached, optimistic)
-    scheduleBurnCountdowns(messages.value)
-    await recordReceivedPositions(cached)
+    messages.value = []
+    members.value = []
 
     try {
+      const cached = await loadCachedMessages(conversationId)
+        .then((items) => items.map(normalizeMessage))
+        .catch(() => [] as ChatMessage[])
+      const optimistic = outbox.entries.value
+        .filter((entry) => entry.conversationId === conversationId)
+        .map((entry) => optimisticMessage(entry, user))
+      if (!isCurrentSelection()) return
+      messages.value = mergeMessages(cached, optimistic)
+      scheduleBurnCountdowns(messages.value)
+      await recordReceivedPositions(cached)
+      if (!isCurrentSelection()) return
+
       const history = await api.chat.history(conversationId)
       const normalized = (history || []).map(normalizeMessage)
-      messages.value = mergeMessages(normalized, optimistic)
-      scheduleBurnCountdowns(messages.value)
-      await cacheMessages(messages.value).catch(() => undefined)
+      const nextMessages = mergeMessages(normalized, optimistic)
+      await cacheMessages(nextMessages).catch(() => undefined)
       await recordReceivedPositions(normalized)
-      members.value = conversation.kind === 'group' ? await api.groups.members(conversation.id) : []
+      const nextMembers = conversation.kind === 'group'
+        ? await api.groups.members(conversation.id)
+        : []
+      if (!isCurrentSelection()) return
+      messages.value = nextMessages
+      scheduleBurnCountdowns(messages.value)
+      members.value = nextMembers
       sendReadPosition(conversationId, normalized)
     } catch {
-      members.value = conversation.kind === 'group'
+      if (!isCurrentSelection()) return
+      const nextMembers = conversation.kind === 'group'
         ? await api.groups.members(conversation.id).catch(() => [])
         : []
+      if (!isCurrentSelection()) return
+      members.value = nextMembers
       toast.push('当前使用本地缓存，连接恢复后会自动同步', 'warning', 2600)
     } finally {
-      loadingMessages.value = false
+      if (conversationSelection.owns(selectionToken)) loadingMessages.value = false
     }
   }
 
@@ -547,7 +617,7 @@ export function useChat() {
       case 'SYNC_REQUIRED':
         // This handler itself runs inside the serialized inbound queue. Do not
         // await a task whose SYNC_RESPONSE must be processed by that same queue.
-        void synchronizeAfterReconnect().catch(() => undefined)
+        void refreshAndSynchronize().catch(() => undefined)
         return
       case 'CHAT_RECALL':
       case 'CHAT_BURN':
@@ -555,6 +625,12 @@ export function useChat() {
         return
       case 'CHAT_READ':
         handleReadEvent(envelope)
+        return
+      case 'CONVERSATION_REMOVED':
+        handleConversationRemoved(envelope)
+        return
+      case 'CONVERSATION_CHANGED':
+        await refreshConversationSummaries()
         return
       case 'BROADCAST':
       case 'BROADCAST_UPDATED':
@@ -666,18 +742,22 @@ export function useChat() {
     settleAck(clientMsgId, 'ACK')
     await deleteCachedMessagesByClientMsgId(clientMsgId).catch(() => undefined)
     const acknowledged = messages.value.find((message) => message.clientMsgId === clientMsgId)
-    if (acknowledged) await cacheMessages([acknowledged]).catch(() => undefined)
+    if (acknowledged) {
+      updateConversationPreview(acknowledged, belongsToSelected(acknowledged))
+      await cacheMessages([acknowledged]).catch(() => undefined)
+    }
     if (conversationId && Number.isFinite(sequence) && !hasSequenceGap) {
       await recordPosition(conversationId, sequence)
     }
     await outbox.remove(clientMsgId)
-    if (hasSequenceGap) void synchronizeAfterReconnect().catch(() => undefined)
+    if (hasSequenceGap) void refreshAndSynchronize().catch(() => undefined)
   }
 
   async function handleDelivery(envelope: WsEnvelope): Promise<void> {
     const delivered = normalizeMessage(envelope.payload as unknown as ChatMessage)
     if (!delivered.messageId || !delivered.conversationId) return
     const conversationId = delivered.conversationId
+    if (inaccessibleConversationIds.has(conversationId)) return
     const isCurrentConversation = belongsToSelected(delivered)
     const isIncomingMessage = delivered.fromUserId !== currentUser.value?.id
     const conversation =  conversations.value.find((item) => item.conversationId === conversationId)
@@ -690,6 +770,7 @@ export function useChat() {
     if (delivered.sequence != null && !hasSequenceGap) {
       await recordPosition(conversationId, delivered.sequence)
     }
+    updateConversationPreview(delivered, isCurrentConversation)
     if (isCurrentConversation) {
       mergeCurrentMessages([delivered])
       if (isIncomingMessage) {
@@ -699,7 +780,6 @@ export function useChat() {
         }
       }
     } else if (isIncomingMessage) {
-      increaseConversationUnread(conversationId)
       if (!conversation?.muted) {
         const title = conversation?.name || delivered.fromNickname || '收到新消息'
         const preview = conversationPreview(delivered.type || delivered.contentType, delivered.content)
@@ -727,7 +807,6 @@ export function useChat() {
         },
       }).catch(() => undefined)
     }
-    updateConversationPreview(delivered)
     ws.sendEvent('CHAT_DELIVER', {
       messageId: delivered.messageId,
       sequence: delivered.sequence,
@@ -736,7 +815,7 @@ export function useChat() {
       clientMsgId: delivered.clientMsgId,
       conversationId: delivered.conversationId,
     })
-    if (hasSequenceGap) void synchronizeAfterReconnect().catch(() => undefined)
+    if (hasSequenceGap) void refreshAndSynchronize().catch(() => undefined)
   }
 
   async function handleSyncResponse(envelope: WsEnvelope): Promise<void> {
@@ -750,6 +829,15 @@ export function useChat() {
     // produces no rows, latestPositions is the authoritative cursor. Cache and
     // history pages do not have either guarantee and stay contiguous below.
     await recordSynchronizedPositions(synced, envelope.payload.latestPositions)
+    let synchronizedUnreadCount = 0
+    synced.forEach((message) => {
+      if (!message.conversationId
+        || inaccessibleConversationIds.has(message.conversationId)) return
+      const before = getConversationSummary(message.conversationId)?.unreadCount || 0
+      updateConversationPreview(message, belongsToSelected(message))
+      const after = getConversationSummary(message.conversationId)?.unreadCount || 0
+      synchronizedUnreadCount += Math.max(0, after - before)
+    })
     const selectedItems = synced.filter((message) => belongsToSelected(message))
     if (selectedItems.length > 0) {
       mergeCurrentMessages(selectedItems)
@@ -760,20 +848,6 @@ export function useChat() {
         sendReadPosition(selectedConversationId, selectedItems)
       }
     }
-    const unreadByConversation = new Map<string, number>()
-    synced.forEach((messages) => {
-      updateConversationPreview(messages)
-      if(!messages.conversationId || belongsToSelected(messages) || messages.fromUserId === currentUser.value?.id) return
-      unreadByConversation.set(
-          messages.conversationId,
-          (unreadByConversation.get(messages.conversationId) || 0) + 1,
-      )
-    })
-    let synchronizedUnreadCount = 0
-    unreadByConversation.forEach((count, conversationId) => {
-      increaseConversationUnread(conversationId, count)
-      synchronizedUnreadCount += count
-    })
     if (synchronizedUnreadCount > 0) {
       toast.push(
           `连接恢复，已同步 ${synchronizedUnreadCount} 条未读消息`,
@@ -785,6 +859,10 @@ export function useChat() {
     const denied = Array.isArray(envelope.payload.deniedConversationIds)
       ? envelope.payload.deniedConversationIds.map(String)
       : []
+    denied.forEach((conversationId) => {
+      inaccessibleConversationIds.add(conversationId)
+      recordSummaryDelta({ kind: 'remove', conversationId })
+    })
     if (selected.value && denied.includes(selected.value.conversationId)) {
       toast.push('你已不在该会话，未发送消息将保留供处理', 'danger')
     }
@@ -803,16 +881,53 @@ export function useChat() {
     if (envelope.event === 'CHAT_BURN') {
       target.status = 2
       target.content = ''
-      updateConversationPreview(target)
+      updateConversationPreview(target, belongsToSelected(target), true)
     }
     await cacheMessages([target]).catch(() => undefined)
   }
 
   function handleReadEvent(envelope: WsEnvelope): void {
-    if (envelope.conversationId !== selected.value?.conversationId) return
+    const conversationId = envelope.conversationId
+    if (!conversationId) return
     const readerId = Number(envelope.payload.userId)
     const lastReadSequence = Number(envelope.payload.lastReadSequence)
-    if (!Number.isFinite(lastReadSequence) || readerId === currentUser.value?.id) return
+    const currentUserId = currentUser.value?.id
+    if (!Number.isSafeInteger(lastReadSequence)
+      || !Number.isSafeInteger(readerId)
+      || !currentUserId) return
+    if (readerId === currentUserId) {
+      const lastSequence = Number(envelope.payload.lastSequence)
+      const unreadCount = Number(envelope.payload.unreadCount)
+      if (!Number.isSafeInteger(lastSequence)
+        || lastSequence < 0
+        || !Number.isSafeInteger(unreadCount)
+        || unreadCount < 0) {
+        void refreshConversationSummariesAfterCurrent().catch(() => undefined)
+        return
+      }
+      const readDelta: ConversationReadDelta = {
+        conversationId,
+        readerId,
+        currentUserId,
+        lastSequence,
+        lastReadSequence,
+        unreadCount,
+      }
+      if (conversationReadRequiresSnapshot(conversationSummaries.value, readDelta)) {
+        void refreshConversationSummariesAfterCurrent().catch(() => undefined)
+        return
+      }
+      recordSummaryDelta({ kind: 'read', value: readDelta })
+      if (selected.value?.conversationId === conversationId) {
+        selected.value = {
+          ...selected.value,
+          unreadCount: getConversationSummary(conversationId)?.unreadCount || 0,
+          lastReadSequence,
+        }
+      }
+      return
+    }
+    if (conversationId !== selected.value?.conversationId) return
     messages.value.forEach((message) => {
       if (message.fromUserId === currentUser.value?.id
         && message.sequence != null
@@ -821,6 +936,17 @@ export function useChat() {
         message.status = 1
       }
     })
+  }
+
+  function handleConversationRemoved(envelope: WsEnvelope): void {
+    const conversationId = envelope.conversationId
+    if (!conversationId) return
+    forgetConversation(conversationId)
+    if (selected.value?.conversationId !== conversationId) return
+    selected.value = null
+    messages.value = []
+    members.value = []
+    toast.push('你已不在该会话，未读状态已清除', 'warning')
   }
 
   function synchronizeAfterReconnect(): Promise<void> {
@@ -851,6 +977,11 @@ export function useChat() {
       await flushOutbox()
     })().finally(() => { synchronizationPromise = null })
     return synchronizationPromise
+  }
+
+  async function refreshAndSynchronize(): Promise<void> {
+    await refreshConversationSummaries()
+    await synchronizeAfterReconnect()
   }
 
   function requestSync(positions: Record<string, number>): Promise<boolean> {
@@ -1220,10 +1351,26 @@ export function useChat() {
     if (target) {
       target.status = 2
       target.content = ''
-      updateConversationPreview(target)
+      updateConversationPreview(target, belongsToSelected(target), true)
       void cacheMessages([target]).catch(() => undefined)
     }
     return true
+  }
+
+  function transmitReadPosition(conversationId: string, lastReadSequence: number): boolean {
+    if (!ws.connected.value) return false
+    return ws.sendEvent('CHAT_READ', { lastReadSequence }, {
+      requestId: createRequestId(),
+      conversationId,
+    })
+  }
+
+  function flushPendingReadPositions(): void {
+    pendingReadPositions.forEach((lastReadSequence, conversationId) => {
+      if (transmitReadPosition(conversationId, lastReadSequence)) {
+        pendingReadPositions.delete(conversationId)
+      }
+    })
   }
 
   function sendReadPosition(conversationId: string, source: readonly ChatMessage[]): void {
@@ -1231,10 +1378,31 @@ export function useChat() {
       (maximum, message) => Math.max(maximum, message.sequence || 0),
       0,
     )
-    if (lastReadSequence <= 0 || !ws.connected.value) return
-    ws.sendEvent('CHAT_READ', { lastReadSequence }, {
-      requestId: createRequestId(),
-      conversationId,
+    if (lastReadSequence <= 0) return
+    const sent = transmitReadPosition(conversationId, lastReadSequence)
+    if (!sent) {
+      // 重连 SYNC 阶段 connected 仍为 false；挂起读位点，转为 ONLINE 后统一补发，
+      // 否则服务端和其他设备会残留幻影未读。
+      pendingReadPositions.set(
+        conversationId,
+        Math.max(pendingReadPositions.get(conversationId) || 0, lastReadSequence),
+      )
+    } else if ((pendingReadPositions.get(conversationId) || 0) <= lastReadSequence) {
+      pendingReadPositions.delete(conversationId)
+    }
+    const currentUserId = currentUser.value?.id
+    const current = getConversationSummary(conversationId)
+    if (!currentUserId || !current) return
+    recordSummaryDelta({
+      kind: 'read',
+      value: {
+        conversationId,
+        readerId: currentUserId,
+        currentUserId,
+        lastSequence: Math.max(current.lastSequence, lastReadSequence),
+        lastReadSequence,
+        unreadCount: lastReadSequence >= current.lastSequence ? 0 : current.unreadCount,
+      },
     })
   }
 
@@ -1330,9 +1498,14 @@ export function useChat() {
     })
   }
 
-  function updateConversationPreview(message: ChatMessage): void {
+  function updateConversationPreview(
+    message: ChatMessage,
+    selectedConversation = belongsToSelected(message),
+    forcePreview = false,
+  ): void {
     const conversationId = message.conversationId
-    if (!conversationId) return
+    const currentUserId = currentUser.value?.id
+    if (!conversationId || !currentUserId || inaccessibleConversationIds.has(conversationId)) return
 
     const previewContent = message.status === 2
         ? '消息已焚毁'
@@ -1340,11 +1513,19 @@ export function useChat() {
 
     const messageTime = message.createTime || message.timestamp || message.clientCreatedAt || new Date().toISOString()
 
-    // 所有会话统一记录运行时摘要。
-    patchConversationRuntime(conversationId, {
-      lastMessage: previewContent,
-      lastMessageType: message.status === 2 ? 'text' : message.type,
-      lastMessageTime: messageTime
+    recordSummaryDelta({
+      kind: 'message',
+      value: {
+        conversationId,
+        sequence: message.sequence,
+        fromUserId: message.fromUserId,
+        currentUserId,
+        content: previewContent,
+        contentType: message.status === 2 ? 'text' : message.type,
+        createdAt: messageTime,
+        selected: selectedConversation,
+        forcePreview,
+      },
     })
 
     // 临时房间通过 conversationId 匹配。
@@ -1390,8 +1571,13 @@ export function useChat() {
     }
   }
 
-  function persistConversationDirectory(): void {
-    void saveConversationDirectory(friends.value, groups.value, rooms.value).catch(() => undefined)
+  async function persistConversationDirectory(): Promise<void> {
+    await saveConversationDirectory(
+      friends.value,
+      groups.value,
+      rooms.value,
+      Object.values(conversationSummaries.value),
+    ).catch(() => undefined)
   }
 
   async function handleRequest(requestId: number, accept: boolean): Promise<void> {

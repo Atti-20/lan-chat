@@ -1,4 +1,6 @@
 import { currentNodeKey, resourceUrl } from '../platform/nodeContext'
+import { nativeBridge } from '../platform/nativeBridge'
+import { nodeFetch } from '../platform/nativeTransport'
 import { api } from './api'
 import {
   cacheAvatarImage,
@@ -39,7 +41,7 @@ async function fetchAvatarBlob(avatar: string): Promise<Blob> {
   const url = isProtectedAvatar(avatar)
     ? await api.files.temporaryUrl(avatar)
     : resourceUrl(avatar)
-  const response = await fetch(url)
+  const response = await nodeFetch(url)
   if (!isUsableImage(response)) {
     throw new Error(`头像请求失败：HTTP ${response.status}`)
   }
@@ -69,7 +71,9 @@ export async function resolveCachedAvatarImage(avatar: string): Promise<string> 
       // An externally hosted legacy avatar can allow image embedding while
       // disallowing fetch with CORS. Keep that legacy display path available,
       // but never persist an unverified response.
-      if (!isProtectedAvatar(avatar)) return resourceUrl(avatar)
+      if (!isProtectedAvatar(avatar) && nativeBridge.runtime() !== 'tauri') {
+        return resourceUrl(avatar)
+      }
       throw cause
     }
   })()

@@ -6,13 +6,13 @@ import {
   ref,
   shallowRef,
 } from 'vue'
-import { CapacitorHttp } from '@capacitor/core'
 import { nativeBridge, type DesktopNode } from '../platform/nativeBridge'
 import {
   selectedNode,
 } from '../platform/nodeContext'
 import { activateDesktopNode } from '../platform/desktopNodeSelection'
 import { isCapacitorRuntime, isNativeNodeRuntime } from '../platform/mobileRuntime'
+import { verifyMobileNode } from '../platform/mobileNodeVerification'
 import { navigateToApp } from '../platform/appNavigation'
 import {
   consumeDesktopNavigation,
@@ -33,81 +33,6 @@ function webNode(
     failureCount: health === 'HEALTHY' ? 0 : 1,
     pinned: false,
     protocolVersion: 1,
-  }
-}
-
-interface NodeInfoResponse {
-  code: number
-  msg: string
-  data?: NodePublicInfo
-}
-
-async function verifyMobileNode(address: string): Promise<DesktopNode> {
-  const target = new URL(address.trim())
-  if (!['http:', 'https:'].includes(target.protocol)
-    || target.username
-    || target.password
-    || !target.hostname) {
-    throw new Error('节点地址必须是有效的 HTTP 或 HTTPS 地址')
-  }
-
-  const origin = target.origin
-  let result: NodeInfoResponse
-  let responseOk: boolean
-  try {
-    const requestUrl = new URL('/api/v1/node/info', origin).toString()
-    const headers = { 'X-Request-ID': `node_${crypto.randomUUID?.() || Date.now()}` }
-    if (isCapacitorRuntime()) {
-      // Probe with Android's HTTPS client. It avoids WebView's transport
-      // timeout while keeping the normal browser code path unchanged.
-      const response = await CapacitorHttp.get({
-        url: requestUrl,
-        headers,
-        readTimeout: 8_000,
-        connectTimeout: 8_000,
-        responseType: 'json',
-      })
-      result = typeof response.data === 'string'
-        ? JSON.parse(response.data) as NodeInfoResponse
-        : response.data as NodeInfoResponse
-      responseOk = response.status >= 200 && response.status < 300
-    } else {
-      const response = await fetch(requestUrl, { headers })
-      result = await response.json() as NodeInfoResponse
-      responseOk = response.ok
-    }
-  } catch {
-    throw new Error('节点返回了无法识别的握手信息')
-  }
-  if (!responseOk || result.code !== 200 || !result.data) {
-    throw new Error(result.msg || '节点握手失败')
-  }
-  const info = result.data
-  if (info.protocolVersion !== 1 || !info.nodeId || !info.apiBasePath || !info.webSocketPath) {
-    throw new Error('节点协议不兼容，无法连接')
-  }
-
-  return {
-    nodeId: info.nodeId,
-    nodeName: info.nodeName,
-    organizationName: info.organizationName,
-    version: info.version,
-    mode: info.mode,
-    appUrl: new URL(info.appPath || '/app/', origin).toString(),
-    secure: target.protocol === 'https:',
-    current: false,
-    lastSeenAt: new Date().toISOString(),
-    source: 'MANUAL',
-    health: 'HEALTHY',
-    latencyMs: null,
-    failureCount: 0,
-    pinned: false,
-    protocolVersion: info.protocolVersion,
-    apiOrigin: origin,
-    apiBasePath: info.apiBasePath,
-    webSocketPath: info.webSocketPath,
-    healthPath: info.healthPath,
-    appPath: info.appPath,
   }
 }
 

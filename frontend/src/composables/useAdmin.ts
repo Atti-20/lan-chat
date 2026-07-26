@@ -66,7 +66,7 @@ export function useAdmin() {
   async function deleteUser(userId: number): Promise<void> {
     await runUserAction(userId, async () => {
       await api.admin.deleteUser(userId)
-      toast.push('用户已删除', 'success')
+      toast.push('用户已归档，历史记录已保留', 'success')
     })
   }
 

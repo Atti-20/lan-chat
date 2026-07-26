@@ -1,5 +1,13 @@
 import { toRaw } from 'vue'
-import type { ChatGroup, ChatMessage, DirectFileRecord, Friend, OutboxEntry, TemporaryRoom } from '../types'
+import type {
+  ChatGroup,
+  ChatMessage,
+  ConversationSummary,
+  DirectFileRecord,
+  Friend,
+  OutboxEntry,
+  TemporaryRoom,
+} from '../types'
 
 const DATABASE_NAME = 'lanchat_local_v2'
 const DATABASE_VERSION = 5
@@ -30,6 +38,7 @@ interface ConversationDirectoryRecord {
   friends: Friend[]
   groups: ChatGroup[]
   rooms?: TemporaryRoom[]
+  summaries?: ConversationSummary[]
   savedAt: string
 }
 
@@ -273,6 +282,7 @@ export async function saveConversationDirectory(
   friends: readonly Friend[],
   groups: readonly ChatGroup[],
   rooms: readonly TemporaryRoom[] = [],
+  summaries: readonly ConversationSummary[] = [],
 ): Promise<void> {
   const database = await openDatabase()
   const transaction = database.transaction(DIRECTORY_STORE, 'readwrite')
@@ -281,6 +291,7 @@ export async function saveConversationDirectory(
     friends: [...friends],
     groups: [...groups],
     rooms: [...rooms],
+    summaries: [...summaries],
     savedAt: new Date().toISOString(),
   } satisfies ConversationDirectoryRecord))
   await transactionDone(transaction)

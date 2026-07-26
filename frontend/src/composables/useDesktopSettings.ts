@@ -23,6 +23,7 @@ export function useDesktopSettings() {
       ])
       runtimeInfo.value = runtime
       autostartEnabled.value = enabled
+      if (runtime.updaterConfigured === false) update.value = { status: 'UNCONFIGURED' }
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '桌面设置暂时不可用'
     } finally {
