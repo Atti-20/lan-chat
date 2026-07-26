@@ -68,7 +68,9 @@ jobs:
           tags: |
             type=ref,event=tag
             type=raw,value=${{ steps.release.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=sha,prefix=sha-
+            # workflow_dispatch 时 github.sha 是分支头而非 inputs.tag 指向的提交，
+            # SHA 标签只在 tag push 事件下生成，避免镜像被打上错误的提交号。
+            type=sha,prefix=sha-,enable=${{ github.event_name != 'workflow_dispatch' }}
 
       - name: Build and push server image
         uses: docker/build-push-action@v6
