@@ -7,7 +7,7 @@ lanchat:
     name: ${LANCHAT_NODE_NAME:LanChat Node}
     organization-name: ${LANCHAT_ORGANIZATION_NAME:Local Organization}
     mode: ${LANCHAT_MODE:LAN_FIRST}
-    version: 3.0.0
+    version: 0.3.0
     advertised-host: ${LANCHAT_ADVERTISED_HOST:}
     advertised-port: ${LANCHAT_ADVERTISED_PORT:${server.port}}
     secure: ${LANCHAT_NODE_SECURE:false}
