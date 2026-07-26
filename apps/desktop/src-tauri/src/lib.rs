@@ -115,17 +115,18 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build MeshX desktop client")
-        .run(|app, event| {
+        .run(|_app, _event| {
             // On macOS, clicking the Dock icon of an already-running app does
             // not start a second instance. It emits Reopen instead. Our close
             // policy hides the only window, so restore it explicitly here.
+            // 参数带下划线前缀：其他平台上该 cfg 块被裁掉，参数未被使用。
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen {
                 has_visible_windows: false,
                 ..
-            } = event
+            } = _event
             {
-                show_main_window(app);
+                show_main_window(_app);
             }
         });
 }
