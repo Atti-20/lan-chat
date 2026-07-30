@@ -1,53 +1,91 @@
-target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+# Keep the repository limited to source code and reproducible project inputs.
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-### IntelliJ IDEA ###
-.idea
+### Operating systems and editors ###
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+.fleet/
+.claude/
 *.iws
 *.iml
 *.ipr
+*.swp
+*.swo
+*~
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
+### Local environment and credentials ###
+.env
+.env.*
+!.env.example
+*.local
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.key
 
-### VS Code ###
-.vscode/
+### Dependencies and package-manager caches ###
+**/node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+**/__pycache__/
+.pytest_cache/
+*.py[cod]
 
-### Runtime and local tooling ###
-.DS_Store
-.cloudflared/
-uploads/
+### Compiled output, generated code and reports ###
+**/target/
+**/build/
+**/dist/
+**/dist-*/
+**/out/
+**/.gradle/
+**/.kotlin/
+**/gradle/gradle-daemon-jvm.properties
+**/DerivedData/
+**/xcuserdata/
+**/.swiftpm/
+coverage/
+test-results/
+playwright-report/
+.nyc_output/
+*.class
+*.dex
+*.apk
+*.aab
+*.ipa
+*.app
+*.dmg
+*.msi
+*.exe
+*.deb
+*.rpm
+/.mvn/wrapper/maven-wrapper.jar
+
+# Rebuilt by Vite and Tauri; source inputs live in frontend/ and src-tauri/.
+/src/main/resources/static/app/
+/apps/desktop/src-tauri/gen/
+
+### Runtime data and local tooling ###
+/uploads/
 /logs/
-frontend/node_modules/
-frontend/dist-desktop/
-frontend/dist-mobile/
-apps/desktop/node_modules/
-apps/mobile/node_modules/
-apps/mobile/android/.gradle/
-apps/mobile/android/build/
-apps/mobile/android/app/build/
-apps/mobile/android/local.properties
-apps/mobile/android/*.jks
-apps/mobile/android/*.keystore
-output/playwright/
-.playwright-cli/
-out/
-__pycache__/
+*.log
+*.pid
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+/.cloudflared/
+/.playwright-cli/
+/output/
+
+### Local archives and non-build documentation ###
+/apps/mobile-legacy/
+/PRD/
+/DESIGN.md
+/MeshX Architecture Evolution TODO.md
