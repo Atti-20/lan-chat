@@ -34,20 +34,17 @@ public class CloudflareTunnelRunner implements ApplicationRunner {
             return;
         }
 
-        String tunnelId = System.getenv("CLOUDFLARE_TUNNEL_ID");
-        if (tunnelId == null || tunnelId.isBlank()) {
-            tunnelId = "lan-chat";
-        }
-
-        String credentialsFile = System.getenv("CLOUDFLARE_CREDENTIALS_FILE");
-        if (credentialsFile == null || credentialsFile.isBlank()) {
-            String home = System.getProperty("user.home");
-            credentialsFile = home + "/.cloudflared/adcb40f9-2e2b-4fea-a820-c22118a4e307.json";
-        }
-
         String configPath = System.getProperty("user.dir") + "/.cloudflared/config.yml";
         if (!new File(configPath).exists()) {
-            // 写入临时配置
+            String tunnelId = System.getenv("CLOUDFLARE_TUNNEL_ID");
+            String credentialsFile = System.getenv("CLOUDFLARE_CREDENTIALS_FILE");
+            if (tunnelId == null || tunnelId.isBlank()
+                    || credentialsFile == null || credentialsFile.isBlank()
+                    || hostname == null || hostname.isBlank()
+                    || !new File(credentialsFile).isFile()) {
+                log.warn("Cloudflare Tunnel 未启动：请提供本地配置，或设置隧道 ID、凭证文件及主机名");
+                return;
+            }
             configPath = writeTempConfig(tunnelId, credentialsFile);
         }
 

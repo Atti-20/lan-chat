@@ -7,11 +7,11 @@ auth:
 
 lanchat:
   node:
-    advertised-host: ${LANCHAT_ADVERTISED_HOST:chat.atti.cc.cd}
+    advertised-host: ${LANCHAT_ADVERTISED_HOST:}
     advertised-port: ${LANCHAT_ADVERTISED_PORT:443}
     secure: true
   discovery:
     enabled: ${LANCHAT_DISCOVERY_ENABLED:true}
 
 tunnel:
-  hostname: ${TUNNEL_HOSTNAME:chat.atti.cc.cd}
+  hostname: ${TUNNEL_HOSTNAME:}
