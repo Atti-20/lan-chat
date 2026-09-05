@@ -63,7 +63,7 @@ class LanNodeDiscoveryServiceTest {
         current.setId("current-node");
         current.setName("Office Node");
         current.setOrganizationName("Example Org");
-        current.setAdvertisedHost("chat.atti.cc.cd");
+        current.setAdvertisedHost("chat.example.com");
         service = new LanNodeDiscoveryService(current);
 
         Map<String, Object> txt = service.buildTxtProperties("current-node");
@@ -76,7 +76,7 @@ class LanNodeDiscoveryServiceTest {
         assertEquals(LanChatProtocol.APP_PATH, txt.get("appPath"));
         assertEquals(Boolean.toString(LanChatProtocol.DESKTOP_AUTH_SUPPORTED),
                 txt.get("desktopAuthSupported"));
-        assertEquals("chat.atti.cc.cd", txt.get("advertisedHost"));
+        assertEquals("chat.example.com", txt.get("advertisedHost"));
         assertEquals(LanChatProtocol.REFRESH_TRANSPORT, txt.get("refreshTransport"));
         assertEquals(txt.get("protocolVersion"), txt.get("protocol"));
         assertEquals(txt.get("appPath"), txt.get("path"));

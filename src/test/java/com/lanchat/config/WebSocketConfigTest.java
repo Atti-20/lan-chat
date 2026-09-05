@@ -19,7 +19,7 @@ class WebSocketConfigTest {
         String[] allowedOrigins = {
                 "http://localhost:8080",
                 "http://127.0.0.1:8080",
-                "https://chat.atti.cc.cd"
+                "https://chat.example.com"
         };
 
         when(registry.addHandler(handler, "/ws/chat")).thenReturn(registration);
