@@ -89,3 +89,22 @@ playwright-report/
 /PRD/
 /DESIGN.md
 /MeshX Architecture Evolution TODO.md
+
+### Private reports, credentials and local deployment overrides ###
+/outputs/
+*.pem
+*.p8
+id_rsa
+id_ed25519
+.netrc
+.npmrc
+local.properties
+application-local.yml
+application-local.yaml
+application-local.properties
+credentials.json
+service-account*.json
+*-credentials.json
+*-credentials.yml
+*-credentials.yaml
+*-sessions.json

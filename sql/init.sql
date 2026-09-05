@@ -459,4 +459,4 @@ CREATE TABLE `broadcast_evidence` (
 
 -- 不在结构脚本中写入任何默认账号或口令。
 -- 私有部署由 LANCHAT_BOOTSTRAP_ADMIN_PASSWORD 首次创建 admin；
--- 如需本地演示账号，可在开发数据库中手动执行 sql/demo-data.sql。
+-- 其他账号由管理员创建，或在允许自助注册的开发环境中注册。

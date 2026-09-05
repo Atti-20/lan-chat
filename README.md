@@ -288,23 +288,11 @@ V2.0 迁移会创建统一会话、会话成员和文件授权表，回填旧消
 
 若沿用旧版 Compose 的 `mysql-data` 卷，镜像不会在已有数据库中自动创建新的 `lanchat` 应用用户。切换新版 Compose 前应使用数据库管理员账号创建/更新该用户，以 `.env` 中同一 `DB_PASSWORD` 授予 `lan_chat` 的运行时读写权限；也可以备份数据后使用全新卷初始化。旧卷的 `DB_ROOT_PASSWORD` 同样不会被环境变量自动重置。
 
-### 本地演示账号
+### 本地账号与可选公网入口
 
-`sql/init.sql` 不再写入任何默认账号。仅在隔离的开发数据库中需要演示数据时，手动执行：
+初始化不写入共享演示账号。按前面的私有部署步骤设置独立的管理员密码，再由管理员创建成员；隔离的开发环境也可开启自助注册。
 
-```bash
-mysql -u root -p lan_chat < sql/demo-data.sql
-```
-
-该脚本写入以下账号，统一演示密码为 `LanChat123!`：
-
-| 用户名 | 昵称 |
-|---|---|
-| `admin` | 管理员 |
-| `alice` | 爱丽丝 |
-| `bob` | 鲍勃 |
-
-不要在私有或生产部署执行 `sql/demo-data.sql`。
+Cloudflare Tunnel 默认关闭。确需公网入口时，显式设置 `TUNNEL_ENABLED=true` 并在本地提供 `.cloudflared/config.yml`；也可向 Spring Boot 进程传入 `CLOUDFLARE_TUNNEL_ID`、`CLOUDFLARE_CREDENTIALS_FILE` 和 `TUNNEL_HOSTNAME`，由程序生成临时配置。凭证文件应保存在仓库外。浏览器公网来源需加入 `CORS_ALLOWED_ORIGINS` 和 `WEBSOCKET_ALLOWED_ORIGINS`；节点对外地址由 `LANCHAT_ADVERTISED_HOST` 配置。
 
 ## 常用接口
 
@@ -423,3 +411,7 @@ export LANCHAT_ADVERTISED_PORT=8080
 ## License
 
 MIT
+
+## 仓库维护
+
+提交范围、敏感信息检查及私有仓库访问说明见 [SECURITY.md](SECURITY.md)。

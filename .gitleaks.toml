@@ -1,0 +1,12 @@
+title = "MeshX secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Two deterministic mock file tokens used only by FileControllerTest"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)src/test/java/com/lanchat/controller/FileControllerTest\.java$''']
+regexTarget = "secret"
+regexes = ['''^(0123456789abcdef0123456789abcdef|fedcba9876543210fedcba9876543210)$''']
