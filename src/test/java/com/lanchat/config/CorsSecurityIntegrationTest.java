@@ -11,7 +11,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "tunnel.enabled=false")
+@SpringBootTest(properties = {
+        "tunnel.enabled=false",
+        "jwt.secret=test-only-signing-key-for-spring-context-tests"
+})
 @AutoConfigureMockMvc
 class CorsSecurityIntegrationTest {
 

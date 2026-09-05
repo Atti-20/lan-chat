@@ -6,7 +6,10 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@SpringBootTest(properties = "tunnel.enabled=false")
+@SpringBootTest(properties = {
+        "tunnel.enabled=false",
+        "jwt.secret=test-only-signing-key-for-spring-context-tests"
+})
 class LanChatServerApplicationTests {
 
     @Test

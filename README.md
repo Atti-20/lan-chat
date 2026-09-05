@@ -274,7 +274,7 @@ export DB_URL='jdbc:mysql://localhost:3306/lan_chat?serverTimezone=Asia/Shanghai
 export DB_USERNAME='root'
 export DB_PASSWORD='your_password'
 export REDIS_HOST='localhost'
-export JWT_SECRET='replace-with-at-least-32-random-characters'
+export JWT_SECRET="$(openssl rand -base64 48)"
 # 可选：启用 MinIO
 # export FILE_STORAGE_TYPE='MINIO'
 # export MINIO_ENDPOINT='http://127.0.0.1:9000'
@@ -423,10 +423,10 @@ export LANCHAT_ADVERTISED_PORT=8080
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `DB_URL` | 本机 `lan_chat` | MySQL JDBC 地址 |
-| `DB_USERNAME` / `DB_PASSWORD` | `root` / `root` | 数据库认证；生产必须覆盖 |
+| `DB_USERNAME` / `DB_PASSWORD` | `root` / 无默认密码 | 数据库认证；启动前设置 `DB_PASSWORD` |
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Redis 节点 |
 | `REDIS_PASSWORD` | 空 | Redis 认证；Compose 私有部署必填 |
-| `JWT_SECRET` | 本地开发密钥 | 生产必须覆盖 |
+| `JWT_SECRET` | 无默认值 | 启动前设置至少 32 位的独立随机密钥 |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | `lanchat-node` / `lanchat-client` | JWT 约束 |
 | `WEBSOCKET_ALLOWED_ORIGINS` | localhost、127.0.0.1 | WebSocket Origin 白名单 |
 | `CORS_ALLOWED_ORIGINS` | Web/Tauri 开发 Origin | REST 精确 Origin 白名单；不接受 `*` |
