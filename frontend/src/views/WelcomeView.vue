@@ -6,6 +6,11 @@ import { api, ApiError } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
 import { navigateToApp } from '../platform/appNavigation'
+import {
+  createTextAvatar,
+  isTextAvatar,
+  textAvatarInitial,
+} from '../services/textAvatar'
 
 const auth = useAuth()
 const toast = useToast()
@@ -15,13 +20,21 @@ const saving = shallowRef(false)
 const uploadingAvatar = shallowRef(false)
 const error = shallowRef('')
 const avatarInput = ref<HTMLInputElement | null>(null)
-const avatars = ['🫧', '🐼', '🐰', '🦊', '🐧', '🦉', '🌊', '🌙']
 const displayName = computed(() => nickname.value.trim() || auth.currentUser.value?.nickname || '新朋友')
 const isCustomAvatar = computed(() => Boolean(selectedAvatar.value)
-  && selectedAvatar.value !== 'text'
+  && !isTextAvatar(selectedAvatar.value)
   && !selectedAvatar.value.startsWith('emoji:')
-  && !selectedAvatar.value.startsWith('svg:')
-  && !selectedAvatar.value.startsWith('letter:'))
+  && !selectedAvatar.value.startsWith('svg:'))
+const isTextChoice = computed(() => isTextAvatar(selectedAvatar.value))
+const previewAvatar = computed(() => isTextChoice.value
+  ? createTextAvatar(displayName.value)
+  : selectedAvatar.value)
+
+function usesTextAvatar(avatar: string | null | undefined): boolean {
+  return isTextAvatar(avatar)
+    || avatar?.startsWith('emoji:') === true
+    || avatar?.startsWith('svg:') === true
+}
 
 onMounted(async () => {
   const user = auth.currentUser.value || await auth.hydrate()
@@ -30,8 +43,14 @@ onMounted(async () => {
     return
   }
   nickname.value = user.nickname
-  selectedAvatar.value = user.avatar || 'text'
+  selectedAvatar.value = usesTextAvatar(user.avatar)
+    ? createTextAvatar(user.nickname)
+    : (user.avatar || createTextAvatar(user.nickname))
 })
+
+function chooseTextAvatar(): void {
+  selectedAvatar.value = createTextAvatar(displayName.value)
+}
 
 function chooseAvatarFile(): void {
   avatarInput.value?.click()
@@ -73,7 +92,10 @@ async function finish(): Promise<void> {
   saving.value = true
   error.value = ''
   try {
-    await auth.updateProfile({ nickname: cleanName, avatar: selectedAvatar.value })
+    const avatar = isTextAvatar(selectedAvatar.value)
+      ? createTextAvatar(cleanName)
+      : selectedAvatar.value
+    await auth.updateProfile({ nickname: cleanName, avatar })
     toast.push('资料已保存，欢迎来到 MeshX', 'success', 1400)
     navigateToApp('/chat')
   } catch (cause) {
@@ -90,11 +112,11 @@ async function finish(): Promise<void> {
       <header class="welcome-header">
         <div class="step-pill"><span /> 只差一步</div>
         <h1>让朋友一眼认出你。</h1>
-        <p>选择一个轻盈的头像和称呼。它们会出现在私聊、群组与在线列表中。</p>
+        <p>使用昵称首字母，或上传自己的图片。它们会出现在私聊、群组与在线列表中。</p>
       </header>
 
       <div class="profile-stage">
-        <UserAvatar :name="displayName" :avatar="selectedAvatar" :size="112" online />
+        <UserAvatar :name="displayName" :avatar="previewAvatar" :size="112" online />
         <div class="profile-caption">
           <strong>{{ displayName }}</strong>
           <span>已连接到 MeshX</span>
@@ -108,11 +130,11 @@ async function finish(): Promise<void> {
             <button
               type="button"
               class="avatar-choice avatar-choice--text"
-              :class="{ 'avatar-choice--selected': selectedAvatar === 'text' }"
+              :class="{ 'avatar-choice--selected': isTextChoice }"
               aria-label="使用昵称首字符作为头像"
-              :aria-pressed="selectedAvatar === 'text'"
-              @click="selectedAvatar = 'text'"
-            >{{ displayName.slice(0, 1).toUpperCase() || '?' }}</button>
+              :aria-pressed="isTextChoice"
+              @click="chooseTextAvatar"
+            >{{ textAvatarInitial(displayName) }}</button>
             <button
               type="button"
               class="avatar-choice avatar-choice--upload"
@@ -124,18 +146,6 @@ async function finish(): Promise<void> {
             >
               <UiIcon name="edit" :size="22" />
               <small>{{ uploadingAvatar ? '上传中' : '上传图片' }}</small>
-            </button>
-            <button
-              v-for="(emoji, index) in avatars"
-              :key="emoji"
-              type="button"
-              class="avatar-choice"
-              :class="{ 'avatar-choice--selected': selectedAvatar.includes(emoji) }"
-              :aria-label="`选择头像 ${emoji}`"
-              :aria-pressed="selectedAvatar.includes(emoji)"
-              @click="selectedAvatar = `emoji:${emoji}:#${index % 2 ? '7667F5' : '5AC8FA'}`"
-            >
-              {{ emoji }}
             </button>
           </div>
           <input ref="avatarInput" class="sr-only" type="file" accept="image/*" @change="onAvatarFileChange" />
@@ -157,143 +167,36 @@ async function finish(): Promise<void> {
 </template>
 
 <style scoped>
-.welcome-page {
-  display: grid;
-  min-height: 100dvh;
-  padding: 40px 20px;
-  place-items: center;
-}
-.welcome-sheet {
-  display: grid;
-  width: min(100%, 880px);
-  padding: clamp(28px, 6vw, 62px);
-  grid-template-columns: 0.9fr 1.1fr;
-  gap: clamp(38px, 7vw, 80px);
-  border-radius: 42px 42px 42px 20px;
-}
+.welcome-page { display: grid; min-height: 100dvh; padding: max(30px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(30px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); place-items: center; }
+.welcome-sheet { display: grid; min-width: 0; width: min(100%, 760px); padding: clamp(28px, 5vw, 48px); grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 44px; border-radius: 28px; }
 .welcome-header { grid-column: 1 / -1; max-width: 660px; }
-.step-pill {
-  display: inline-flex;
-  padding: 7px 12px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid rgba(255,255,255,.8);
-  border-radius: 999px;
-  color: #2672bd;
-  font-size: 12px;
-  font-weight: 700;
-  background: rgba(255,255,255,.46);
-}
-.step-pill span { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 5px rgba(10,132,255,.1); }
-.welcome-header h1 { margin: 18px 0 12px; font-size: clamp(36px, 6vw, 58px); letter-spacing: -.055em; line-height: 1.04; }
-.welcome-header p { max-width: 610px; margin: 0; color: var(--ink-soft); font-size: 16px; line-height: 1.7; }
-.profile-stage { position: relative; display: grid; min-height: 310px; place-items: center; align-content: center; gap: 20px; }
-.preview-ring { position: absolute; inset: 18px; border: 1px solid rgba(10,132,255,.14); border-radius: 46% 54% 52% 48%; transform: rotate(-8deg); }
-.preview-ring::before { position: absolute; inset: 28px; border: 1px solid rgba(118,103,245,.12); border-radius: 54% 46% 48% 52%; content: ""; transform: rotate(16deg); }
-.preview-ring i { position: absolute; width: 10px; height: 10px; border: 3px solid white; border-radius: 50%; background: var(--cyan); box-shadow: 0 4px 10px rgba(10,132,255,.25); }
-.preview-ring i:nth-child(1) { top: 16%; right: 14%; }
-.preview-ring i:nth-child(2) { bottom: 19%; left: 9%; background: var(--green); }
-.preview-ring i:nth-child(3) { right: 5%; bottom: 29%; background: var(--violet); }
-.profile-caption { z-index: 1; display: grid; gap: 3px; text-align: center; }
-.profile-caption strong { font-size: 20px; }
-.profile-caption span { color: var(--ink-soft); font-size: 12px; }
-.welcome-form { display: grid; align-content: center; gap: 22px; }
-.welcome-form fieldset { padding: 0; border: 0; }
-.welcome-form legend,
-.name-field > span { margin-bottom: 11px; color: #35506e; font-size: 13px; font-weight: 700; }
-.avatar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.avatar-choice {
-  aspect-ratio: 1;
-  border: 1px solid rgba(255,255,255,.74);
-  border-radius: 19px;
-  font-size: 27px;
-  background: rgba(255,255,255,.42);
-  box-shadow: inset 0 1px 0 #fff;
-  cursor: pointer;
-  transition: 200ms var(--ease-liquid);
-}
-.avatar-choice:hover { transform: translateY(-3px); background: rgba(255,255,255,.68); }
-.avatar-choice--selected { border-color: rgba(10,132,255,.48); background: rgba(217,238,255,.8); box-shadow: 0 0 0 4px rgba(10,132,255,.09), inset 0 1px 0 #fff; transform: scale(1.04); }
-.avatar-choice--text { color: #fff; font-weight: 750; background: linear-gradient(145deg, var(--blue), var(--violet)); }
-.avatar-choice--upload { display: grid; place-items: center; align-content: center; gap: 4px; color: var(--blue); }
-.avatar-choice--upload small { font-size: var(--font-caption); font-weight: 650; }
+.step-pill { display: inline-flex; padding: 6px 10px; align-items: center; gap: var(--space-2); border-radius: var(--radius-pill); color: var(--accent-text); font-size: var(--font-caption); font-weight: 700; background: var(--active); }
+.step-pill span { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); }
+.welcome-header h1 { margin: 16px 0 10px; font-size: clamp(34px, 5vw, 48px); letter-spacing: -.055em; line-height: 1.1; text-wrap: balance; }
+.welcome-header p { max-width: 610px; margin: 0; color: var(--ink-soft); font-size: var(--font-body-lg); line-height: 1.7; }
+.profile-stage { position: relative; display: grid; min-width: 0; min-height: 250px; padding: var(--space-4); place-items: center; align-content: center; gap: var(--space-5); border-radius: var(--radius-sheet); background: var(--hover); }
+.profile-caption { display: grid; min-width: 0; gap: var(--space-1); text-align: center; overflow-wrap: anywhere; }
+.profile-caption strong { font-size: var(--font-title); }
+.profile-caption span { color: var(--ink-soft); font-size: var(--font-caption); }
+.welcome-form { display: grid; min-width: 0; align-content: center; gap: var(--space-6); }
+.welcome-form fieldset { min-width: 0; padding: 0; margin: 0; border: 0; }
+.welcome-form legend, .name-field > span { margin-bottom: var(--space-3); color: var(--ink-soft); font-size: var(--font-body-sm); font-weight: 600; }
+.avatar-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 132px)); gap: 12px; }
+.avatar-choice { aspect-ratio: 1; min-width: 0; padding: 0; border: 2px solid transparent; border-radius: 50%; font-size: 27px; background: var(--fill); cursor: pointer; transition: background-color var(--duration-fast) ease, border-color var(--duration-fast) ease; }
+.avatar-choice:hover { background: var(--button-hover); }
+.avatar-choice--selected { border-color: var(--accent-text); background: var(--active); box-shadow: 0 0 0 3px var(--active); }
+.avatar-choice--text { color: var(--on-accent); font-weight: 750; background: linear-gradient(145deg, #5856D6, #4644C4); }
+.avatar-choice--text:hover { background: var(--action-hover); }
+.avatar-choice--upload { display: grid; place-items: center; align-content: center; gap: var(--space-1); color: var(--accent-text); }
+.avatar-choice--upload small { font-size: var(--font-micro); font-weight: 650; }
 .avatar-choice--upload:disabled { cursor: wait; opacity: .65; }
-.name-field { display: grid; }
-.welcome-error { margin: -8px 0 0; color: var(--coral); font-size: 13px; }
-.finish-button { display: flex; width: 100%; align-items: center; justify-content: center; gap: 8px; }
-.finish-button .ui-icon { width: 18px; }
-
+.name-field { display: grid; min-width: 0; }
+.welcome-error { margin: -8px 0 0; color: var(--danger); font-size: var(--font-body-sm); }
+.finish-button { display: flex; width: 100%; align-items: center; justify-content: center; gap: var(--space-2); }
 @media (max-width: 720px) {
-  .welcome-page { padding: 18px 12px; }
-  .welcome-sheet { grid-template-columns: 1fr; gap: 28px; border-radius: 30px 30px 30px 16px; }
-  .profile-stage { min-height: 230px; }
-  .welcome-header h1 { font-size: 40px; }
-}
-
-/* 原生外壳是全屏 WebView：页面根必须避让状态栏/挖孔与底部指示条，
- * 浏览器里 env() 为 0，桌面排版不受影响。 */
-.welcome-page {
-  padding:
-    max(30px, env(safe-area-inset-top))
-    max(20px, env(safe-area-inset-right))
-    max(30px, env(safe-area-inset-bottom))
-    max(20px, env(safe-area-inset-left));
-}
-.welcome-sheet {
-  width: min(100%, 760px);
-  padding: clamp(28px, 5vw, 48px);
-  grid-template-columns: 0.85fr 1.15fr;
-  gap: 44px;
-  border-radius: 28px;
-  background: var(--surface-raise);
-  box-shadow: 0 18px 50px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
-}
-.step-pill {
-  padding: 6px 10px;
-  border: 0;
-  color: var(--blue);
-  background: var(--active);
-}
-.step-pill span { width: 6px; height: 6px; box-shadow: none; }
-.welcome-header h1 { margin: 16px 0 10px; font-size: clamp(34px, 5vw, 48px); }
-.welcome-header p { color: var(--ink-soft); font-size: 15px; }
-.profile-stage {
-  min-height: 250px;
-  border-radius: 22px;
-  background: var(--hover);
-}
-.avatar-choice {
-  border: 0;
-  border-radius: 50%;
-  background: var(--fill);
-  box-shadow: none;
-}
-.avatar-choice:hover { transform: none; background: var(--button-hover); }
-.avatar-choice--selected {
-  border: 2px solid rgba(0, 122, 255, 0.46);
-  background: var(--active);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.07);
-  transform: none;
-}
-.welcome-form legend,
-.name-field > span { color: var(--ink-soft); font-weight: 600; }
-
-@media (max-width: 720px) {
-  .welcome-page {
-    padding:
-      max(14px, env(safe-area-inset-top))
-      max(14px, env(safe-area-inset-right))
-      max(14px, env(safe-area-inset-bottom))
-      max(14px, env(safe-area-inset-left));
-  }
-  .welcome-sheet { grid-template-columns: 1fr; gap: 24px; border-radius: 24px; }
+  .welcome-page { padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+  .welcome-sheet { grid-template-columns: minmax(0, 1fr); gap: var(--space-6); padding: var(--space-6); border-radius: var(--radius-sheet); }
   .profile-stage { min-height: 200px; }
-  .welcome-header h1 { font-size: 36px; }
+  .welcome-header h1 { font-size: clamp(28px, 8vw, 36px); }
 }
-
-/* Keep the two functional choices distinct from the emoji presets after the
- * compact theme overrides above. */
-.avatar-choice.avatar-choice--text { color: #fff; background: linear-gradient(145deg, var(--blue), var(--violet)); }
-.avatar-choice.avatar-choice--upload { color: var(--blue); }
-.avatar-choice.avatar-choice--upload .ui-icon { width: 22px; }
 </style>

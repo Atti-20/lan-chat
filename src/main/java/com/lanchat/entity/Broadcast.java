@@ -1,6 +1,7 @@
 package com.lanchat.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -45,4 +46,16 @@ public class Broadcast {
 
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
+
+    /** The requesting recipient's immutable submission state, populated only
+     * by the visibility query. It keeps list filters user-specific without
+     * changing the lifecycle state of the broadcast for its sender. */
+    @TableField(exist = false)
+    private String currentUserConfirmStatus;
+
+    @TableField(exist = false)
+    private LocalDateTime currentUserConfirmedAt;
+
+    @TableField(exist = false)
+    private LocalDateTime currentUserCompletedAt;
 }

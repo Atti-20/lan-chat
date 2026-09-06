@@ -1,8 +1,10 @@
 import type {
+  AuditEvent,
   AdminUser,
   AuthSession,
   ChatGroup,
   ChatMessage,
+  MentionReadReceipt,
   ConversationSummary,
   BroadcastCreatePayload,
   BroadcastCompletePayload,
@@ -361,6 +363,9 @@ export const api = {
     search: (keyword: string, limit = 50) => request<ChatMessage[]>(
       `/chat/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}`,
     ),
+    mentionReceipts: (messageId: string) => request<MentionReadReceipt>(
+      `/chat/messages/${encodeURIComponent(messageId)}/mention-receipts`,
+    ),
   },
   files: {
     upload: (file: File, conversationId: string) => {
@@ -430,6 +435,12 @@ export const api = {
     )),
   },
   admin: {
+    auditEvents: (query: { action?: string; outcome?: string } = {}) => {
+      const params = new URLSearchParams({ limit: '100' })
+      if (query.action) params.set('action', query.action)
+      if (query.outcome) params.set('outcome', query.outcome)
+      return request<AuditEvent[]>(`/admin/audit?${params}`)
+    },
     users: () => request<AdminUser[]>('/admin/users'),
     createUser: (payload: { username: string; password: string; nickname: string }) => request<void>(
       '/admin/users',

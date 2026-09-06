@@ -1,6 +1,10 @@
 package com.lanchat.controller;
 
 import com.lanchat.common.Result;
+import com.lanchat.control.rbac.AuthorizationService;
+import com.lanchat.control.rbac.PermissionCode;
+import com.lanchat.control.audit.ControlAuditService;
+import com.lanchat.control.admin.ControlAdminOperationService;
 import com.lanchat.dto.AdminDiagnostics;
 import com.lanchat.dto.AdminPhysicalErasureDTO;
 import com.lanchat.dto.AdminResetPasswordDTO;
@@ -18,13 +22,13 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/admin")
@@ -40,24 +44,26 @@ public class AdminController {
     @Autowired
     private RuntimeLogService runtimeLogService;
 
+    @Autowired
+    private AuthorizationService authorizationService;
+
+    @Autowired
+    private ControlAuditService controlAuditService;
+
+    @Autowired
+    private ControlAdminOperationService adminOperationService;
+
     @Autowired(required = false)
     private ChatWebSocketHandler webSocketHandler;
 
-    // 检查当前操作者是否 admin
-    private void checkAdminPermission() {
-        if (UserContextHolder.getCurrentUser() == null) {
-            throw new AccessDeniedException("请先登录");
-        }
-        String currentUsername = UserContextHolder.getCurrentUser().getUsername();
-        if(!"admin".equals(currentUsername)) {
-            throw new AccessDeniedException("警告：越权操作！");
-        }
+    private void requirePermission(PermissionCode permissionCode) {
+        authorizationService.requireCurrentUserPermission(permissionCode);
     }
 
     // 1、获取用户列表
     @GetMapping("/users")
     public Result listAllUsers() {
-        checkAdminPermission();
+        requirePermission(PermissionCode.USER_READ);
         List<User> userList = userService.list();
         // password字段置空
         userList.forEach(user -> user.setPassword("******"));
@@ -67,8 +73,8 @@ public class AdminController {
     /** Private deployments create regular accounts through the protected admin console. */
     @PostMapping("/users")
     public Result<Void> createUser(@RequestBody RegisterDTO dto) {
-        checkAdminPermission();
-        boolean success = userService.register(dto);
+        requirePermission(PermissionCode.USER_CREATE);
+        boolean success = adminOperationService.createUser(dto);
         if (!success) return Result.error(409, "用户名已存在");
         log.info("Administrator {} created account {}",
                 UserContextHolder.getCurrentUser().getUsername(), dto.getUsername().trim());
@@ -82,18 +88,14 @@ public class AdminController {
      */
     @PostMapping("/user/status")
     public Result changUserStatus(@RequestParam Long userId, @RequestParam Integer status) {
-        checkAdminPermission();
+        requirePermission(PermissionCode.USER_DISABLE);
         if (status == null || (status != 0 && status != 1)) {
             return Result.error(400, "用户状态只能为0或1");
         }
-        // 保护机制：管理员不能封禁自己
         User targetUser = userService.getById(userId);
         if (targetUser == null) return Result.error(404, "用户不存在");
-        if("admin".equals(targetUser.getUsername())) {
-            return Result.error("操作失败：不能封禁管理员账号！");
-        }
 
-        boolean success = userService.setStatusByAdmin(userId, status);
+        boolean success = adminOperationService.setStatus(userId, status);
 
         return success ? Result.success(status == 0 ? "用户已被封禁！" : "用户已解禁！") : Result.error("操作失败");
     }
@@ -105,17 +107,17 @@ public class AdminController {
     public Result muteUserGlobally(@RequestParam Long userId,
                                    @RequestParam String muteStart,
                                    @RequestParam String muteEnd) {
-        checkAdminPermission();
-        boolean success = userService.setMutePeriod(userId, muteStart, muteEnd);
+        requirePermission(PermissionCode.USER_DISABLE);
+        boolean success = adminOperationService.setMutePeriod(userId, muteStart, muteEnd);
         return success ? Result.success("禁言时段设置成功") : Result.error("操作失败");
     }
 
     /** Default account removal is a reversible-data-safe archive, not history deletion. */
     @DeleteMapping("/user/{userId}")
     public Result deleteUser(@PathVariable Long userId) {
-        checkAdminPermission();
+        requirePermission(PermissionCode.USER_DELETE);
         try {
-            userService.archiveUserByAdmin(userId, UserContextHolder.getCurrentUserId());
+            adminOperationService.archiveUser(userId, UserContextHolder.getCurrentUserId());
             return Result.success("用户已归档，历史消息与广播回执已保留");
         } catch (IllegalArgumentException e) {
             int code = "用户不存在".equals(e.getMessage()) ? 404 : 400;
@@ -130,11 +132,11 @@ public class AdminController {
     @PostMapping("/user/{userId}/physical-erasure")
     public Result<Void> physicallyEraseUser(@PathVariable Long userId,
                                             @RequestBody AdminPhysicalErasureDTO dto) {
-        checkAdminPermission();
+        requirePermission(PermissionCode.USER_DELETE);
         try {
             String phrase = dto == null ? null : dto.getConfirmationPhrase();
             String reason = dto == null ? null : dto.getReason();
-            userService.physicallyEraseUserByAdmin(
+            adminOperationService.physicallyEraseUser(
                     userId,
                     UserContextHolder.getCurrentUserId(),
                     phrase,
@@ -152,10 +154,10 @@ public class AdminController {
     @PutMapping("/user/{userId}/password")
     public Result<Void> resetUserPassword(@PathVariable Long userId,
                                           @RequestBody AdminResetPasswordDTO dto) {
-        checkAdminPermission();
+        requirePermission(PermissionCode.USER_PASSWORD_RESET);
         try {
             String newPassword = dto == null ? null : dto.getNewPassword();
-            boolean success = userService.resetPasswordByAdmin(userId, newPassword);
+            boolean success = adminOperationService.resetPassword(userId, newPassword);
             if (!success) return Result.error("密码重置失败");
             log.info("Administrator {} reset the password for account id {}",
                     UserContextHolder.getCurrentUser().getUsername(), userId);
@@ -169,9 +171,9 @@ public class AdminController {
     @PutMapping("/user/{userId}/broadcast-permission")
     public Result<Void> setBroadcastPermission(@PathVariable Long userId,
                                                @RequestParam boolean enabled) {
-        checkAdminPermission();
+        requirePermission(PermissionCode.BROADCAST_PERMISSION_UPDATE);
         try {
-            if (!userService.setBroadcastPermission(userId, enabled)) {
+            if (!adminOperationService.setBroadcastPermission(userId, enabled)) {
                 return Result.error("广播权限更新失败");
             }
             if (webSocketHandler != null) {
@@ -191,7 +193,7 @@ public class AdminController {
     /** Detailed dependency, storage, JVM and WebSocket diagnostics. */
     @GetMapping("/diagnostics")
     public Result<AdminDiagnostics> diagnostics() {
-        checkAdminPermission();
+        requirePermission(PermissionCode.DIAGNOSTICS_READ);
         return Result.success(nodeDiagnosticsService.adminDiagnostics());
     }
 
@@ -201,16 +203,24 @@ public class AdminController {
             @RequestParam(defaultValue = "300") int limit,
             @RequestParam(defaultValue = "ALL") String level,
             @RequestParam(defaultValue = "") String keyword) {
-        checkAdminPermission();
+        requirePermission(PermissionCode.RUNTIME_LOG_READ);
         return Result.success(runtimeLogService.read(limit, level, keyword));
     }
 
     /** Streams the complete active log file without accepting a client-controlled path. */
     @GetMapping("/logs/export")
     public ResponseEntity<Resource> exportRuntimeLog() {
-        checkAdminPermission();
+        requirePermission(PermissionCode.RUNTIME_LOG_READ);
         var exported = runtimeLogService.openExport();
         if (exported.isEmpty()) return ResponseEntity.notFound().build();
+
+        controlAuditService.appendRequired(
+                UserContextHolder.getCurrentUserId(),
+                "RUNTIME_LOG_EXPORTED",
+                "CONTROL_SERVER",
+                null,
+                "SUCCEEDED",
+                Map.of());
 
         RuntimeLogService.LogExport value = exported.get();
         log.info("Administrator {} exported the active runtime log",
@@ -225,4 +235,5 @@ public class AdminController {
                 .contentType(new MediaType("text", "plain", StandardCharsets.UTF_8))
                 .body(value.resource());
     }
+
 }

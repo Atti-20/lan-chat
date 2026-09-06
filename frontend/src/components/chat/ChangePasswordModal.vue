@@ -101,7 +101,7 @@ async function submit(): Promise<void> {
   z-index: 110;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(14px) saturate(125%);
@@ -115,7 +115,7 @@ async function submit(): Promise<void> {
   max-height: calc(100dvh - 40px);
   padding: 28px 26px 24px;
   gap: 2px;
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   background: var(--surface-raise);
   overflow-y: auto;
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
@@ -141,14 +141,14 @@ async function submit(): Promise<void> {
 .close-button:hover { background: var(--button-hover); }
 .close-button .ui-icon { width: 16px; }
 
-.password-sheet h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
-.password-desc { margin: 4px 0 16px; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.password-sheet h2 { margin: 0; font-size: var(--font-title); letter-spacing: -0.02em; }
+.password-desc { margin: 4px 0 16px; color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.5; }
 
 .password-form { display: grid; gap: 14px; }
 .password-form label { display: grid; gap: 6px; }
-.password-form label span { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
+.password-form label span { color: var(--ink-soft); font-size: var(--font-caption); font-weight: 600; }
 
-.form-error { margin: -2px 0 0; color: var(--coral); font-size: 12px; line-height: 1.5; }
+.form-error { margin: -2px 0 0; color: var(--danger); font-size: var(--font-caption); line-height: 1.5; }
 
 .password-form .primary-button { width: 100%; margin-top: 6px; }
 </style>

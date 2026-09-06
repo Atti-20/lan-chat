@@ -15,11 +15,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::device_identity::{validate_control_trust_anchor, ControlTrustAnchor};
 use crate::endpoint::{normalize_node_address, normalize_origin, valid_node_id};
 
-const SERVICE_TYPE: &str = "_lanchat._tcp.local.";
+const CONTROL_SERVICE_TYPE: &str = "_meshx-control._tcp.local.";
+const LEGACY_SERVICE_TYPE: &str = "_lanchat._tcp.local.";
 const PROTOCOL_VERSION: u16 = 1;
+const CONTROL_PROTOCOL_VERSION: u16 = 2;
 const API_BASE_PATH: &str = "/api/v1";
+const CONTROL_API_BASE_PATH: &str = "/api/v2";
+const CONTROL_INFO_PATH: &str = "/api/v2/control/info";
+const CONTROL_HEALTH_PATH: &str = "/api/v2/control/health";
 const WEB_SOCKET_PATH: &str = "/ws/chat";
 const HEALTH_PATH: &str = "/api/v1/node/health";
 const DEFAULT_APP_PATH: &str = "/app/";
@@ -54,6 +60,8 @@ pub enum DesktopNodeHealth {
 pub struct DesktopNode {
     pub node_id: String,
     pub node_name: String,
+    #[serde(default)]
+    pub organization_id: Option<String>,
     pub organization_name: String,
     pub version: String,
     pub mode: String,
@@ -74,6 +82,12 @@ pub struct DesktopNode {
     pub app_path: String,
     pub last_successful_at: Option<String>,
     pub addresses: Vec<String>,
+    #[serde(default)]
+    pub device_identity_enabled: bool,
+    #[serde(default)]
+    pub control_signing_public_key: Option<String>,
+    #[serde(default)]
+    pub control_signing_key_fingerprint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -96,6 +110,33 @@ struct NodePublicInfo {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ControlPublicInfo {
+    control_id: String,
+    control_name: String,
+    organization_id: String,
+    organization_name: String,
+    mode: String,
+    service_status: String,
+    protocol_version: u16,
+    secure: bool,
+    version: String,
+    api_base_path: String,
+    web_socket_path: String,
+    health_path: String,
+    app_path: String,
+    desktop_auth_supported: bool,
+    refresh_transport: String,
+    legacy_api_base_path: String,
+    #[serde(default)]
+    device_identity_enabled: bool,
+    #[serde(default)]
+    control_signing_public_key: Option<String>,
+    #[serde(default)]
+    control_signing_key_fingerprint: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct ApiResult<T> {
     code: i64,
     #[serde(default)]
@@ -103,15 +144,24 @@ struct ApiResult<T> {
     data: Option<T>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HandshakeProtocol {
+    ControlV2,
+    LegacyV1,
+    Auto,
+}
+
 struct DiscoveryCandidate {
     fullname: Option<String>,
     expected_node_id: Option<String>,
+    expected_organization_id: Option<String>,
     protocol_version: u16,
     api_base_path: String,
     web_socket_path: String,
     health_path: String,
     app_path: String,
     desktop_auth_supported: bool,
+    handshake_protocol: HandshakeProtocol,
     origins: Vec<(String, String)>,
     source: DesktopNodeSource,
 }
@@ -200,6 +250,38 @@ impl DiscoveryService {
             .any(|node| origin_matches(origin, &node.api_origin))
     }
 
+    /// Returns the Control trust anchor only after its discovery handshake has
+    /// completed. Cached anchors are revalidated before authentication uses
+    /// them, so malformed cache data cannot silently disable verification.
+    pub fn control_trust_anchor(&self, origin: &str) -> Result<Option<ControlTrustAnchor>, String> {
+        let nodes = self
+            .nodes
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let node = nodes
+            .values()
+            .find(|node| origin_matches(origin, &node.api_origin))
+            .ok_or_else(|| "node origin has not completed the native handshake".to_string())?;
+        if !node.device_identity_enabled {
+            return Ok(None);
+        }
+        let organization_id = node
+            .organization_id
+            .as_deref()
+            .ok_or_else(|| "Control device identity did not include an organization".to_string())?;
+        let public_key = node.control_signing_public_key.as_deref().ok_or_else(|| {
+            "Control device identity did not include a signing public key".to_string()
+        })?;
+        let fingerprint = node
+            .control_signing_key_fingerprint
+            .as_deref()
+            .ok_or_else(|| {
+                "Control device identity did not include a signing key fingerprint".to_string()
+            })?;
+        validate_control_trust_anchor(&node.node_id, organization_id, public_key, fingerprint)
+            .map(Some)
+    }
+
     pub fn refresh(self: &Arc<Self>) -> Result<(), String> {
         if self
             .daemon
@@ -213,9 +295,12 @@ impl DiscoveryService {
         }
         let daemon = ServiceDaemon::new()
             .map_err(|error| format!("failed to start native mDNS discovery: {error}"))?;
-        let receiver = daemon
-            .browse(SERVICE_TYPE)
-            .map_err(|error| format!("failed to browse {SERVICE_TYPE}: {error}"))?;
+        let control_receiver = daemon
+            .browse(CONTROL_SERVICE_TYPE)
+            .map_err(|error| format!("failed to browse {CONTROL_SERVICE_TYPE}: {error}"))?;
+        let legacy_receiver = daemon
+            .browse(LEGACY_SERVICE_TYPE)
+            .map_err(|error| format!("failed to browse {LEGACY_SERVICE_TYPE}: {error}"))?;
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
 
         self.active_services
@@ -250,25 +335,23 @@ impl DiscoveryService {
         }
 
         self.emit_nodes();
-        let service = Arc::clone(self);
-        thread::Builder::new()
-            .name("lanchat-mdns-events".to_string())
-            .spawn(move || {
-                while generation == service.generation.load(Ordering::SeqCst) {
-                    let Ok(event) = receiver.recv() else {
-                        break;
-                    };
-                    service.handle_event(generation, event);
-                }
-                if generation == service.generation.load(Ordering::SeqCst) {
-                    service
-                        .daemon
-                        .lock()
-                        .unwrap_or_else(|poison| poison.into_inner())
-                        .take();
-                }
-            })
-            .map_err(|error| format!("failed to start mDNS event worker: {error}"))?;
+        for (worker_name, receiver) in [
+            ("meshx-control-mdns-events", control_receiver),
+            ("lanchat-legacy-mdns-events", legacy_receiver),
+        ] {
+            let service = Arc::clone(self);
+            thread::Builder::new()
+                .name(worker_name.to_string())
+                .spawn(move || {
+                    while generation == service.generation.load(Ordering::SeqCst) {
+                        let Ok(event) = receiver.recv() else {
+                            break;
+                        };
+                        service.handle_event(generation, event);
+                    }
+                })
+                .map_err(|error| format!("failed to start mDNS event worker: {error}"))?;
+        }
         self.probe_known_nodes_async();
         Ok(())
     }
@@ -348,6 +431,32 @@ impl DiscoveryService {
         address: &str,
         candidate: &DiscoveryCandidate,
     ) -> Result<DesktopNode, String> {
+        match candidate.handshake_protocol {
+            HandshakeProtocol::ControlV2 => {
+                self.handshake_control(origin, address, candidate).await
+            }
+            HandshakeProtocol::LegacyV1 => self.handshake_legacy(origin, address, candidate).await,
+            HandshakeProtocol::Auto => {
+                match self.fetch_control_info(origin).await {
+                    Ok(info) => {
+                        // Once an endpoint has positively identified itself as
+                        // Control V2, validation failures are security failures,
+                        // not a reason to downgrade to the legacy handshake.
+                        self.handshake_control_info(origin, address, candidate, info)
+                            .await
+                    }
+                    Err(_) => self.handshake_legacy(origin, address, candidate).await,
+                }
+            }
+        }
+    }
+
+    async fn handshake_legacy(
+        &self,
+        origin: &str,
+        address: &str,
+        candidate: &DiscoveryCandidate,
+    ) -> Result<DesktopNode, String> {
         let started = Instant::now();
         let info: NodePublicInfo = self
             .get_result(&format!("{origin}{API_BASE_PATH}/node/info"))
@@ -393,6 +502,7 @@ impl DiscoveryService {
         Ok(DesktopNode {
             node_id: info.node_id,
             node_name: safe_label(&info.node_name, "MeshX Node", 80),
+            organization_id: None,
             organization_name: safe_label(&info.organization_name, "Local Organization", 80),
             version: safe_label(&info.version, "unknown", 30),
             mode: safe_mode(&info.mode),
@@ -417,7 +527,149 @@ impl DiscoveryService {
             app_path,
             last_successful_at: Some(now),
             addresses: vec![address.to_string()],
+            device_identity_enabled: false,
+            control_signing_public_key: None,
+            control_signing_key_fingerprint: None,
         })
+    }
+
+    async fn handshake_control(
+        &self,
+        origin: &str,
+        address: &str,
+        candidate: &DiscoveryCandidate,
+    ) -> Result<DesktopNode, String> {
+        let info = self.fetch_control_info(origin).await?;
+        self.handshake_control_info(origin, address, candidate, info)
+            .await
+    }
+
+    async fn fetch_control_info(&self, origin: &str) -> Result<ControlPublicInfo, String> {
+        self.get_result(&format!("{origin}{CONTROL_INFO_PATH}"))
+            .await
+    }
+
+    async fn handshake_control_info(
+        &self,
+        origin: &str,
+        address: &str,
+        candidate: &DiscoveryCandidate,
+        info: ControlPublicInfo,
+    ) -> Result<DesktopNode, String> {
+        let started = Instant::now();
+        if !valid_node_id(&info.control_id) {
+            return Err("control handshake returned an invalid controlId".to_string());
+        }
+        if !valid_node_id(&info.organization_id) {
+            return Err("control handshake returned an invalid organizationId".to_string());
+        }
+        if let Some(expected) = &candidate.expected_node_id {
+            if expected != &info.control_id {
+                return Err("mDNS controlId did not match the HTTP handshake".to_string());
+            }
+        }
+        if let Some(expected) = &candidate.expected_organization_id {
+            if expected != &info.organization_id {
+                return Err("mDNS organizationId did not match the HTTP handshake".to_string());
+            }
+        }
+        validate_control_contract(&info)?;
+        let trust_anchor = control_trust_anchor_from_info(&info)?;
+        self.validate_control_identity_continuity(&info, trust_anchor.as_ref())?;
+        if candidate.handshake_protocol == HandshakeProtocol::ControlV2
+            && (candidate.protocol_version != info.protocol_version
+                || candidate.api_base_path != info.legacy_api_base_path
+                || candidate.web_socket_path != info.web_socket_path
+                || candidate.health_path != info.health_path
+                || normalize_app_path(&candidate.app_path)? != normalize_app_path(&info.app_path)?
+                || candidate.desktop_auth_supported != info.desktop_auth_supported)
+        {
+            return Err("advertised control protocol did not match the HTTP handshake".to_string());
+        }
+        if info.secure && !origin.starts_with("https://") {
+            return Err("control attempted to downgrade a secure advertisement".to_string());
+        }
+
+        let health: Value = self
+            .get_result(&format!("{origin}{}", info.health_path))
+            .await?;
+        if health
+            .get("controlId")
+            .and_then(Value::as_str)
+            .is_some_and(|control_id| control_id != info.control_id)
+        {
+            return Err("health endpoint controlId did not match control info".to_string());
+        }
+        let health_status = health
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("UNKNOWN");
+        let now = Utc::now().to_rfc3339();
+        let app_path = normalize_app_path(&info.app_path)?;
+        Ok(DesktopNode {
+            node_id: info.control_id,
+            node_name: safe_label(&info.control_name, "MeshX Control", 80),
+            organization_id: Some(info.organization_id),
+            organization_name: safe_label(&info.organization_name, "Local Organization", 80),
+            version: safe_label(&info.version, "unknown", 30),
+            mode: safe_mode(&info.mode),
+            app_url: format!("{origin}{app_path}"),
+            secure: origin.starts_with("https://"),
+            current: false,
+            last_seen_at: now.clone(),
+            source: candidate.source,
+            health: if health_status == "UP" && info.service_status == "AVAILABLE" {
+                DesktopNodeHealth::Healthy
+            } else {
+                DesktopNodeHealth::Degraded
+            },
+            latency_ms: Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+            failure_count: 0,
+            pinned: candidate.source == DesktopNodeSource::Manual,
+            protocol_version: info.protocol_version,
+            api_origin: origin.to_string(),
+            api_base_path: info.legacy_api_base_path,
+            web_socket_path: info.web_socket_path,
+            health_path: info.health_path,
+            app_path,
+            last_successful_at: Some(now),
+            addresses: vec![address.to_string()],
+            device_identity_enabled: trust_anchor.is_some(),
+            control_signing_public_key: trust_anchor.as_ref().map(|trust| trust.public_key.clone()),
+            control_signing_key_fingerprint: trust_anchor.map(|trust| trust.fingerprint),
+        })
+    }
+
+    fn validate_control_identity_continuity(
+        &self,
+        info: &ControlPublicInfo,
+        trust_anchor: Option<&ControlTrustAnchor>,
+    ) -> Result<(), String> {
+        let nodes = self
+            .nodes
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let Some(existing) = nodes.get(&info.control_id) else {
+            return Ok(());
+        };
+        if existing
+            .organization_id
+            .as_deref()
+            .is_some_and(|organization_id| organization_id != info.organization_id)
+        {
+            return Err("Control organization changed for a known controlId".to_string());
+        }
+        let Some(pinned_fingerprint) = existing.control_signing_key_fingerprint.as_deref() else {
+            return Ok(());
+        };
+        let current_fingerprint = trust_anchor.map(|trust| trust.fingerprint.as_str());
+        if current_fingerprint != Some(pinned_fingerprint) {
+            return Err(
+                "Control signing key changed; remove and re-trust this Control explicitly"
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 
     async fn get_result<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Result<T, String> {
@@ -586,12 +838,18 @@ impl DiscoveryService {
             .map(|node| DiscoveryCandidate {
                 fullname: None,
                 expected_node_id: Some(node.node_id.clone()),
+                expected_organization_id: node.organization_id.clone(),
                 protocol_version: node.protocol_version,
                 api_base_path: node.api_base_path.clone(),
                 web_socket_path: node.web_socket_path.clone(),
                 health_path: node.health_path.clone(),
                 app_path: node.app_path.clone(),
                 desktop_auth_supported: true,
+                handshake_protocol: if node.protocol_version == CONTROL_PROTOCOL_VERSION {
+                    HandshakeProtocol::ControlV2
+                } else {
+                    HandshakeProtocol::LegacyV1
+                },
                 origins: vec![(
                     node.api_origin.clone(),
                     node.addresses
@@ -752,20 +1010,44 @@ fn candidate_from_mdns(info: &ResolvedService) -> Result<DiscoveryCandidate, Str
     if !info.is_valid() || info.get_port() == 0 {
         return Err("mDNS record is incomplete".to_string());
     }
+    let control_protocol = info.ty_domain == CONTROL_SERVICE_TYPE;
+    let identity_key = if control_protocol {
+        "controlId"
+    } else {
+        "nodeId"
+    };
     let node_id = info
-        .get_property_val_str("nodeId")
-        .ok_or_else(|| "mDNS record does not contain nodeId".to_string())?
+        .get_property_val_str(identity_key)
+        .ok_or_else(|| format!("mDNS record does not contain {identity_key}"))?
         .trim()
         .to_lowercase();
     if !valid_node_id(&node_id) {
-        return Err("mDNS record contains an invalid nodeId".to_string());
+        return Err(format!("mDNS record contains an invalid {identity_key}"));
     }
+    let expected_organization_id = if control_protocol {
+        let organization_id = info
+            .get_property_val_str("organizationId")
+            .ok_or_else(|| "mDNS record does not contain organizationId".to_string())?
+            .trim()
+            .to_lowercase();
+        if !valid_node_id(&organization_id) {
+            return Err("mDNS record contains an invalid organizationId".to_string());
+        }
+        Some(organization_id)
+    } else {
+        None
+    };
     let protocol = info
         .get_property_val_str("protocolVersion")
         .or_else(|| info.get_property_val_str("protocol"))
         .and_then(|value| value.parse::<u16>().ok())
         .ok_or_else(|| "mDNS record does not contain a valid protocol".to_string())?;
-    if protocol != PROTOCOL_VERSION {
+    let expected_protocol = if control_protocol {
+        CONTROL_PROTOCOL_VERSION
+    } else {
+        PROTOCOL_VERSION
+    };
+    if protocol != expected_protocol {
         return Err("mDNS protocol version is not supported".to_string());
     }
     let secure = match info.get_property_val_str("secure") {
@@ -773,6 +1055,20 @@ fn candidate_from_mdns(info: &ResolvedService) -> Result<DiscoveryCandidate, Str
         Some("false") | None => false,
         Some(_) => return Err("mDNS secure flag is invalid".to_string()),
     };
+    if control_protocol {
+        advertised_path(
+            info,
+            "controlApiBasePath",
+            CONTROL_API_BASE_PATH,
+            "mDNS Control API base path",
+        )?;
+        advertised_path(
+            info,
+            "infoPath",
+            CONTROL_INFO_PATH,
+            "mDNS Control info path",
+        )?;
+    }
     let api_base_path = advertised_path(info, "apiBasePath", API_BASE_PATH, "mDNS API base path")?;
     let web_socket_path = advertised_path(
         info,
@@ -780,7 +1076,13 @@ fn candidate_from_mdns(info: &ResolvedService) -> Result<DiscoveryCandidate, Str
         WEB_SOCKET_PATH,
         "mDNS WebSocket path",
     )?;
-    let health_path = advertised_path(info, "healthPath", HEALTH_PATH, "mDNS health path")?;
+    let expected_health_path = if control_protocol {
+        CONTROL_HEALTH_PATH
+    } else {
+        HEALTH_PATH
+    };
+    let health_path =
+        advertised_path(info, "healthPath", expected_health_path, "mDNS health path")?;
     let app_path = normalize_app_path(
         info.get_property_val_str("appPath")
             .or_else(|| info.get_property_val_str("path"))
@@ -806,12 +1108,18 @@ fn candidate_from_mdns(info: &ResolvedService) -> Result<DiscoveryCandidate, Str
     Ok(DiscoveryCandidate {
         fullname: Some(info.get_fullname().to_string()),
         expected_node_id: Some(node_id),
+        expected_organization_id,
         protocol_version: protocol,
         api_base_path,
         web_socket_path,
         health_path,
         app_path,
         desktop_auth_supported,
+        handshake_protocol: if control_protocol {
+            HandshakeProtocol::ControlV2
+        } else {
+            HandshakeProtocol::LegacyV1
+        },
         origins,
         source: DesktopNodeSource::Mdns,
     })
@@ -849,12 +1157,14 @@ fn direct_candidate(origin: String, source: DesktopNodeSource) -> DiscoveryCandi
     DiscoveryCandidate {
         fullname: None,
         expected_node_id: None,
+        expected_organization_id: None,
         protocol_version: PROTOCOL_VERSION,
         api_base_path: API_BASE_PATH.to_string(),
         web_socket_path: WEB_SOCKET_PATH.to_string(),
         health_path: HEALTH_PATH.to_string(),
         app_path: DEFAULT_APP_PATH.to_string(),
         desktop_auth_supported: true,
+        handshake_protocol: HandshakeProtocol::Auto,
         origins: vec![(origin.clone(), origin)],
         source,
     }
@@ -875,6 +1185,61 @@ fn validate_protocol_contract(info: &NodePublicInfo) -> Result<(), String> {
     validate_exact_path(&info.health_path, HEALTH_PATH, "health path")?;
     normalize_app_path(&info.app_path)?;
     Ok(())
+}
+
+fn validate_control_contract(info: &ControlPublicInfo) -> Result<(), String> {
+    if info.protocol_version != CONTROL_PROTOCOL_VERSION {
+        return Err("control protocol version is not supported".to_string());
+    }
+    if !info.desktop_auth_supported {
+        return Err("control does not support native desktop authentication".to_string());
+    }
+    if info.refresh_transport != REFRESH_TRANSPORT {
+        return Err("control refresh transport is not supported".to_string());
+    }
+    validate_exact_path(
+        &info.api_base_path,
+        CONTROL_API_BASE_PATH,
+        "Control API base path",
+    )?;
+    validate_exact_path(
+        &info.legacy_api_base_path,
+        API_BASE_PATH,
+        "legacy API base path",
+    )?;
+    validate_exact_path(&info.web_socket_path, WEB_SOCKET_PATH, "WebSocket path")?;
+    validate_exact_path(
+        &info.health_path,
+        CONTROL_HEALTH_PATH,
+        "Control health path",
+    )?;
+    normalize_app_path(&info.app_path)?;
+    control_trust_anchor_from_info(info)?;
+    Ok(())
+}
+
+fn control_trust_anchor_from_info(
+    info: &ControlPublicInfo,
+) -> Result<Option<ControlTrustAnchor>, String> {
+    if !info.device_identity_enabled {
+        return Ok(None);
+    }
+    let public_key = info.control_signing_public_key.as_deref().ok_or_else(|| {
+        "Control device identity did not include a signing public key".to_string()
+    })?;
+    let fingerprint = info
+        .control_signing_key_fingerprint
+        .as_deref()
+        .ok_or_else(|| {
+            "Control device identity did not include a signing key fingerprint".to_string()
+        })?;
+    validate_control_trust_anchor(
+        &info.control_id,
+        &info.organization_id,
+        public_key,
+        fingerprint,
+    )
+    .map(Some)
 }
 
 fn validate_exact_path(value: &str, expected: &str, label: &str) -> Result<(), String> {
@@ -1024,12 +1389,18 @@ fn safe_mode(value: &str) -> String {
 mod tests {
     use super::{
         cache_candidates, candidate_origins, origin_matches, safe_label, safe_mode, usable_ip,
-        validate_protocol_contract, DesktopNode, DesktopNodeHealth, DesktopNodeSource,
-        NodePublicInfo, API_BASE_PATH, DEFAULT_APP_PATH, HEALTH_PATH, REFRESH_TRANSPORT,
-        WEB_SOCKET_PATH,
+        validate_control_contract, validate_protocol_contract, ControlPublicInfo, DesktopNode,
+        DesktopNodeHealth, DesktopNodeSource, NodePublicInfo, API_BASE_PATH, CONTROL_API_BASE_PATH,
+        CONTROL_HEALTH_PATH, CONTROL_PROTOCOL_VERSION, DEFAULT_APP_PATH, HEALTH_PATH,
+        REFRESH_TRANSPORT, WEB_SOCKET_PATH,
     };
     use crate::endpoint::normalize_origin;
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
     use chrono::{Duration, Utc};
+    use ed25519_dalek::pkcs8::EncodePublicKey;
+    use ed25519_dalek::SigningKey;
+    use sha2::{Digest, Sha256};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     #[test]
@@ -1157,11 +1528,42 @@ mod tests {
         assert!(validate_protocol_contract(&info).is_err());
     }
 
+    #[test]
+    fn accepts_control_v2_with_v1_client_api_compatibility() {
+        let mut info = compatible_control_info();
+        assert!(validate_control_contract(&info).is_ok());
+        info.legacy_api_base_path = "/api/v2".to_string();
+        assert!(validate_control_contract(&info).is_err());
+        info.legacy_api_base_path = API_BASE_PATH.to_string();
+        info.health_path = HEALTH_PATH.to_string();
+        assert!(validate_control_contract(&info).is_err());
+    }
+
+    #[test]
+    fn enabled_device_identity_requires_a_matching_ed25519_trust_anchor() {
+        let mut info = compatible_control_info();
+        info.device_identity_enabled = true;
+        assert!(validate_control_contract(&info).is_err());
+
+        let public_der = SigningKey::from_bytes(&[11_u8; 32])
+            .verifying_key()
+            .to_public_key_der()
+            .unwrap();
+        info.control_signing_public_key = Some(STANDARD.encode(public_der.as_bytes()));
+        info.control_signing_key_fingerprint =
+            Some(format!("{:x}", Sha256::digest(public_der.as_bytes())));
+        assert!(validate_control_contract(&info).is_ok());
+
+        info.control_signing_key_fingerprint = Some("0".repeat(64));
+        assert!(validate_control_contract(&info).is_err());
+    }
+
     fn cached_node(index: u8) -> DesktopNode {
         let seen_at = (Utc::now() + Duration::seconds(i64::from(index))).to_rfc3339();
         DesktopNode {
             node_id: format!("n{index:02}"),
             node_name: format!("Node {index}"),
+            organization_id: None,
             organization_name: "MeshX".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             mode: "LAN_FIRST".to_string(),
@@ -1182,6 +1584,9 @@ mod tests {
             app_path: DEFAULT_APP_PATH.to_string(),
             last_successful_at: Some(seen_at),
             addresses: vec![format!("10.0.0.{index}")],
+            device_identity_enabled: false,
+            control_signing_public_key: None,
+            control_signing_key_fingerprint: None,
         }
     }
 
@@ -1201,6 +1606,30 @@ mod tests {
             app_path: DEFAULT_APP_PATH.to_string(),
             desktop_auth_supported: true,
             refresh_transport: REFRESH_TRANSPORT.to_string(),
+        }
+    }
+
+    fn compatible_control_info() -> ControlPublicInfo {
+        ControlPublicInfo {
+            control_id: "control_abc".to_string(),
+            control_name: "Control".to_string(),
+            organization_id: "org_abc".to_string(),
+            organization_name: "MeshX".to_string(),
+            mode: "LAN_FIRST".to_string(),
+            service_status: "AVAILABLE".to_string(),
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            secure: false,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            api_base_path: CONTROL_API_BASE_PATH.to_string(),
+            web_socket_path: WEB_SOCKET_PATH.to_string(),
+            health_path: CONTROL_HEALTH_PATH.to_string(),
+            app_path: DEFAULT_APP_PATH.to_string(),
+            desktop_auth_supported: true,
+            refresh_transport: REFRESH_TRANSPORT.to_string(),
+            legacy_api_base_path: API_BASE_PATH.to_string(),
+            device_identity_enabled: false,
+            control_signing_public_key: None,
+            control_signing_key_fingerprint: None,
         }
     }
 }

@@ -13,6 +13,7 @@ interface Props {
   members: readonly GroupMember[]
   loadingMessages?: boolean
   typingLabel?: string
+  mentionReceiptRefreshRevision?: number
   connected: boolean
   uploading?: boolean
   transferLabel?: string
@@ -27,6 +28,7 @@ interface Props {
 withDefaults(defineProps<Props>(), {
   loadingMessages: false,
   typingLabel: '',
+  mentionReceiptRefreshRevision: 0,
   uploading: false,
   transferLabel: '',
   writable: true,
@@ -45,7 +47,8 @@ const emit = defineEmits<{
   reply: [message: ChatMessage]
   retry: [clientMsgId: string]
   cancelPending: [clientMsgId: string]
-  send: [content: string, burn: boolean]
+  send: [content: string, burn: boolean, mentionUserIds?: string]
+  composerSubmitted: []
   typing: []
   file: [file: File]
   cancelReply: []
@@ -79,6 +82,7 @@ const emit = defineEmits<{
       :members="members"
       :loading="loadingMessages"
       :typing-label="typingLabel"
+      :mention-receipt-refresh-revision="mentionReceiptRefreshRevision"
       @recall="emit('recall', $event)"
       @burn="emit('burn', $event)"
       @reply="emit('reply', $event)"
@@ -94,7 +98,10 @@ const emit = defineEmits<{
       :writable="writable"
       :file-allowed="fileAllowed"
       :status-label="statusLabel"
-      @send="(content, burn) => emit('send', content, burn)"
+      :members="members"
+      :current-user-id="user.id"
+      @send="(content, burn, mentionUserIds) => emit('send', content, burn, mentionUserIds)"
+      @composer-submitted="emit('composerSubmitted')"
       @typing="emit('typing')"
       @file="emit('file', $event)"
       @cancel-reply="emit('cancelReply')"
@@ -128,7 +135,7 @@ const emit = defineEmits<{
   min-height: 70px;
   padding: 12px 18px;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   border-bottom: 1px solid var(--separator);
   background: var(--surface-glass);
   backdrop-filter: blur(16px) saturate(140%);
@@ -138,11 +145,11 @@ const emit = defineEmits<{
 .header-profile {
   display: flex;
   min-width: 0;
-  padding: 4px;
+  padding: var(--space-1);
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   color: inherit;
   text-align: left;
   background: none;
@@ -153,7 +160,7 @@ const emit = defineEmits<{
 .header-profile:focus-visible,
 .back-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 58%, transparent); outline-offset: 2px; }
 .workspace-title { display: grid; min-width: 0; flex: 1; }
-.workspace-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-title strong { overflow: hidden; font-size: var(--font-body-lg); text-overflow: ellipsis; white-space: nowrap; }
 .back-button {
   display: none;
   width: 40px;
@@ -162,7 +169,7 @@ const emit = defineEmits<{
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid var(--glass-border);
-  border-radius: 13px;
+  border-radius: var(--radius-control);
   color: var(--ink-faint);
   background: var(--surface-glass);
   cursor: pointer;

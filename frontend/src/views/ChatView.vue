@@ -9,7 +9,7 @@ import ChatWorkspace from '../components/chat/ChatWorkspace.vue'
 import ConversationSidebar from '../components/chat/ConversationSidebar.vue'
 import GlobalModalHost from '../components/chat/GlobalModalHost.vue'
 import NavigationCoordinator from '../components/chat/NavigationCoordinator.vue'
-import type { NavigationBackAction, NavigationBackState } from '../components/chat/navigationState'
+import { nextBackAction, type NavigationBackAction, type NavigationBackState } from '../components/chat/navigationState'
 import WorkspaceWelcome from '../components/chat/WorkspaceWelcome.vue'
 import { useAdmin } from '../composables/useAdmin'
 import { useAuth } from '../composables/useAuth'
@@ -44,7 +44,11 @@ import type {
 } from '../types'
 
 const auth = useAuth()
-const chat = useChat()
+const chat = useChat({
+  isConversationVisible: () => Boolean(selected.value && showWorkspace.value
+    && !hasBlockingOverlay.value && !isAdminSection.value
+    && !(isBroadcastSection.value && broadcasts.selectedId.value !== null)),
+})
 const admin = useAdmin()
 const toast = useToast()
 const {
@@ -64,6 +68,7 @@ const {
   loading,
   loadingMessages,
   typingLabel,
+  mentionReceiptRefreshRevision,
   fileTransferLabel,
   visibleConversations,
   connected,
@@ -117,6 +122,7 @@ const MIN_WORKSPACE_WIDTH = 360
 const viewportWidth = shallowRef(window.innerWidth)
 const sidebarWidth = shallowRef(clampSidebarWidth(320, viewportWidth.value))
 const resizingSidebar = shallowRef(false)
+const composerSubmitRevision = shallowRef(0)
 let stopActiveSidebarResize: (() => void) | null = null
 
 const user = computed<User>(() => auth.currentUser.value || {
@@ -161,7 +167,16 @@ const friendIds = computed(() => friends.value.map((friend) => friend.friendId))
 const selectedTemporaryRoom = computed<TemporaryRoom | null>(() => selected.value?.kind === 'temporary'
   ? selected.value.source as TemporaryRoom
   : null)
+const selectedSystemNotification = computed(() => {
+  const source = selected.value?.source
+  return selected.value?.kind === 'private'
+    && source != null
+    && 'username' in source
+    && source.username === 'broadcast-notify'
+    && source.signature === '系统广播通知账户'
+})
 const conversationWritable = computed(() => {
+  if (selectedSystemNotification.value) return false
   const room = selectedTemporaryRoom.value
   if (!room) return true
   const expiresAt = Date.parse(room.expiresAt)
@@ -170,6 +185,7 @@ const conversationWritable = computed(() => {
 const conversationFileAllowed = computed(() => conversationWritable.value
   && (selectedTemporaryRoom.value?.allowFileUpload ?? true))
 const conversationStatusLabel = computed(() => {
+  if (selectedSystemNotification.value) return '这是系统通知账户，仅发送广播概览和提醒'
   const room = selectedTemporaryRoom.value
   if (!room || conversationWritable.value) return ''
   if (room.status === 'ARCHIVED') return '房间已归档，仅可查看历史消息'
@@ -212,6 +228,9 @@ const navigationBackState = computed<NavigationBackState>(() => ({
   broadcast: broadcasts.selectedId.value !== null,
   conversation: Boolean(selected.value),
 }))
+const hasBlockingOverlay = computed(() => ![
+  'admin-module', 'broadcast', 'conversation', 'exit',
+].includes(nextBackAction(navigationBackState.value)))
 
 onMounted(async () => {
   // 登录响应中的用户资料可能是旧快照；进入聊天前以 /user/info 的结果为准，
@@ -377,8 +396,12 @@ async function selectConversation(conversation: Conversation): Promise<void> {
   }
 }
 
-async function sendMessage(content: string, burn: boolean): Promise<void> {
-  if (await chat.sendText(content, { burn, replyToId: replyTo.value?.messageId })) {
+async function sendMessage(content: string, burn: boolean, mentionUserIds?: string): Promise<void> {
+  if (await chat.sendText(content, {
+    burn,
+    replyToId: replyTo.value?.messageId,
+    mentionUserIds,
+  })) {
     replyTo.value = null
   }
 }
@@ -765,12 +788,17 @@ async function resetUserPassword(newPassword: string): Promise<void> {
   const reset = await admin.resetUserPassword({ userId: target.id, newPassword })
   if (reset) passwordResetTarget.value = null
 }
+
+function reanchorMobileViewportAfterComposerSubmit(): void {
+  composerSubmitRevision.value += 1
+}
 </script>
 
 <template>
   <main class="chat-page">
     <NavigationCoordinator
       :back-state="navigationBackState"
+      :composer-submit-revision="composerSubmitRevision"
       @navigate="openDesktopNavigation"
       @viewport-change="handleViewportChange"
       @back="handleNavigationBack"
@@ -930,6 +958,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         :members="members"
         :loading-messages="loadingMessages"
         :typing-label="typingLabel"
+        :mention-receipt-refresh-revision="mentionReceiptRefreshRevision"
         :connected="connected"
         :uploading="uploading"
         :transfer-label="fileTransferLabel"
@@ -947,6 +976,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
         @retry="chat.retryMessage"
         @cancel-pending="chat.cancelPendingMessage"
         @send="sendMessage"
+        @composer-submitted="reanchorMobileViewportAfterComposerSubmit"
         @typing="chat.sendTyping"
         @file="sendFile"
         @cancel-reply="replyTo = null"
@@ -1034,7 +1064,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
   width: 100%;
   height: 100vh;
   min-height: 0;
-  padding: 20px;
+  padding: var(--space-5);
   overflow: hidden;
 }
 .chat-shell {
@@ -1071,9 +1101,9 @@ async function resetUserPassword(newPassword: string): Promise<void> {
  * 其样式以子组件内的版本为唯一来源。 */
 .workspace > :deep(.message-thread) { min-height: 0; overflow-y: auto; }
 .workspace > :deep(.composer-wrap) { min-height: 0; }
-.boot-screen { display: grid; width: min(420px, calc(100vw - 40px)); min-height: 180px; margin: calc(50dvh - 90px) auto 0; place-items: center; align-content: center; gap: 18px; border-radius: 22px; }
-.boot-screen span { width: 30px; height: 30px; border: 2px solid rgba(10,132,255,.16); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
-.boot-screen strong { font-size: 13px; }
+.boot-screen { display: grid; width: min(420px, calc(100vw - 40px)); min-height: 180px; margin: calc(50dvh - 90px) auto 0; place-items: center; align-content: center; gap: 18px; border-radius: var(--radius-sheet); }
+.boot-screen span { width: 30px; height: 30px; border: 2px solid rgba(10,132,255,.16); border-top-color: var(--accent-text); border-radius: 50%; animation: spin .8s linear infinite; }
+.boot-screen strong { font-size: var(--font-body-sm); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .sidebar-resizer {
@@ -1109,7 +1139,7 @@ async function resetUserPassword(newPassword: string): Promise<void> {
   width: 5px;
   height: 44px;
   border: 1px solid var(--separator-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-raise);
   box-shadow: 0 2px 8px var(--shadow-color);
   opacity: .72;
@@ -1147,12 +1177,12 @@ async function resetUserPassword(newPassword: string): Promise<void> {
 }
 
 @media (min-width: 761px) and (max-width: 1024px) {
-  .chat-page { padding: 12px; }
+  .chat-page { padding: var(--space-3); }
   .chat-shell {
     --rail-width: 68px;
     height: calc(100vh - 24px);
     max-height: calc(100vh - 24px);
-    border-radius: 22px;
+    border-radius: var(--radius-sheet);
   }
 }
 
@@ -1216,6 +1246,24 @@ async function resetUserPassword(newPassword: string): Promise<void> {
       height: var(--app-viewport-height, 100dvh);
       max-height: var(--app-viewport-height, 100dvh);
     }
+  }
+}
+
+/* Keep the document fixed while an iOS/Android keyboard changes the visual
+ * viewport. Only the message thread scrolls; the composer stays attached to
+ * the bottom of this bounded grid. */
+@media (max-width: 760px) {
+  .chat-page {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: var(--app-viewport-height, 100dvh);
+    max-height: var(--app-viewport-height, 100dvh);
+    overscroll-behavior: none;
+  }
+  .chat-shell {
+    height: 100%;
+    max-height: 100%;
   }
 }
 

@@ -12,10 +12,14 @@ public interface RealtimeRouter {
     /**
      * Routes an event and invokes {@code onDelivered} at most once, only after one
      * concrete WebSocket session accepted the frame on the instance that owns it.
+     *
+     * @return {@code false} when routing failed before either local handling or
+     * cluster publication. A {@code true} result also covers an offline target:
+     * the caller may safely rely on its durable source of truth for later sync.
      */
-    void sendToUserWithReceipt(Long userId,
-                               WebSocketEnvelope event,
-                               Runnable onDelivered);
+    boolean sendToUserWithReceipt(Long userId,
+                                  WebSocketEnvelope event,
+                                  Runnable onDelivered);
 
     void sendToDevice(Long userId, Long deviceId, WebSocketEnvelope event);
 

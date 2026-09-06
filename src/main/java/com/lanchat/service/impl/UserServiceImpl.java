@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lanchat.common.ConversationIds;
 import com.lanchat.common.DeviceSessionsRevokedEvent;
+import com.lanchat.control.rbac.AuthorizationService;
 import com.lanchat.dto.ChangePasswordDTO;
 import com.lanchat.dto.LoginDTO;
 import com.lanchat.dto.LoginVO;
@@ -35,6 +36,7 @@ import com.lanchat.mapper.UserMapper;
 import com.lanchat.security.JwtUtil;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.FileService;
+import com.lanchat.service.BroadcastNotificationAccountService;
 import com.lanchat.service.LoginAttemptService;
 import com.lanchat.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -105,7 +107,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Autowired
     private FileService fileService;
 
+    @Autowired
+    private AuthorizationService authorizationService;
+
     @Override
+    @Transactional
     public boolean register(RegisterDTO dto) {
         if (dto == null || !StringUtils.hasText(dto.getUsername()) || !StringUtils.hasText(dto.getPassword())) {
             throw new IllegalArgumentException("用户名和密码不能为空");
@@ -116,8 +122,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 || !username.matches("^[a-zA-Z0-9_.@-]+$")) {
             throw new IllegalArgumentException("用户名需为3-50位字母、数字或 ._@-");
         }
-        if ("admin".equalsIgnoreCase(username)) {
-            throw new IllegalArgumentException("admin 为系统保留账号，不能通过注册接口创建");
+        if ("admin".equalsIgnoreCase(username)
+                || BroadcastNotificationAccountService.USERNAME.equalsIgnoreCase(username)) {
+            throw new IllegalArgumentException("该用户名为系统保留账号，不能通过注册接口创建");
         }
 
         // 密码强度校验：8-20位，含字母和数字
@@ -149,7 +156,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         user.setCanSendBroadcast(0);
         user.setCreateTime(LocalDateTime.now());
 
-        return userMapper.insert(user) > 0;
+        if (userMapper.insert(user) <= 0) return false;
+        authorizationService.provisionMember(user.getId());
+        return true;
     }
 
     @Override
@@ -172,6 +181,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername, dto.getUsername());
         User user = userMapper.selectOne(wrapper);
+
+        if (BroadcastNotificationAccountService.isNotificationAccount(user)) {
+            throw new IllegalArgumentException("系统通知账户不可登录");
+        }
 
         if (user == null || !passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
             // 记录失败尝试
@@ -263,7 +276,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         Long userId = jwtUtil.getUserIdFromToken(dto.getRefreshToken());
         User user = lockUser(userId);
-        if (user == null || !Integer.valueOf(1).equals(user.getStatus())) {
+        if (user == null || !Integer.valueOf(1).equals(user.getStatus())
+                || BroadcastNotificationAccountService.isNotificationAccount(user)) {
             return null;
         }
 
@@ -387,7 +401,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         User user = userMapper.selectById(userId);
-        if (user == null || !Integer.valueOf(1).equals(user.getStatus())) {
+        if (user == null || !Integer.valueOf(1).equals(user.getStatus())
+                || BroadcastNotificationAccountService.isNotificationAccount(user)) {
             return false;
         }
 
@@ -397,6 +412,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public DeviceLogin getActiveDevice(String token, Long userId, String deviceType) {
         if (!StringUtils.hasText(token) || userId == null || !StringUtils.hasText(deviceType)) {
+            return null;
+        }
+        User user = userMapper.selectById(userId);
+        if (BroadcastNotificationAccountService.isNotificationAccount(user)) {
             return null;
         }
         LambdaQueryWrapper<DeviceLogin> wrapper = new LambdaQueryWrapper<>();
@@ -505,6 +524,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 archivedAt) != 1) {
             throw new IllegalStateException("账号归档失败");
         }
+        authorizationService.synchronizeMemberStatus(userId, false);
 
         deviceLoginMapper.delete(new LambdaQueryWrapper<DeviceLogin>()
                 .eq(DeviceLogin::getUserId, userId));
@@ -580,8 +600,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
-        if ("admin".equals(user.getUsername())) {
-            throw new IllegalArgumentException("管理员账号请使用“修改密码”功能");
+        requireNotNotificationAccount(user);
+        if (authorizationService.isOrganizationOwner(userId)) {
+            throw new IllegalArgumentException("组织所有者请使用“修改密码”功能");
         }
 
         validateAccountPassword(newPassword);
@@ -611,8 +632,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
-        if ("admin".equals(user.getUsername())) {
-            throw new IllegalArgumentException("不能封禁管理员账号");
+        requireNotNotificationAccount(user);
+        if (authorizationService.isOrganizationOwner(userId)) {
+            throw new IllegalArgumentException("不能封禁组织所有者账号");
         }
         if (user.getArchivedAt() != null && status == 1) {
             throw new IllegalArgumentException("已归档账号不能重新启用");
@@ -628,6 +650,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             if (status == 0) wrapper.set(User::getOnline, 0);
             if (userMapper.update(null, wrapper) != 1) return false;
         }
+        authorizationService.synchronizeMemberStatus(userId, status == 1);
 
         if (status == 0) {
             List<Long> revokedIds = deactivateLockedDevices(devices);
@@ -646,8 +669,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (target == null) {
             throw new IllegalArgumentException("用户不存在");
         }
-        if ("admin".equals(target.getUsername())) {
-            throw new IllegalArgumentException("管理员默认拥有广播权限，不能修改");
+        requireNotNotificationAccount(target);
+        if (authorizationService.isOrganizationOwner(userId)) {
+            throw new IllegalArgumentException("组织所有者默认拥有广播权限，不能修改");
         }
 
         User update = new User();
@@ -662,6 +686,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
+        requireNotNotificationAccount(user);
 
         LambdaUpdateWrapper<User> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(User::getId, userId);
@@ -702,6 +727,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
+        requireNotNotificationAccount(user);
 
         // 校验旧密码
         if (!passwordEncoder.matches(dto.getOldPassword(), user.getPassword())) {
@@ -937,8 +963,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (user == null) {
             throw new IllegalArgumentException("用户不存在");
         }
-        if ("admin".equals(user.getUsername())) {
-            throw new IllegalArgumentException("不能归档或擦除管理员账号");
+        requireNotNotificationAccount(user);
+        if (authorizationService.isOrganizationOwner(user.getId())) {
+            throw new IllegalArgumentException("不能归档或擦除组织所有者账号");
+        }
+    }
+
+    private void requireNotNotificationAccount(User user) {
+        if (BroadcastNotificationAccountService.isNotificationAccount(user)) {
+            throw new IllegalArgumentException("系统通知账户不能执行此操作");
         }
     }
 

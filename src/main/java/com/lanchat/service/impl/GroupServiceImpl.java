@@ -343,6 +343,8 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
         groupMapper.updateById(group);
 
         conversationService.ensureGroupConversation(groupId);
+        conversationService.notifyGroupMemberChanged(groupId, currentOwnerId);
+        conversationService.notifyGroupMemberChanged(groupId, newOwnerId);
 
         return true;
     }
@@ -374,7 +376,10 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
 
         member.setRole(isAdmin ? 1 : 0);
         boolean updated = memberMapper.updateById(member) > 0;
-        if (updated) conversationService.ensureGroupConversation(groupId);
+        if (updated) {
+            conversationService.ensureGroupConversation(groupId);
+            conversationService.notifyGroupMemberChanged(groupId, userId);
+        }
         return updated;
     }
 
@@ -441,6 +446,7 @@ public class GroupServiceImpl extends ServiceImpl<ChatGroupMapper, ChatGroup> im
                 .filter(Objects::nonNull)
                 .toList();
         if (!messageIds.isEmpty()) {
+            chatMessageMapper.deleteMentionReceiptsByGroupId(groupId);
             messageRecallMapper.delete(new LambdaQueryWrapper<com.lanchat.entity.MessageRecall>()
                     .in(com.lanchat.entity.MessageRecall::getMessageId, messageIds));
         }

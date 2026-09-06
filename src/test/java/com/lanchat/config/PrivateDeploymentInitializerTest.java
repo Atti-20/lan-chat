@@ -1,6 +1,7 @@
 package com.lanchat.config;
 
 import com.lanchat.entity.User;
+import com.lanchat.control.rbac.AuthorizationService;
 import com.lanchat.mapper.DeviceLoginMapper;
 import com.lanchat.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +41,7 @@ class PrivateDeploymentInitializerTest {
     private PasswordEncoder passwordEncoder;
     private DeviceLoginMapper deviceLoginMapper;
     private PrivateDeploymentInitializer initializer;
+    private AuthorizationService authorizationService;
 
     @BeforeEach
     void setUp() {
@@ -54,9 +56,11 @@ class PrivateDeploymentInitializerTest {
         userMapper = mock(UserMapper.class);
         deviceLoginMapper = mock(DeviceLoginMapper.class);
         passwordEncoder = mock(PasswordEncoder.class);
+        authorizationService = mock(AuthorizationService.class);
         when(userMapper.selectList(any())).thenReturn(List.of());
         initializer = new PrivateDeploymentInitializer(
-                properties, nodeProperties, userMapper, deviceLoginMapper, passwordEncoder);
+                properties, nodeProperties, userMapper, deviceLoginMapper, passwordEncoder,
+                authorizationService);
 
         ReflectionTestUtils.setField(initializer, "jwtSecret",
                 "N8u2-xA7_qP4-zT9-kL6-vC3-mR5-hJ1-sW0-yF8");
@@ -81,6 +85,7 @@ class PrivateDeploymentInitializerTest {
         assertEquals("admin", inserted.getValue().getUsername());
         assertEquals("bcrypt-hash", inserted.getValue().getPassword());
         assertEquals("节点管理员", inserted.getValue().getNickname());
+        verify(authorizationService).provisionOwner(inserted.getValue().getId());
     }
 
     @Test

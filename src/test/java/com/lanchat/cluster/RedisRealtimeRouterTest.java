@@ -79,8 +79,8 @@ class RedisRealtimeRouterTest {
         publisher.bind(new RecordingDelivery());
         AtomicInteger receipts = new AtomicInteger();
 
-        publisher.sendToUserWithReceipt(
-                7L, envelope("BROADCAST"), receipts::incrementAndGet);
+        assertTrue(publisher.sendToUserWithReceipt(
+                7L, envelope("BROADCAST"), receipts::incrementAndGet));
 
         assertEquals(0, receipts.get());
         assertEquals(1, publisher.pendingReceiptCount());
@@ -114,10 +114,22 @@ class RedisRealtimeRouterTest {
         router.bind(new RecordingDelivery());
         AtomicInteger receipts = new AtomicInteger();
 
-        router.sendToUserWithReceipt(7L, envelope("BROADCAST"), receipts::incrementAndGet);
+        assertTrue(router.sendToUserWithReceipt(
+                7L, envelope("BROADCAST"), receipts::incrementAndGet));
 
         assertEquals(0, receipts.get());
         assertEquals(0, router.pendingReceiptCount());
+    }
+
+    @Test
+    void routeFailureIsObservableToTheDurableOutboxCaller() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        when(redis.convertAndSend(anyString(), anyString()))
+                .thenThrow(new RedisConnectionFailureException("redis down"));
+        RedisRealtimeRouter router = router(redis, "instance-a");
+        router.bind(new RecordingDelivery());
+
+        assertFalse(router.sendToUserWithReceipt(7L, envelope("BROADCAST"), () -> { }));
     }
 
     @Test

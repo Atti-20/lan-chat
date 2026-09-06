@@ -73,10 +73,10 @@ const tone = computed(() => {
   min-height: 34px;
   padding: 6px 18px;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   border-bottom: 1px solid var(--separator);
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--font-micro);
   background: var(--surface-glass);
 }
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--ink-faint); }
@@ -84,12 +84,12 @@ const tone = computed(() => {
 .status-copy strong,
 .status-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-copy strong { color: var(--ink-soft); font-weight: 700; }
-.status-count { padding: 2px 7px; border-radius: 999px; color: var(--blue); background: rgba(0, 122, 255, .09); }
-.status-count--failed { color: var(--coral); background: rgba(255, 59, 48, .09); }
-.connection-status > button:not(.status-copy) { padding: 3px 8px; border: 0; border-radius: 8px; color: var(--blue); font: inherit; font-weight: 650; background: var(--fill); cursor: pointer; }
+.status-count { padding: 2px 7px; border-radius: var(--radius-pill); color: var(--accent-text); background: rgba(0, 122, 255, .09); }
+.status-count--failed { color: var(--danger); background: rgba(255, 59, 48, .09); }
+.connection-status > button:not(.status-copy) { padding: 3px 8px; border: 0; border-radius: var(--radius-sm); color: var(--accent-text); font: inherit; font-weight: 650; background: var(--fill); cursor: pointer; }
 .connection-status .details-button { margin-left: auto; }
 .connection-status--online .status-dot { background: var(--green); }
-.connection-status--warning .status-dot { background: #ff9f0a; }
+.connection-status--warning .status-dot { background: var(--warning); }
 .connection-status--danger .status-dot { background: var(--coral); }
 
 @media (max-width: 760px) {

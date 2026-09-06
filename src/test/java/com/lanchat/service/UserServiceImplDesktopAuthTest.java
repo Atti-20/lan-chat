@@ -30,6 +30,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -181,6 +182,56 @@ class UserServiceImplDesktopAuthTest {
         assertEquals(Isolation.READ_COMMITTED, transaction.isolation());
         verify(userMapper, never()).update(isNull(), any(LambdaUpdateWrapper.class));
         verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void technicalNotificationAccountCannotLoginBeforePasswordOrTokenProcessing() {
+        User notificationAccount = activeUser();
+        notificationAccount.setUsername(BroadcastNotificationAccountService.USERNAME);
+        notificationAccount.setSignature(BroadcastNotificationAccountService.SIGNATURE);
+        when(userMapper.selectOne(any())).thenReturn(notificationAccount);
+
+        LoginDTO request = new LoginDTO();
+        request.setUsername(BroadcastNotificationAccountService.USERNAME);
+        request.setPassword("Member1234");
+        request.setDeviceType("desktop");
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> service.login(request));
+
+        assertEquals("系统通知账户不可登录", error.getMessage());
+        verify(passwordEncoder, never()).matches(any(), any());
+        verify(userMapper, never()).lockById(any());
+        verify(jwtUtil, never()).generateToken(any(), any(), any());
+    }
+
+    @Test
+    void technicalNotificationAccountCannotRefreshAnExistingToken() {
+        User notificationAccount = activeUser();
+        notificationAccount.setUsername(BroadcastNotificationAccountService.USERNAME);
+        notificationAccount.setSignature(BroadcastNotificationAccountService.SIGNATURE);
+        when(jwtUtil.isRefreshToken("legacy-notification-refresh")).thenReturn(true);
+        when(jwtUtil.getUserIdFromToken("legacy-notification-refresh")).thenReturn(7L);
+        when(userMapper.lockById(7L)).thenReturn(7L);
+        when(userMapper.selectById(7L)).thenReturn(notificationAccount);
+        TokenRefreshDTO request = new TokenRefreshDTO();
+        request.setRefreshToken("legacy-notification-refresh");
+
+        assertNull(service.refreshToken(request));
+
+        verify(deviceLoginMapper, never()).selectActiveByTypeForUpdate(any(), any());
+        verify(jwtUtil, never()).generateToken(any(), any(), any());
+    }
+
+    @Test
+    void technicalNotificationAccountCannotUseAnExistingAccessToken() {
+        User notificationAccount = activeUser();
+        notificationAccount.setUsername(BroadcastNotificationAccountService.USERNAME);
+        notificationAccount.setSignature(BroadcastNotificationAccountService.SIGNATURE);
+        when(userMapper.selectById(7L)).thenReturn(notificationAccount);
+
+        assertFalse(service.isAccessTokenActive("legacy-notification-access", 7L, "desktop"));
+
+        verify(deviceLoginMapper, never()).selectOne(any());
     }
 
     @Test

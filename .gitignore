@@ -92,6 +92,7 @@ playwright-report/
 
 ### Private reports, credentials and local deployment overrides ###
 /outputs/
+/docs/reports/
 *.pem
 *.p8
 id_rsa

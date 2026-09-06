@@ -1,5 +1,7 @@
 package com.lanchat.common;
 
+import com.lanchat.control.device.DeviceIdentityUnavailableException;
+import com.lanchat.control.policy.PolicyVersionConflictException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
@@ -59,5 +61,17 @@ public class GlobalExceptionHandler {
     public Result<Void> handleAccessDeniedException(AccessDeniedException e) {
         log.warn("越权操作: {}", e.getMessage());
         return Result.forbidden(e.getMessage());
+    }
+
+    @ExceptionHandler(DeviceIdentityUnavailableException.class)
+    public ResponseEntity<Result<Void>> handleDeviceIdentityUnavailable(
+            DeviceIdentityUnavailableException exception) {
+        return ResponseEntity.status(503).body(Result.error(503, exception.getMessage()));
+    }
+
+    @ExceptionHandler(PolicyVersionConflictException.class)
+    public ResponseEntity<Result<Void>> handlePolicyVersionConflict(
+            PolicyVersionConflictException exception) {
+        return ResponseEntity.status(409).body(Result.error(409, exception.getMessage()));
     }
 }

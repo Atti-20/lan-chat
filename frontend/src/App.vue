@@ -7,13 +7,21 @@ import WelcomeView from './views/WelcomeView.vue'
 import { installDesktopNavigation } from './platform/desktopNavigation'
 import { installMobileLifecycle } from './platform/mobileLifecycle'
 import { installNotificationSoundUnlock } from './services/notificationSound'
+import { initializeMobileNotification } from './platform/mobileNotifications'
+import { nativeBridge } from './platform/nativeBridge'
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '') // e.g. '/app'
 const path = window.location.pathname
 let removeNotificationSoundUnlock: (() => void) | null = null
 let removeDesktopNavigation: (() => void) | null = null
 let removeMobileLifecycle: (() => void) | null = null
+
+// Native desktop windows own the complete client area. Publish the runtime
+// synchronously so ChatView does not briefly render the browser-style frame.
+document.documentElement.dataset.runtime = nativeBridge.runtime()
+
 onMounted(async () => {
+  void initializeMobileNotification()
   removeNotificationSoundUnlock = installNotificationSoundUnlock()
   removeDesktopNavigation = await installDesktopNavigation()
   removeMobileLifecycle = await installMobileLifecycle()

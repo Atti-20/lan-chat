@@ -1,6 +1,15 @@
 server:
   port: 8080
 
+meshx:
+  control:
+    id: ${MESHX_CONTROL_ID:}
+    organization-id: ${MESHX_ORGANIZATION_ID:org-local}
+  device-identity:
+    enabled: ${MESHX_DEVICE_IDENTITY_ENABLED:false}
+    signing-private-key: ${MESHX_DEVICE_SIGNING_PRIVATE_KEY:}
+    signing-public-key: ${MESHX_DEVICE_SIGNING_PUBLIC_KEY:}
+
 lanchat:
   node:
     id: ${LANCHAT_NODE_ID:}

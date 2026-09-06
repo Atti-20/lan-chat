@@ -1,3 +1,16 @@
+export interface AuditEvent {
+  id: number
+  actorUserId?: number
+  actorDeviceId?: number
+  action: string
+  targetType?: string
+  targetId?: string
+  outcome: string
+  requestId?: string
+  detailJson?: string
+  createdAt: string
+}
+
 export interface User {
   id: number
   userId?: number
@@ -25,6 +38,48 @@ export interface AuthSession {
   avatar?: string
   token: string
   expiresIn: number
+  /** Present when the selected Control enforces native device identity. */
+  organizationId?: string
+  revocationVersion?: number
+  device?: AuthenticatedDevice
+  nodeRuntime?: NodeRuntimeStatus
+}
+
+export interface NodeRuntimeStatus {
+  running: boolean
+  active: boolean
+  nodeId?: string
+  organizationId?: string
+  accountUserId?: number
+  deviceKey?: string
+  storageScopeId?: string
+  schemaVersion?: number
+  lastError?: string
+}
+
+export interface AuthenticatedDeviceCredential {
+  credentialId: string
+  algorithm: 'ED25519' | string
+  fingerprint: string
+  status: string
+  issuedAt?: string
+  expiresAt?: string
+  certificatePayload?: string
+  certificateSignature?: string
+  controlSigningPublicKey?: string
+  controlKeyFingerprint?: string
+}
+
+export interface AuthenticatedDevice {
+  id: number
+  ownerUserId: number
+  deviceKey: string
+  platform: string
+  displayName?: string
+  appVersion?: string
+  capabilities?: string[]
+  status: string
+  credential?: AuthenticatedDeviceCredential
 }
 
 export interface Friend extends User {
@@ -182,6 +237,21 @@ export interface ChatMessage {
   timestamp?: string
 }
 
+export interface MentionReadRecipient {
+  userId: number
+  nickname: string
+  avatar?: string
+  read: boolean
+}
+
+export interface MentionReadReceipt {
+  messageId: string
+  expectedCount: number
+  readCount: number
+  unreadCount: number
+  recipients: readonly MentionReadRecipient[]
+}
+
 export interface FileUpload {
   id: number
   url: string
@@ -284,6 +354,11 @@ export interface EmergencyBroadcast {
   requireImageProof: boolean
   requireLocationProof: boolean
   completedAt?: string
+  /** Present in list results for a recipient; sender/global lifecycle remains
+   * in `status`. Any submitted response is complete from that recipient's view. */
+  currentUserConfirmStatus?: BroadcastReceiptStatus | 'NOT_REQUIRED'
+  currentUserConfirmedAt?: string
+  currentUserCompletedAt?: string
   createTime: string
   updateTime?: string
 }

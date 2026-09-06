@@ -22,6 +22,7 @@ import com.lanchat.service.UserService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.web.socket.CloseStatus;
@@ -48,6 +49,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@ResourceLock("chat-websocket-online-sessions")
 class ChatWebSocketFileTransferTest {
 
     private static final String CONVERSATION_ID = "private:7:9";

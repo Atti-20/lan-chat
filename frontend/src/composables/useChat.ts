@@ -1,6 +1,7 @@
-import { computed, onBeforeUnmount, readonly, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, readonly, ref, shallowRef, watch } from 'vue'
 import { navigateToApp } from '../platform/appNavigation'
 import { nativeBridge } from '../platform/nativeBridge'
+import { isAppForeground } from '../platform/appActivity'
 import { selectedNode } from '../platform/nodeContext'
 import { api } from '../services/api'
 import {
@@ -25,6 +26,7 @@ import {
   loadConversationDirectory,
   loadCachedMessages,
   loadPositions,
+  markCachedMessageRecalled,
   saveConversationDirectory,
   savePosition,
 } from '../services/localChatDb'
@@ -76,13 +78,14 @@ interface VersionedConversationSummaryDelta {
   delta: ConversationSummaryDelta
 }
 
-export function useChat() {
+export function useChat(options: { isConversationVisible?: () => boolean } = {}) {
   const auth = useAuth()
   const { currentUser } = auth
   const toast = useToast()
   const fileTransferSettings = useFileTransferSettings()
   const outbox = useOutbox()
   const friends = ref<Friend[]>([])
+  const systemNotificationAccounts = ref<Friend[]>([])
   const groups = ref<ChatGroup[]>([])
   const rooms = ref<TemporaryRoom[]>([])
   const requests = ref<FriendRequest[]>([])
@@ -97,6 +100,7 @@ export function useChat() {
   const loading = shallowRef(true)
   const loadingMessages = shallowRef(false)
   const typingLabel = shallowRef('')
+  const mentionReceiptRefreshRevision = shallowRef(0)
   const onlineIds = ref<Set<number>>(new Set())
   const relayTransferLabel = shallowRef('')
   const conversationSummaries = shallowRef<ConversationSummaryMap>({})
@@ -107,6 +111,11 @@ export function useChat() {
   const runtimePositions = new Map<string, number>()
   const pendingReadPositions = new Map<string, number>()
   const inaccessibleConversationIds = new Set<string>()
+  // This is protocol state rather than UI state. A recall can arrive before a
+  // delayed cluster frame, so retain a bounded tombstone set without creating
+  // an unnecessary reactive render dependency.
+  const recalledMessageIds = new Set<string>()
+  const recalledMessageOrder: string[] = []
   const summaryDeltaLog: VersionedConversationSummaryDelta[] = []
   const conversationSelection = new ConversationSelectionGeneration()
   let flushPromise: Promise<void> | null = null
@@ -122,7 +131,31 @@ export function useChat() {
   let backgroundSyncTimer: number | null = null
   let synchronizationPromise: Promise<void> | null = null
 
+  function canReadSelectedConversation(conversationId = selected.value?.conversationId): boolean {
+    return Boolean(conversationId && selected.value?.conversationId === conversationId)
+      && !loadingMessages.value
+      && isAppForeground()
+      && (options.isConversationVisible?.() ?? true)
+  }
+
+  function acknowledgeVisibleConversation(): void {
+    if (!canReadSelectedConversation() || loadingMessages.value) return
+    const conversationId = selected.value?.conversationId
+    if (!conversationId) return
+    sendReadPosition(conversationId, messages.value)
+    scheduleBurnCountdowns(messages.value)
+  }
+
+  onMounted(() => {
+    window.addEventListener('focus', acknowledgeVisibleConversation)
+    document.addEventListener('visibilitychange', acknowledgeVisibleConversation)
+    // Register after the host view's computed layout has been initialized.
+    watch(() => options.isConversationVisible?.() ?? true, acknowledgeVisibleConversation, { flush: 'post' })
+  })
+
   onBeforeUnmount(() => {
+    window.removeEventListener('focus', acknowledgeVisibleConversation)
+    document.removeEventListener('visibilitychange', acknowledgeVisibleConversation)
     burnTimers.forEach((timer) => window.clearTimeout(timer))
     burnTimers.clear()
     burnConversationIds.clear()
@@ -198,7 +231,7 @@ export function useChat() {
   const conversations = computed<Conversation[]>(() => {
     const me = currentUser.value?.id
 
-    const privateChats = friends.value.map((friend): Conversation => {
+    const privateChats = [...friends.value, ...systemNotificationAccounts.value].map((friend): Conversation => {
       const conversationId = me ? privateConversationId(me, friend.friendId) : ''
       const summary = getConversationSummary(conversationId)
 
@@ -413,6 +446,7 @@ export function useChat() {
         rooms.value = roomList || []
         requests.value = await enrichRequests(requestList || [])
         conversationSummaries.value = indexConversationSummaries(summaryList || [])
+        systemNotificationAccounts.value = await loadSystemNotificationAccounts(summaryList || [], friendList || [])
         await persistConversationDirectory()
       } catch (cause) {
         if (!cachedDirectory) throw cause
@@ -478,6 +512,7 @@ export function useChat() {
           next = applySummaryDelta(next, entry.delta)
         })
       conversationSummaries.value = next
+      systemNotificationAccounts.value = await loadSystemNotificationAccounts(snapshot || [], friends.value)
       Object.keys(next).forEach((conversationId) => {
         inaccessibleConversationIds.delete(conversationId)
       })
@@ -531,7 +566,7 @@ export function useChat() {
         ? await api.groups.members(conversation.id)
         : []
       if (!isCurrentSelection()) return
-      messages.value = nextMessages
+      messages.value = mergeMessages(messages.value, nextMessages)
       scheduleBurnCountdowns(messages.value)
       members.value = nextMembers
       sendReadPosition(conversationId, normalized)
@@ -544,7 +579,10 @@ export function useChat() {
       members.value = nextMembers
       toast.push('当前使用本地缓存，连接恢复后会自动同步', 'warning', 2600)
     } finally {
-      if (conversationSelection.owns(selectionToken)) loadingMessages.value = false
+      if (conversationSelection.owns(selectionToken)) {
+        loadingMessages.value = false
+        void nextTick(acknowledgeVisibleConversation)
+      }
     }
   }
 
@@ -559,15 +597,100 @@ export function useChat() {
       contentType: resolvedType,
       createTime: message.createTime || message.timestamp || message.clientCreatedAt,
       isBurn: message.isBurn === true ? 1 : Number(message.isBurn || 0),
+      isRecalled: Number(message.isRecalled || 0),
       deliveryState: message.deliveryState || (own
         ? (message.status === 1 ? 'READ' : 'SENT')
         : 'DELIVERED'),
     }
   }
 
+  function rememberRecalledMessage(messageId: string): void {
+    if (!messageId || recalledMessageIds.has(messageId)) return
+    recalledMessageIds.add(messageId)
+    recalledMessageOrder.push(messageId)
+    while (recalledMessageOrder.length > 2_000) {
+      const oldest = recalledMessageOrder.shift()
+      if (oldest) recalledMessageIds.delete(oldest)
+    }
+  }
+
   function belongsToSelected(message: ChatMessage): boolean {
     return Boolean(selected.value?.conversationId
       && message.conversationId === selected.value.conversationId)
+  }
+
+  function scheduleIncomingNotification(
+    message: ChatMessage,
+    conversation?: Conversation,
+  ): void {
+    if (message.fromUserId === currentUser.value?.id
+      || conversation?.muted
+      || isAppForeground()) return
+
+    const copy = notificationCopy(message, conversation)
+    void nativeBridge.notify({
+      ...copy,
+      target: {
+        kind: 'conversation',
+        value: message.conversationId || '',
+        nodeOrigin: selectedNode()?.origin,
+      },
+      dedupeKey: messageNotificationDedupeKey(message),
+    }).catch(() => undefined)
+  }
+
+  function notificationCopy(
+    message: ChatMessage,
+    conversation?: Conversation,
+  ): { title: string; body: string } {
+    const fallbackTitle = conversation?.name || message.fromNickname || 'MeshX 新消息'
+    const preview = conversationPreview(message.type || message.contentType, message.content)
+    if ((message.type || message.contentType) !== 'broadcast') {
+      return {
+        title: fallbackTitle,
+        body: conciseNotificationText(preview || '发来一条新消息'),
+      }
+    }
+
+    try {
+      const card = JSON.parse(message.content || '{}') as Record<string, unknown>
+      const title = stringValue(card.title)
+      const summary = stringValue(card.reminder) || stringValue(card.summary)
+      const priority = stringValue(card.priority)
+      const kind = stringValue(card.kind)
+      const label = priority === 'EMERGENCY'
+        ? '紧急广播'
+        : kind === 'BROADCAST_REMINDER' ? '广播提醒' : '广播通知'
+      return {
+        title: title ? `${label}：${title}` : label,
+        body: conciseNotificationText(summary || preview || '收到一条广播通知'),
+      }
+    } catch {
+      return {
+        title: fallbackTitle,
+        body: conciseNotificationText(preview || '收到一条广播通知'),
+      }
+    }
+  }
+
+  function messageNotificationDedupeKey(message: ChatMessage): string {
+    const identity = message.messageId
+      || message.clientMsgId
+      || `${message.conversationId || 'unknown'}:${message.sequence || 0}:${message.fromUserId}`
+    return [
+      'message',
+      selectedNode()?.origin || 'unknown-node',
+      currentUser.value?.id || 'anonymous',
+      identity,
+    ].join(':')
+  }
+
+  function conciseNotificationText(value: string): string {
+    return value.replace(/\s+/g, ' ').trim().slice(0, 160)
+  }
+
+  function stringValue(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : ''
   }
 
   async function handleSocketMessage(envelope: WsEnvelope): Promise<void> {
@@ -628,11 +751,14 @@ export function useChat() {
       case 'CHAT_READ':
         handleReadEvent(envelope)
         return
+      case 'MENTION_RECEIPT_CHANGED':
+        handleMentionReceiptChanged(envelope)
+        return
       case 'CONVERSATION_REMOVED':
         handleConversationRemoved(envelope)
         return
       case 'CONVERSATION_CHANGED':
-        await refreshConversationSummaries()
+        await handleConversationChanged(envelope)
         return
       case 'BROADCAST':
       case 'BROADCAST_UPDATED':
@@ -722,6 +848,9 @@ export function useChat() {
     const conversationId = envelope.conversationId || String(envelope.payload.conversationId || '')
     const sequence = Number(envelope.payload.sequence)
     const serverTime = Number(envelope.payload.serverTime)
+    const canonicalMentionUserIds = typeof envelope.payload.mentionUserIds === 'string'
+      ? envelope.payload.mentionUserIds
+      : undefined
     const previousSequence = conversationId
       ? runtimePositions.get(conversationId) || 0
       : 0
@@ -736,6 +865,7 @@ export function useChat() {
           conversationId: conversationId || message.conversationId,
           sequence: Number.isFinite(sequence) ? sequence : message.sequence,
           createTime: Number.isFinite(serverTime) ? new Date(serverTime).toISOString() : message.createTime,
+          mentionUserIds: canonicalMentionUserIds ?? message.mentionUserIds,
           deliveryState: 'SENT',
           errorMessage: undefined,
         })
@@ -758,12 +888,24 @@ export function useChat() {
   async function handleDelivery(envelope: WsEnvelope): Promise<void> {
     const delivered = normalizeMessage(envelope.payload as unknown as ChatMessage)
     if (!delivered.messageId || !delivered.conversationId) return
+    if (delivered.isRecalled === 1) {
+      rememberRecalledMessage(delivered.messageId)
+      delivered.content = ''
+    } else if (recalledMessageIds.has(delivered.messageId)) {
+      // A durable CHAT_RECALL has already won. Ignore a late pre-revocation
+      // frame instead of temporarily re-exposing its card body.
+      return
+    }
     const conversationId = delivered.conversationId
     if (inaccessibleConversationIds.has(conversationId)) return
-    const isCurrentConversation = belongsToSelected(delivered)
     const isIncomingMessage = delivered.fromUserId !== currentUser.value?.id
+    if (isIncomingMessage && (delivered.type || delivered.contentType) === 'broadcast') {
+      registerSystemNotificationAccount(delivered)
+    }
     const conversation =  conversations.value.find((item) => item.conversationId === conversationId)
     const previousSequence = runtimePositions.get(delivered.conversationId) || 0
+    const isDuplicateDelivery = delivered.sequence != null
+      && delivered.sequence <= previousSequence
     const hasSequenceGap = delivered.sequence != null
       && delivered.sequence > previousSequence + 1
     await cacheMessages([delivered]).catch(() => undefined)
@@ -772,16 +914,20 @@ export function useChat() {
     if (delivered.sequence != null && !hasSequenceGap) {
       await recordPosition(conversationId, delivered.sequence)
     }
-    updateConversationPreview(delivered, isCurrentConversation)
+    // Selection can change while IndexedDB is writing. Never carry the old
+    // selection decision across an await into another conversation's UI.
+    if (inaccessibleConversationIds.has(conversationId)) return
+    const isCurrentConversation = belongsToSelected(delivered)
+    updateConversationPreview(delivered, isCurrentConversation && canReadSelectedConversation(conversationId))
     if (isCurrentConversation) {
       mergeCurrentMessages([delivered])
-      if (isIncomingMessage) {
+      if (isIncomingMessage && canReadSelectedConversation(conversationId)) {
         startBurnCountdown(delivered)
         if (!hasSequenceGap) {
           sendReadPosition(conversationId, [delivered])
         }
       }
-    } else if (isIncomingMessage) {
+    } else if (isIncomingMessage && !isDuplicateDelivery) {
       if (!conversation?.muted) {
         const title = conversation?.name || delivered.fromNickname || '收到新消息'
         const preview = conversationPreview(delivered.type || delivered.contentType, delivered.content)
@@ -793,21 +939,8 @@ export function useChat() {
         playNotificationSound()
       }
     }
-    if (isIncomingMessage
-      && !conversation?.muted
-      && nativeBridge.runtime() !== 'web'
-      && (document.visibilityState !== 'visible' || !document.hasFocus())) {
-      const title = conversation?.name || delivered.fromNickname || 'MeshX 新消息'
-      const preview = conversationPreview(delivered.type || delivered.contentType, delivered.content)
-      void nativeBridge.notify({
-        title,
-        body: (preview || '发来一条新消息').replace(/\s+/g, ' ').slice(0, 160),
-        target: {
-          kind: 'conversation',
-          value: conversationId,
-          nodeOrigin: selectedNode()?.origin,
-        },
-      }).catch(() => undefined)
+    if (!isDuplicateDelivery) {
+      scheduleIncomingNotification(delivered, conversation)
     }
     ws.sendEvent('CHAT_DELIVER', {
       messageId: delivered.messageId,
@@ -821,9 +954,15 @@ export function useChat() {
   }
 
   async function handleSyncResponse(envelope: WsEnvelope): Promise<void> {
-    const synced = Array.isArray(envelope.payload.messages)
+    const synced = (Array.isArray(envelope.payload.messages)
       ? (envelope.payload.messages as unknown as ChatMessage[]).map(normalizeMessage)
-      : []
+      : []).flatMap((message) => {
+        if (message.isRecalled === 1) {
+          rememberRecalledMessage(message.messageId)
+          return [{ ...message, content: '' }]
+        }
+        return recalledMessageIds.has(message.messageId) ? [] : [message]
+      })
     await cacheMessages(synced).catch(() => undefined)
     // SYNC_RESPONSE is an authoritative ascending query from the cursor sent
     // to the server. Its maximum returned sequence is safe even when physical
@@ -832,13 +971,31 @@ export function useChat() {
     // history pages do not have either guarantee and stay contiguous below.
     await recordSynchronizedPositions(synced, envelope.payload.latestPositions)
     let synchronizedUnreadCount = 0
+    const syncNotificationCandidates = new Map<string, ChatMessage>()
     synced.forEach((message) => {
       if (!message.conversationId
         || inaccessibleConversationIds.has(message.conversationId)) return
+      const isCurrentConversation = belongsToSelected(message)
+      const isIncomingMessage = message.fromUserId !== currentUser.value?.id
+      if (isIncomingMessage && (message.type || message.contentType) === 'broadcast') {
+        registerSystemNotificationAccount(message)
+      }
       const before = getConversationSummary(message.conversationId)?.unreadCount || 0
-      updateConversationPreview(message, belongsToSelected(message))
+      updateConversationPreview(message, isCurrentConversation && canReadSelectedConversation(message.conversationId))
       const after = getConversationSummary(message.conversationId)?.unreadCount || 0
-      synchronizedUnreadCount += Math.max(0, after - before)
+      const unreadDelta = Math.max(0, after - before)
+      synchronizedUnreadCount += unreadDelta
+      if (unreadDelta > 0 && isIncomingMessage) {
+        // One recovered notification per conversation prevents a long offline
+        // period from turning into a burst of local alerts.
+        syncNotificationCandidates.set(message.conversationId, message)
+      }
+    })
+    syncNotificationCandidates.forEach((message, conversationId) => {
+      scheduleIncomingNotification(
+        message,
+        conversations.value.find((item) => item.conversationId === conversationId),
+      )
     })
     const selectedItems = synced.filter((message) => belongsToSelected(message))
     if (selectedItems.length > 0) {
@@ -872,14 +1029,34 @@ export function useChat() {
     if (syncRequestId && envelope.requestId === syncRequestId) {
       finishSync(envelope.payload.hasMore === true)
     }
+    if (selected.value?.kind === 'group') {
+      // A reconnect can miss an invalidation event.  Re-querying the guarded
+      // per-message endpoint makes the compact receipt numbers authoritative.
+      mentionReceiptRefreshRevision.value += 1
+    }
   }
 
   async function handleMessageMutation(envelope: WsEnvelope): Promise<void> {
     const messageId = String(envelope.payload.messageId || '')
     if (envelope.event === 'CHAT_BURN') clearBurnCountdown(messageId)
+    if (envelope.event === 'CHAT_RECALL') {
+      rememberRecalledMessage(messageId)
+      if (envelope.conversationId) {
+        await markCachedMessageRecalled(envelope.conversationId, messageId).catch(() => undefined)
+      }
+    }
     const target = messages.value.find((message) => message.messageId === messageId)
-    if (!target) return
-    if (envelope.event === 'CHAT_RECALL') target.isRecalled = 1
+    if (!target) {
+      if (envelope.event === 'CHAT_RECALL') {
+        await refreshConversationSummaries().catch(() => undefined)
+      }
+      return
+    }
+    if (envelope.event === 'CHAT_RECALL') {
+      target.isRecalled = 1
+      target.content = ''
+      updateConversationPreview(target, belongsToSelected(target), true)
+    }
     if (envelope.event === 'CHAT_BURN') {
       target.status = 2
       target.content = ''
@@ -929,15 +1106,31 @@ export function useChat() {
       }
       return
     }
-    if (conversationId !== selected.value?.conversationId) return
-    messages.value.forEach((message) => {
-      if (message.fromUserId === currentUser.value?.id
-        && message.sequence != null
-        && message.sequence <= lastReadSequence) {
-        message.deliveryState = 'READ'
-        message.status = 1
-      }
-    })
+    // Peer read positions are intentionally never rendered. Group mention
+    // receipts use the separately authorized endpoint, and ordinary private
+    // or group messages stay free of per-message read indicators.
+  }
+
+  function handleMentionReceiptChanged(envelope: WsEnvelope): void {
+    const conversationId = envelope.conversationId
+    const messageIds = Array.isArray(envelope.payload.messageIds)
+      ? envelope.payload.messageIds.filter((messageId): messageId is string => typeof messageId === 'string')
+      : []
+    if (!conversationId || messageIds.length === 0
+      || selected.value?.conversationId !== conversationId) return
+    mentionReceiptRefreshRevision.value += 1
+  }
+
+  async function handleConversationChanged(envelope: WsEnvelope): Promise<void> {
+    await refreshConversationSummaries()
+    const conversation = selected.value
+    if (!conversation || conversation.kind !== 'group'
+      || conversation.conversationId !== envelope.conversationId) return
+    const selectionConversationId = conversation.conversationId
+    const refreshedMembers = await api.groups.members(conversation.id).catch(() => null)
+    if (!refreshedMembers || selected.value?.conversationId !== selectionConversationId) return
+    members.value = refreshedMembers
+    mentionReceiptRefreshRevision.value += 1
   }
 
   function handleConversationRemoved(envelope: WsEnvelope): void {
@@ -1023,7 +1216,7 @@ export function useChat() {
 
   async function sendText(
     content: string,
-    options: { burn?: boolean; replyToId?: string } = {},
+    options: { burn?: boolean; replyToId?: string; mentionUserIds?: string } = {},
   ): Promise<boolean> {
     const conversation = selected.value
     if (!conversation || !content.trim()) return false
@@ -1032,6 +1225,7 @@ export function useChat() {
       content: content.trim(),
       isBurn: Boolean(options.burn),
       replyToId: options.replyToId || null,
+      mentionUserIds: options.mentionUserIds || null,
       ...conversationTarget(conversation),
     }
     await queueMessage(conversation, payload)
@@ -1162,6 +1356,9 @@ export function useChat() {
       contentType: entry.payload.contentType,
       content: entry.payload.content,
       replyToId: typeof entry.payload.replyToId === 'string' ? entry.payload.replyToId : undefined,
+      mentionUserIds: typeof entry.payload.mentionUserIds === 'string'
+        ? entry.payload.mentionUserIds
+        : undefined,
       isBurn: entry.payload.isBurn ? 1 : 0,
       status: 0,
       clientCreatedAt: entry.createdAt,
@@ -1291,6 +1488,7 @@ export function useChat() {
   }
 
   function scheduleBurnCountdowns(source: readonly ChatMessage[]): void {
+    if (!canReadSelectedConversation()) return
     source.forEach(startBurnCountdown)
   }
 
@@ -1385,6 +1583,7 @@ export function useChat() {
   }
 
   function sendReadPosition(conversationId: string, source: readonly ChatMessage[]): void {
+    if (!canReadSelectedConversation(conversationId)) return
     const lastReadSequence = source.reduce(
       (maximum, message) => Math.max(maximum, message.sequence || 0),
       0,
@@ -1582,6 +1781,45 @@ export function useChat() {
     }
   }
 
+  function registerSystemNotificationAccount(message: ChatMessage): void {
+    const userId = message.fromUserId
+    if (message.type !== 'broadcast') return
+    if (!userId || friends.value.some((friend) => friend.friendId === userId)
+      || systemNotificationAccounts.value.some((account) => account.friendId === userId)) return
+    systemNotificationAccounts.value = [...systemNotificationAccounts.value, {
+      id: userId,
+      friendId: userId,
+      username: 'broadcast-notify',
+      nickname: message.fromNickname || '广播通知',
+      avatar: message.fromAvatar || 'letter:广:#5856D6',
+      signature: '系统广播通知账户',
+      online: 0,
+      status: 1,
+      canSendBroadcast: 0,
+    }]
+  }
+
+  async function loadSystemNotificationAccounts(
+    summaries: readonly ConversationSummary[],
+    friendList: readonly Friend[],
+  ): Promise<Friend[]> {
+    const me = currentUser.value?.id
+    if (!me) return []
+    const friendIds = new Set(friendList.map((friend) => friend.friendId))
+    const candidateIds = [...new Set(summaries
+      .filter((summary) => summary.kind === 'private' && !friendIds.has(summary.targetId))
+      .map((summary) => summary.targetId)
+      .filter((userId) => userId > 0 && userId !== me))]
+    const users = await Promise.all(candidateIds.map((userId) => api.user.byId(userId).catch(() => null)))
+    return users.flatMap((user) => user?.username === 'broadcast-notify'
+      && user.signature === '系统广播通知账户' ? [{
+      ...user,
+      friendId: user.id,
+      isMuted: 0,
+      isPinned: 0,
+    }] : [])
+  }
+
   async function persistConversationDirectory(): Promise<void> {
     await saveConversationDirectory(
       friends.value,
@@ -1655,6 +1893,7 @@ export function useChat() {
     loading: readonly(loading),
     loadingMessages: readonly(loadingMessages),
     typingLabel: readonly(typingLabel),
+    mentionReceiptRefreshRevision: readonly(mentionReceiptRefreshRevision),
     fileTransferLabel,
     conversations,
     visibleConversations,

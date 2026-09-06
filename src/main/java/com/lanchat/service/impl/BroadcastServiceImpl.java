@@ -4,10 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lanchat.control.rbac.AuthorizationService;
+import com.lanchat.control.rbac.PermissionCode;
 import com.lanchat.dto.*;
 import com.lanchat.entity.*;
 import com.lanchat.mapper.*;
+import com.lanchat.service.BroadcastNoticeOutboxService;
 import com.lanchat.service.BroadcastService;
+import com.lanchat.service.BroadcastNotificationAccountService;
 import com.lanchat.service.FileService;
 import com.lanchat.service.FriendService;
 import org.springframework.security.access.AccessDeniedException;
@@ -39,6 +43,8 @@ public class BroadcastServiceImpl implements BroadcastService {
     private final FileMetadataMapper fileMetadataMapper;
     private final FileAccessGrantMapper fileAccessGrantMapper;
     private final FileService fileService;
+    private final AuthorizationService authorizationService;
+    private final BroadcastNoticeOutboxService broadcastNoticeOutboxService;
 
     @Autowired
     public BroadcastServiceImpl(BroadcastMapper broadcastMapper,
@@ -49,7 +55,9 @@ public class BroadcastServiceImpl implements BroadcastService {
                                 BroadcastEvidenceMapper evidenceMapper,
                                 FileMetadataMapper fileMetadataMapper,
                                 FileAccessGrantMapper fileAccessGrantMapper,
-                                FileService fileService) {
+                                FileService fileService,
+                                AuthorizationService authorizationService,
+                                BroadcastNoticeOutboxService broadcastNoticeOutboxService) {
         this.broadcastMapper = broadcastMapper;
         this.receiverMapper = receiverMapper;
         this.userMapper = userMapper;
@@ -59,6 +67,8 @@ public class BroadcastServiceImpl implements BroadcastService {
         this.fileMetadataMapper = fileMetadataMapper;
         this.fileAccessGrantMapper = fileAccessGrantMapper;
         this.fileService = fileService;
+        this.authorizationService = authorizationService;
+        this.broadcastNoticeOutboxService = broadcastNoticeOutboxService;
     }
 
     /** Compatibility constructor retained for focused unit tests of legacy behaviour. */
@@ -66,9 +76,22 @@ public class BroadcastServiceImpl implements BroadcastService {
                                 BroadcastReceiverMapper receiverMapper,
                                 UserMapper userMapper,
                                 FriendService friendService,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                AuthorizationService authorizationService) {
         this(broadcastMapper, receiverMapper, userMapper, friendService, objectMapper,
-                null, null, null, null);
+                authorizationService, null);
+    }
+
+    /** Focused service tests can opt into the transactional notice workflow without file fixtures. */
+    public BroadcastServiceImpl(BroadcastMapper broadcastMapper,
+                                BroadcastReceiverMapper receiverMapper,
+                                UserMapper userMapper,
+                                FriendService friendService,
+                                ObjectMapper objectMapper,
+                                AuthorizationService authorizationService,
+                                BroadcastNoticeOutboxService broadcastNoticeOutboxService) {
+        this(broadcastMapper, receiverMapper, userMapper, friendService, objectMapper,
+                null, null, null, null, authorizationService, broadcastNoticeOutboxService);
     }
 
     @Override
@@ -93,7 +116,7 @@ public class BroadcastServiceImpl implements BroadcastService {
 
         List<String> confirmationOptions = normalizeConfirmationOptions(
                 confirmationRequired, request.getConfirmationOptions());
-        Set<Long> receiverIds = resolveReceivers(sender, scope, request);
+        List<Long> receiverIds = orderedUserIds(resolveReceivers(sender, scope, request));
         if (receiverIds.isEmpty()) {
             throw new IllegalArgumentException("广播接收范围内没有需要接收的普通成员");
         }
@@ -134,10 +157,12 @@ public class BroadcastServiceImpl implements BroadcastService {
             receiver.setUpdateTime(now);
             receiver.setTargetStatus("ACTIVE");
             receiver.setRemindCount(0);
+            receiver.setNoticeGeneration(1);
             if (receiverMapper.insert(receiver) != 1) {
                 throw new IllegalStateException("广播接收记录创建失败");
             }
             grantContentImagesToReceiver(request.getContentImageFileIds(), receiverId);
+            queueOverviewCard(broadcast, receiver, sender);
         }
         return broadcast;
     }
@@ -160,6 +185,7 @@ public class BroadcastServiceImpl implements BroadcastService {
         if (broadcastMapper.updateById(broadcast) != 1) {
             throw new IllegalStateException("广播撤销失败");
         }
+        revokeBroadcastDispatches(broadcast.getId());
         return broadcast;
     }
 
@@ -174,6 +200,7 @@ public class BroadcastServiceImpl implements BroadcastService {
         if (!"CANCELLED".equals(broadcast.getStatus())) {
             throw new IllegalArgumentException("请先撤销广播，再执行永久删除");
         }
+        revokeBroadcastDispatches(broadcastId);
         List<BroadcastReceiver> receivers = receiverMapper.selectByBroadcastId(broadcastId);
         List<Long> receiverIds = receivers == null ? List.of() : receivers.stream()
                 .map(BroadcastReceiver::getUserId)
@@ -258,6 +285,7 @@ public class BroadcastServiceImpl implements BroadcastService {
         receiver.setConfirmDeviceType(normalizeDeviceType(deviceType));
         receiver.setUpdateTime(now);
         if (receiverMapper.updateById(receiver) != 1) throw new IllegalArgumentException("广播完成状态保存失败");
+        revokePendingReminderDispatches(broadcastId, userId, receiver.getNoticeGeneration());
         refreshBroadcastCompletion(broadcast, now);
         return receiver;
     }
@@ -315,6 +343,7 @@ public class BroadcastServiceImpl implements BroadcastService {
         List<BroadcastReceiver> receivers = receiverMapper.selectByBroadcastId(broadcastId);
         if (receivers == null) return List.of();
         return receivers.stream()
+                .filter(receiver -> "ACTIVE".equals(receiver.getTargetStatus()))
                 .map(BroadcastReceiver::getUserId)
                 .filter(Objects::nonNull)
                 .distinct()
@@ -385,6 +414,7 @@ public class BroadcastServiceImpl implements BroadcastService {
                 broadcastId, userId, requestedStatus, safeDeviceType);
         BroadcastReceiver current = requireReceiver(broadcastId, userId);
         if (updated == 1 || requestedStatus.equals(current.getConfirmStatus())) {
+            revokePendingReminderDispatches(broadcastId, userId, current.getNoticeGeneration());
             if ("EXECUTED".equals(current.getConfirmStatus())) {
                 current.setCompletedAt(current.getConfirmedAt());
                 refreshBroadcastCompletion(broadcast, LocalDateTime.now());
@@ -475,7 +505,11 @@ public class BroadcastServiceImpl implements BroadcastService {
             case "DELIVERED" -> receiver.getDeliveredAt() != null && !"REMOVED".equals(receiver.getTargetStatus());
             case "VIEWED" -> receiver.getViewedAt() != null && !"REMOVED".equals(receiver.getTargetStatus());
             case "EXECUTED" -> "EXECUTED".equals(receiver.getConfirmStatus());
-            case "PENDING" -> !"REMOVED".equals(receiver.getTargetStatus()) && !"EXECUTED".equals(receiver.getConfirmStatus());
+            // Any submitted result (including NEED_SUPPORT) is complete from the
+            // recipient's perspective. Only an active, unsubmitted confirmation is pending.
+            case "PENDING" -> !"REMOVED".equals(receiver.getTargetStatus())
+                    && "PENDING".equals(receiver.getConfirmStatus())
+                    && receiver.getConfirmedAt() == null;
             case "NEED_SUPPORT" -> "NEED_SUPPORT".equals(receiver.getConfirmStatus()) && !"REMOVED".equals(receiver.getTargetStatus());
             case "REMOVED" -> "REMOVED".equals(receiver.getTargetStatus());
             default -> true;
@@ -541,13 +575,15 @@ public class BroadcastServiceImpl implements BroadcastService {
         Broadcast broadcast = requireManagedBroadcast(broadcastId, operatorId, true);
         BroadcastReceiver receiver = requireReceiver(broadcastId, receiverUserId);
         if (!"ACTIVE".equals(receiver.getTargetStatus())) throw new IllegalArgumentException("该用户已不再目标范围内");
-        if ("EXECUTED".equals(receiver.getConfirmStatus())) throw new IllegalArgumentException("该用户已经完成广播");
         LocalDateTime now = LocalDateTime.now();
+        if (receiver.getConfirmedAt() != null) throw new IllegalArgumentException("该用户已经提交处理结果");
+        if (isExpired(broadcast, now)) throw new IllegalArgumentException("广播已超过截止时间，不能继续提醒");
         if (receiver.getLastRemindedAt() != null && receiver.getLastRemindedAt().plusMinutes(5).isAfter(now)) throw new IllegalArgumentException("五分钟内不能重复提醒同一用户");
         receiver.setRemindCount((receiver.getRemindCount() == null ? 0 : receiver.getRemindCount()) + 1);
         receiver.setLastRemindedAt(now);
         receiver.setUpdateTime(now);
         receiverMapper.updateById(receiver);
+        queueReminderCard(broadcast, receiver, requireActiveUser(broadcast.getSenderId()), operatorId);
     }
 
     private Broadcast requireManagedBroadcast(Long broadcastId, Long operatorId, boolean activeRequired) {
@@ -575,8 +611,9 @@ public class BroadcastServiceImpl implements BroadcastService {
         LocalDateTime now = LocalDateTime.now();
         List<Long> added = new ArrayList<>();
         List<Long> removed = new ArrayList<>();
-        for (Long userId : addIds) {
+        for (Long userId : orderedUserIds(addIds)) {
             BroadcastReceiver existing = receiverMapper.selectReceiverIncludingRemoved(broadcastId, userId);
+            BroadcastReceiver activeReceiver;
             if (existing == null) {
                 BroadcastReceiver receiver = new BroadcastReceiver();
                 receiver.setBroadcastId(broadcastId);
@@ -584,24 +621,34 @@ public class BroadcastServiceImpl implements BroadcastService {
                 receiver.setTargetStatus("ACTIVE");
                 receiver.setConfirmStatus(Boolean.TRUE.equals(broadcast.getConfirmationRequired()) ? "PENDING" : "NOT_REQUIRED");
                 receiver.setRemindCount(0);
+                receiver.setNoticeGeneration(1);
                 receiver.setCreateTime(now);
                 receiver.setUpdateTime(now);
                 if (receiverMapper.insert(receiver) != 1) throw new IllegalStateException("新增目标用户失败");
+                activeReceiver = receiver;
             } else if ("REMOVED".equals(existing.getTargetStatus())) {
                 existing.setTargetStatus("ACTIVE");
                 existing.setConfirmStatus(Boolean.TRUE.equals(broadcast.getConfirmationRequired()) ? "PENDING" : "NOT_REQUIRED");
                 existing.setConfirmedAt(null);
+                existing.setConfirmDeviceType(null);
                 existing.setCompletedAt(null);
+                existing.setDeliveredAt(null);
+                existing.setViewedAt(null);
                 existing.setRemovedAt(null);
                 existing.setRemovedBy(null);
+                existing.setRemindCount(0);
+                existing.setLastRemindedAt(null);
+                existing.setNoticeGeneration(nextNoticeGeneration(existing.getNoticeGeneration()));
                 existing.setUpdateTime(now);
                 receiverMapper.updateById(existing);
+                activeReceiver = existing;
             } else {
                 continue;
             }
             added.add(userId);
+            queueOverviewCard(broadcast, activeReceiver, sender);
         }
-        for (Long userId : removeIds) {
+        for (Long userId : orderedUserIds(removeIds)) {
             BroadcastReceiver receiver = receiverMapper.selectReceiverIncludingRemoved(broadcastId, userId);
             if (receiver == null || "REMOVED".equals(receiver.getTargetStatus())) continue;
             if ("EXECUTED".equals(receiver.getConfirmStatus())) {
@@ -612,6 +659,7 @@ public class BroadcastServiceImpl implements BroadcastService {
             receiver.setRemovedBy(operatorId);
             receiver.setUpdateTime(now);
             receiverMapper.updateById(receiver);
+            revokeRecipientCards(broadcast, receiver);
             removed.add(userId);
         }
         refreshBroadcastCompletion(broadcast, now);
@@ -622,6 +670,28 @@ public class BroadcastServiceImpl implements BroadcastService {
         LinkedHashSet<Long> ids = new LinkedHashSet<>();
         if (source != null) source.stream().filter(Objects::nonNull).forEach(ids::add);
         return ids;
+    }
+
+    /**
+     * Every operation that can open technical-account conversations takes user
+     * locks in the same order.  Request order is a UI concern, never a database
+     * lock-order contract.
+     */
+    private List<Long> orderedUserIds(Collection<Long> source) {
+        if (source == null || source.isEmpty()) return List.of();
+        return source.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    private int nextNoticeGeneration(Integer current) {
+        int safeCurrent = current == null ? 1 : Math.max(1, current);
+        if (safeCurrent == Integer.MAX_VALUE) {
+            throw new IllegalStateException("广播通知卡接收周期已达到上限");
+        }
+        return safeCurrent + 1;
     }
 
     private void validateAdditionalRecipients(User sender, String scope, Set<Long> userIds) {
@@ -643,7 +713,6 @@ public class BroadcastServiceImpl implements BroadcastService {
                 List<User> activeUsers = userMapper.selectList(
                         new LambdaQueryWrapper<User>()
                                 .eq(User::getStatus, 1)
-                                .ne(User::getUsername, "admin")
                                 .orderByAsc(User::getId));
                 yield userIds(activeUsers);
             }
@@ -670,6 +739,7 @@ public class BroadcastServiceImpl implements BroadcastService {
                     .filter(user -> user.getId() != null)
                     .filter(user -> Integer.valueOf(1).equals(user.getStatus()))
                     .filter(user -> !isSystemAdmin(user))
+                    .filter(user -> !BroadcastNotificationAccountService.isNotificationAccount(user))
                     .map(User::getId)
                     .forEach(activeIds::add);
         }
@@ -692,7 +762,8 @@ public class BroadcastServiceImpl implements BroadcastService {
             if (user != null
                     && user.getId() != null
                     && Integer.valueOf(1).equals(user.getStatus())
-                    && !isSystemAdmin(user)) {
+                    && !isSystemAdmin(user)
+                    && !BroadcastNotificationAccountService.isNotificationAccount(user)) {
                 result.add(user.getId());
             }
         }
@@ -768,7 +839,9 @@ public class BroadcastServiceImpl implements BroadcastService {
     }
 
     private boolean isSystemAdmin(User user) {
-        return user != null && "admin".equals(user.getUsername());
+        return user != null
+                && user.getId() != null
+                && authorizationService.hasPermission(user.getId(), PermissionCode.BROADCAST_ALL);
     }
 
     private boolean isExpired(Broadcast broadcast, LocalDateTime now) {
@@ -919,5 +992,42 @@ public class BroadcastServiceImpl implements BroadcastService {
         broadcast.setCompletedAt(now);
         broadcast.setUpdateTime(now);
         if (broadcastMapper.updateById(broadcast) != 1) throw new IllegalArgumentException("广播状态更新失败");
+    }
+
+    /** The compatibility constructor used by isolated legacy tests has no outbox. */
+    private void queueOverviewCard(Broadcast broadcast, BroadcastReceiver receiver, User sender) {
+        if (broadcastNoticeOutboxService != null) {
+            broadcastNoticeOutboxService.queueOverview(broadcast, receiver, sender);
+        }
+    }
+
+    private void queueReminderCard(Broadcast broadcast,
+                                   BroadcastReceiver receiver,
+                                   User sender,
+                                   Long operatorId) {
+        if (broadcastNoticeOutboxService != null) {
+            broadcastNoticeOutboxService.queueReminder(broadcast, receiver, sender, operatorId);
+        }
+    }
+
+    private void revokeRecipientCards(Broadcast broadcast, BroadcastReceiver receiver) {
+        if (broadcastNoticeOutboxService != null) {
+            broadcastNoticeOutboxService.revokeRecipient(broadcast, receiver);
+        }
+    }
+
+    private void revokeBroadcastDispatches(Long broadcastId) {
+        if (broadcastNoticeOutboxService != null) {
+            broadcastNoticeOutboxService.revokeBroadcastDispatches(broadcastId);
+        }
+    }
+
+    private void revokePendingReminderDispatches(Long broadcastId,
+                                                  Long receiverUserId,
+                                                  Integer noticeGeneration) {
+        if (broadcastNoticeOutboxService != null) {
+            broadcastNoticeOutboxService.revokePendingReminderDispatches(
+                    broadcastId, receiverUserId, noticeGeneration);
+        }
     }
 }

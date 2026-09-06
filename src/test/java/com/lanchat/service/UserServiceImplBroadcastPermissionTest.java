@@ -2,9 +2,11 @@ package com.lanchat.service;
 
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.lanchat.dto.RegisterDTO;
+import com.lanchat.control.rbac.AuthorizationService;
 import com.lanchat.entity.User;
 import com.lanchat.mapper.UserMapper;
 import com.lanchat.service.impl.UserServiceImpl;
+import com.lanchat.service.BroadcastNotificationAccountService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,15 +29,18 @@ class UserServiceImplBroadcastPermissionTest {
     private UserMapper userMapper;
     private PasswordEncoder passwordEncoder;
     private UserServiceImpl service;
+    private AuthorizationService authorizationService;
 
     @BeforeEach
     void setUp() {
         initializeTableInfo(User.class);
         userMapper = mock(UserMapper.class);
         passwordEncoder = mock(PasswordEncoder.class);
+        authorizationService = mock(AuthorizationService.class);
         service = new UserServiceImpl();
         ReflectionTestUtils.setField(service, "userMapper", userMapper);
         ReflectionTestUtils.setField(service, "passwordEncoder", passwordEncoder);
+        ReflectionTestUtils.setField(service, "authorizationService", authorizationService);
     }
 
     @Test
@@ -66,6 +71,7 @@ class UserServiceImplBroadcastPermissionTest {
     @Test
     void rootAdministratorPermissionCannotBeChanged() {
         when(userMapper.selectById(1L)).thenReturn(user(1L, "admin"));
+        when(authorizationService.isOrganizationOwner(1L)).thenReturn(true);
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.setBroadcastPermission(1L, false));
@@ -79,6 +85,18 @@ class UserServiceImplBroadcastPermissionTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.setBroadcastPermission(99L, true));
+
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    void technicalNotificationAccountCannotReceiveBroadcastPermission() {
+        User notificationAccount = user(7L, BroadcastNotificationAccountService.USERNAME);
+        notificationAccount.setSignature(BroadcastNotificationAccountService.SIGNATURE);
+        when(userMapper.selectById(7L)).thenReturn(notificationAccount);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.setBroadcastPermission(7L, true));
 
         verify(userMapper, never()).updateById(any(User.class));
     }
@@ -98,6 +116,20 @@ class UserServiceImplBroadcastPermissionTest {
         ArgumentCaptor<User> inserted = ArgumentCaptor.forClass(User.class);
         verify(userMapper).insert(inserted.capture());
         assertEquals(0, inserted.getValue().getCanSendBroadcast());
+        verify(authorizationService).provisionMember(inserted.getValue().getId());
+    }
+
+    @Test
+    void reservedNotificationUsernameCannotBeRegisteredWithDifferentCasing() {
+        RegisterDTO request = new RegisterDTO();
+        request.setUsername("BROADCAST-NOTIFY");
+        request.setPassword("Member1234");
+
+        assertThrows(IllegalArgumentException.class, () -> service.register(request));
+
+        verify(userMapper, never()).selectCount(any());
+        verify(userMapper, never()).insert(any(User.class));
+        verify(authorizationService, never()).provisionMember(any());
     }
 
     private User user(Long id, String username) {

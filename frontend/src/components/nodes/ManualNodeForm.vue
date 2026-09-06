@@ -41,8 +41,8 @@ function submit(): void {
 .manual-node { display: grid; margin-top: 10px; gap: 5px; }
 .manual-node label { color: var(--ink-faint); font-size: var(--font-micro); }
 .manual-node > div { display: flex; gap: 6px; }
-.manual-node input { min-width: 0; flex: 1; padding: 7px 9px; border: 1px solid var(--glass-border); border-radius: 9px; color: var(--ink); font: inherit; font-size: var(--font-micro); background: var(--surface); outline: none; }
+.manual-node input { min-width: 0; flex: 1; padding: 7px 9px; border: 1px solid var(--glass-border); border-radius: var(--radius-sm); color: var(--ink); font: inherit; font-size: var(--font-micro); background: var(--surface); outline: none; }
 .manual-node input:focus { border-color: color-mix(in srgb, var(--blue) 45%, transparent); }
-.manual-node button { padding: 6px 9px; border: 0; border-radius: 9px; color: #fff; font: inherit; font-size: var(--font-micro); font-weight: 700; background: var(--blue); cursor: pointer; white-space: nowrap; }
+.manual-node button { padding: 6px 9px; border: 0; border-radius: var(--radius-sm); color: #fff; font: inherit; font-size: var(--font-micro); font-weight: 700; background: var(--action-bg); cursor: pointer; white-space: nowrap; }
 .manual-node button:disabled { opacity: .5; cursor: default; }
 </style>

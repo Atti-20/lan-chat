@@ -3,6 +3,7 @@ package com.lanchat.service;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.lanchat.common.DeviceSessionsRevokedEvent;
+import com.lanchat.control.rbac.AuthorizationService;
 import com.lanchat.entity.DeviceLogin;
 import com.lanchat.entity.User;
 import com.lanchat.mapper.DeviceLoginMapper;
@@ -39,6 +40,7 @@ class UserServiceImplPasswordTest {
     private LoginAttemptService loginAttemptService;
     private ApplicationEventPublisher eventPublisher;
     private UserServiceImpl service;
+    private AuthorizationService authorizationService;
 
     @BeforeEach
     void setUp() {
@@ -49,6 +51,7 @@ class UserServiceImplPasswordTest {
         passwordEncoder = mock(PasswordEncoder.class);
         loginAttemptService = mock(LoginAttemptService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        authorizationService = mock(AuthorizationService.class);
         service = new UserServiceImpl();
 
         ReflectionTestUtils.setField(service, "userMapper", userMapper);
@@ -56,6 +59,7 @@ class UserServiceImplPasswordTest {
         ReflectionTestUtils.setField(service, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(service, "loginAttemptService", loginAttemptService);
         ReflectionTestUtils.setField(service, "applicationEventPublisher", eventPublisher);
+        ReflectionTestUtils.setField(service, "authorizationService", authorizationService);
     }
 
     @Test
@@ -93,6 +97,7 @@ class UserServiceImplPasswordTest {
     void administratorCannotResetRootAccountWithoutCurrentPassword() {
         when(userMapper.lockById(1L)).thenReturn(1L);
         when(userMapper.selectById(1L)).thenReturn(user(1L, "admin"));
+        when(authorizationService.isOrganizationOwner(1L)).thenReturn(true);
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.resetPasswordByAdmin(1L, "Another1234"));

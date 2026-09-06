@@ -11,6 +11,7 @@ import UiIcon from '../base/UiIcon.vue'
 import ConnectionDiagnosticsModal from '../diagnostics/ConnectionDiagnosticsModal.vue'
 import WorkspaceWelcome from '../chat/WorkspaceWelcome.vue'
 import RuntimeLogConsole from './logs/RuntimeLogConsole.vue'
+import AuditLogConsole from './audit/AuditLogConsole.vue'
 import AdminConsole from './AdminConsole.vue'
 import AdminSidebar from './AdminSidebar.vue'
 import type { AdminModule } from './adminNavigation'
@@ -78,6 +79,7 @@ const moduleTitles: Record<AdminModule, string> = {
   accounts: '账号管理',
   diagnostics: '连接诊断',
   logs: '运行日志',
+  audit: '操作审计',
 }
 const selectedTitle = computed(() => props.module ? moduleTitles[props.module] : '管理')
 </script>
@@ -149,7 +151,8 @@ const selectedTitle = computed(() => props.module ? moduleTitles[props.module] :
       @export="emit('exportDiagnostics')"
       @clear-cache="emit('clearCache')"
     />
-    <RuntimeLogConsole v-else />
+    <RuntimeLogConsole v-else-if="module === 'logs'" />
+    <AuditLogConsole v-else-if="module === 'audit'" />
   </section>
 
   <WorkspaceWelcome
@@ -183,7 +186,7 @@ const selectedTitle = computed(() => props.module ? moduleTitles[props.module] :
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid var(--glass-border);
-  border-radius: 13px;
+  border-radius: var(--radius-control);
   color: var(--ink-faint);
   background: var(--surface-glass);
   cursor: pointer;
@@ -206,6 +209,6 @@ const selectedTitle = computed(() => props.module ? moduleTitles[props.module] :
   }
   .mobile-module-header div { display: grid; gap: 2px; }
   .mobile-module-header span { color: var(--ink-faint); font-size: var(--font-micro); }
-  .mobile-module-header strong { font-size: 14px; }
+  .mobile-module-header strong { font-size: var(--font-body); }
 }
 </style>

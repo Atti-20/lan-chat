@@ -5,6 +5,12 @@ import UserAvatar from '../base/UserAvatar.vue'
 import UiIcon from '../base/UiIcon.vue'
 import { api } from '../../services/api'
 import { useToast } from '../../composables/useToast'
+import {
+  createTextAvatar,
+  DEFAULT_TEXT_AVATAR_COLOR,
+  isTextAvatar as isTextAvatarValue,
+  TEXT_AVATAR_COLOR_PRESETS,
+} from '../../services/textAvatar'
 
 interface Props {
   open: boolean
@@ -23,24 +29,14 @@ const toast = useToast()
 const nickname = shallowRef('')
 const avatar = shallowRef('')
 const uploadingAvatar = shallowRef(false)
-const emojis = ['🫧', '🐼', '🐰', '🦊', '🐧', '🦉', '🌊', '🌙']
-const colorPresets = [
-  '#5AC8FA', '#007AFF', '#5856D6', '#AF52DE',
-  '#FF2D55', '#FF3B30', '#FF9500', '#FFCC00',
-  '#34C759', '#30D158', '#00C7BE', '#64748B',
-]
+const colorPresets = TEXT_AVATAR_COLOR_PRESETS
 
 const currentColor = computed(() => {
-  if (avatar.value?.startsWith('emoji:')) {
+  if (avatar.value?.startsWith('letter:')) {
     const parts = avatar.value.split(':')
-    if (parts.length >= 3 && parts[2]) return parts[2]
+    if (parts.length >= 3 && /^#[0-9a-f]{6}$/i.test(parts[2])) return parts[2]
   }
-  return '#5AC8FA'
-})
-
-const currentEmoji = computed(() => {
-  if (avatar.value?.startsWith('emoji:')) return avatar.value.split(':')[1]
-  return ''
+  return isTextAvatarValue(avatar.value) ? DEFAULT_TEXT_AVATAR_COLOR : ''
 })
 
 const isImageAvatar = computed(() => {
@@ -51,29 +47,35 @@ const isImageAvatar = computed(() => {
     && !avatar.value.startsWith('svg:')
 })
 const isTextAvatar = computed(() =>
-  !avatar.value || avatar.value === 'text' || avatar.value.startsWith('letter:'),
+  isTextAvatarValue(avatar.value),
 )
+const textAvatarPreview = computed(() => createTextAvatar(
+  nickname.value || props.user.nickname,
+  currentColor.value || DEFAULT_TEXT_AVATAR_COLOR,
+))
+const previewAvatar = computed(() => isTextAvatar.value ? textAvatarPreview.value : avatar.value)
 
 watch(() => [props.open, props.user.nickname, props.user.avatar] as const, ([open]) => {
   if (open) {
     nickname.value = props.user.nickname
     // 空头像代表文字头像，不能在资料弹窗中偷偷替换成气泡头像，
     // 否则个人资料与导航栏会显示成两个不同的头像。
-    avatar.value = props.user.avatar || 'text'
+    avatar.value = props.user.avatar?.startsWith('letter:')
+      ? props.user.avatar
+      : (isTextAvatarValue(props.user.avatar)
+        || props.user.avatar?.startsWith('emoji:')
+        || props.user.avatar?.startsWith('svg:'))
+        ? createTextAvatar(props.user.nickname)
+        : (props.user.avatar || createTextAvatar(props.user.nickname))
   }
 }, { immediate: true })
 
-function selectEmoji(emoji: string): void {
-  avatar.value = `emoji:${emoji}:${currentColor.value}`
-}
-
-function selectColor(color: string): void {
-  const emojiChar = currentEmoji.value || '🫧'
-  avatar.value = `emoji:${emojiChar}:${color}`
+function selectTextColor(color: string): void {
+  avatar.value = createTextAvatar(nickname.value || props.user.nickname, color)
 }
 
 function selectTextAvatar(): void {
-  avatar.value = 'text'
+  avatar.value = createTextAvatar(nickname.value || props.user.nickname)
 }
 
 /* ===== 头像裁切相关 ===== */
@@ -291,7 +293,16 @@ function uploadAvatar(): void {
 }
 
 function resetToTextAvatar(): void {
-  avatar.value = 'text'
+  avatar.value = createTextAvatar(nickname.value || props.user.nickname)
+}
+
+function saveProfile(): void {
+  const cleanNickname = nickname.value.trim()
+  const color = currentColor.value
+  const normalizedAvatar = isTextAvatarValue(avatar.value)
+    ? createTextAvatar(cleanNickname, color || DEFAULT_TEXT_AVATAR_COLOR)
+    : avatar.value
+  emit('save', { nickname: cleanNickname, avatar: normalizedAvatar })
 }
 </script>
 
@@ -312,7 +323,7 @@ function resetToTextAvatar(): void {
       <div class="profile-body">
         <div class="avatar-section">
           <div class="avatar-preview">
-            <UserAvatar :name="nickname || user.nickname" :avatar="avatar" :size="88" online />
+            <UserAvatar :name="nickname || user.nickname" :avatar="previewAvatar" :size="88" online />
             <button class="avatar-upload-btn" type="button" :disabled="uploadingAvatar" @click="uploadAvatar">
               <UiIcon name="edit" :size="14" />
             </button>
@@ -325,7 +336,7 @@ function resetToTextAvatar(): void {
             <strong id="avatar-style-title">头像样式</strong>
             <span>选择字符和底色</span>
           </div>
-          <div class="emoji-row">
+          <div class="text-avatar-row">
             <button
               type="button"
               class="text-avatar-choice"
@@ -333,14 +344,7 @@ function resetToTextAvatar(): void {
               aria-label="使用昵称首字符作为头像"
               :aria-pressed="isTextAvatar"
               @click="selectTextAvatar"
-            >{{ (nickname || user.nickname).slice(0, 1).toUpperCase() || '?' }}</button>
-            <button
-              v-for="e in emojis"
-              :key="e"
-              type="button"
-              :class="{ selected: currentEmoji === e }"
-              @click="selectEmoji(e)"
-            >{{ e }}</button>
+            ><UserAvatar :name="nickname || user.nickname" :avatar="textAvatarPreview" :size="38" /></button>
           </div>
 
           <div class="color-section">
@@ -354,7 +358,7 @@ function resetToTextAvatar(): void {
                 :class="{ selected: currentColor === color }"
                 :style="{ background: color }"
                 :aria-label="`选择颜色 ${color}`"
-                @click="selectColor(color)"
+                @click="selectTextColor(color)"
               />
             </div>
           </div>
@@ -366,7 +370,7 @@ function resetToTextAvatar(): void {
           class="primary-button"
           type="button"
           :disabled="saving || uploadingAvatar || !nickname.trim()"
-          @click="emit('save', { nickname: nickname.trim(), avatar })"
+          @click="saveProfile"
         >{{ saving ? '正在保存…' : '保存资料' }}</button>
       </div>
     </section>
@@ -411,7 +415,7 @@ function resetToTextAvatar(): void {
   z-index: 100;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   overflow: hidden;
 }
@@ -423,7 +427,7 @@ function resetToTextAvatar(): void {
   max-height: calc(100dvh - 40px);
   padding: 0;
   grid-template-rows: auto minmax(0, 1fr);
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   overflow: hidden;
 }
@@ -432,14 +436,14 @@ function resetToTextAvatar(): void {
   padding: 20px 22px 16px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   border-bottom: 1px solid var(--separator);
   background: var(--surface-glass);
 }
 .profile-header > div { display: grid; gap: 3px; }
-.profile-header p { margin: 0; color: var(--blue); font-size: var(--font-micro); font-weight: 750; letter-spacing: .12em; }
-.profile-header h2 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
-.profile-header span { color: var(--ink-faint); font-size: 11px; }
+.profile-header p { margin: 0; color: var(--accent-text); font-size: var(--font-micro); font-weight: 750; letter-spacing: .12em; }
+.profile-header h2 { margin: 0; font-size: var(--font-title); letter-spacing: -.03em; }
+.profile-header span { color: var(--ink-faint); font-size: var(--font-micro); }
 .profile-body {
   display: grid;
   min-height: 0;
@@ -470,7 +474,7 @@ function resetToTextAvatar(): void {
 .avatar-section {
   display: grid;
   justify-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .avatar-preview {
   position: relative;
@@ -500,8 +504,8 @@ function resetToTextAvatar(): void {
 .reset-avatar {
   padding: 0;
   border: 0;
-  color: var(--blue);
-  font-size: 11px;
+  color: var(--accent-text);
+  font-size: var(--font-micro);
   font-weight: 600;
   background: none;
   cursor: pointer;
@@ -515,35 +519,14 @@ function resetToTextAvatar(): void {
   border-radius: 16px;
   background: var(--surface-tint);
 }
-.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.section-heading strong { font-size: 12px; }
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.section-heading strong { font-size: var(--font-caption); }
 .section-heading span { color: var(--ink-faint); font-size: var(--font-caption); }
 
-.emoji-row {
-  display: grid;
-  width: 100%;
-  margin: 11px 0 4px;
-  grid-template-columns: repeat(9, 1fr);
-  gap: 5px;
-}
-.emoji-row button {
-  aspect-ratio: 1;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  font-size: 19px;
-  background: var(--fill);
-  cursor: pointer;
-  transition: border-color 150ms ease, transform 150ms ease;
-}
-.emoji-row button.selected { border-color: rgba(0, 122, 255, 0.38); background: rgba(0, 122, 255, 0.09); }
-.emoji-row button:hover { transform: scale(1.06); }
-.emoji-row .text-avatar-choice {
-  color: #fff;
-  font-size: 16px;
-  font-weight: 750;
-  background: linear-gradient(145deg, var(--blue), var(--violet));
-}
+.text-avatar-row { display: flex; width: 100%; margin: 11px 0 4px; }
+.text-avatar-choice { display: grid; width: 44px; height: 44px; padding: 2px; place-items: center; border: 2px solid transparent; border-radius: 50%; background: transparent; cursor: pointer; transition: border-color 150ms ease, transform 150ms ease; }
+.text-avatar-choice.selected { border-color: rgba(0, 122, 255, 0.48); }
+.text-avatar-choice:hover { transform: scale(1.06); }
 
 .color-section {
   width: 100%;
@@ -553,15 +536,17 @@ function resetToTextAvatar(): void {
   display: block;
   margin-bottom: 8px;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--font-micro);
   font-weight: 600;
 }
 .color-row {
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 5px;
+  grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  gap: 8px;
 }
 .color-swatch {
+  min-width: 44px;
+  min-height: 44px;
   aspect-ratio: 1;
   padding: 0;
   border: 2px solid transparent;
@@ -576,15 +561,10 @@ function resetToTextAvatar(): void {
   transform: scale(1.1);
 }
 
-.nickname-field { display: grid; width: 100%; margin-top: 16px; gap: 8px; }
-.nickname-field > span { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
+.nickname-field { display: grid; width: 100%; margin-top: 16px; gap: var(--space-2); }
+.nickname-field > span { color: var(--ink-soft); font-size: var(--font-caption); font-weight: 600; }
 .profile-sheet .primary-button { width: 100%; margin-top: 14px; }
 
-
-@media (max-width: 430px) {
-  .emoji-row { grid-template-columns: repeat(5, 1fr); }
-  .color-row { grid-template-columns: repeat(6, 1fr); }
-}
 
 @media (max-width: 760px) {
   .modal-backdrop { padding: 0; place-items: stretch; }
@@ -600,7 +580,7 @@ function resetToTextAvatar(): void {
     padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 13px max(16px, env(safe-area-inset-left));
     align-items: center;
   }
-  .profile-header h2 { font-size: 21px; }
+  .profile-header h2 { font-size: var(--font-title); }
   .close-button { width: 44px; height: 44px; }
   .profile-body {
     padding: 18px max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
@@ -615,7 +595,7 @@ function resetToTextAvatar(): void {
   z-index: 200;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(14px) saturate(125%);
@@ -626,8 +606,8 @@ function resetToTextAvatar(): void {
   display: grid;
   width: min(100%, 420px);
   padding: 22px;
-  gap: 16px;
-  border-radius: 20px;
+  gap: var(--space-4);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: 0 24px 60px var(--shadow-color);
 }
@@ -642,7 +622,7 @@ function resetToTextAvatar(): void {
   width: 100%;
   aspect-ratio: 1;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: #1a1a1a;
   user-select: none;
   touch-action: none;
@@ -662,7 +642,6 @@ function resetToTextAvatar(): void {
 .crop-mask--top { top: 0; left: 0; width: 100%; }
 .crop-mask--bottom { left: 0; width: 100%; }
 .crop-mask--left { left: 0; }
-.crop-mask--right {}
 .crop-box {
   position: absolute;
   border: 2px solid #fff;
@@ -691,8 +670,8 @@ function resetToTextAvatar(): void {
   min-height: 38px;
   padding: 0 20px;
   border: 0;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: var(--radius-control);
+  font-size: var(--font-body-sm);
   font-weight: 600;
   cursor: pointer;
   transition: background-color 150ms ease;

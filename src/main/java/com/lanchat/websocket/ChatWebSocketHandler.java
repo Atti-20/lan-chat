@@ -10,8 +10,11 @@ import com.lanchat.common.ConversationIds;
 import com.lanchat.common.DeviceSessionsRevokedEvent;
 import com.lanchat.common.ConversationMembershipChangedEvent;
 import com.lanchat.common.ConversationReadChangedEvent;
+import com.lanchat.common.MentionReadReceiptChangedEvent;
 import com.lanchat.common.FileReferenceUtil;
 import com.lanchat.common.TemporaryRoomChangedEvent;
+import com.lanchat.control.rbac.AuthorizationService;
+import com.lanchat.control.rbac.PermissionCode;
 import com.lanchat.dto.ReliableMessageResult;
 import com.lanchat.dto.WebSocketEnvelope;
 import com.lanchat.dto.FileTransferCompletionDTO;
@@ -34,6 +37,7 @@ import com.lanchat.service.FileService;
 import com.lanchat.service.FriendService;
 import com.lanchat.service.FileTransferService;
 import com.lanchat.service.BroadcastService;
+import com.lanchat.service.BroadcastNotificationAccountService;
 import com.lanchat.service.GroupService;
 import com.lanchat.service.UserService;
 import jakarta.annotation.PreDestroy;
@@ -85,6 +89,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ChatWebSocketHandler.class);
 
+    private static final int MAX_MENTION_TARGETS = 200;
+    private static final int MAX_MENTION_TARGETS_SERIALIZED_LENGTH = 4_096;
+
     private static final String USER_ID_ATTRIBUTE = "authenticatedUserId";
     private static final String DEVICE_ID_ATTRIBUTE = "authenticatedDeviceId";
     private static final String DEVICE_TYPE_ATTRIBUTE = "authenticatedDeviceType";
@@ -122,6 +129,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ClusterPresenceService clusterPresenceService;
     private final ScheduledExecutorService authTimeoutExecutor;
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
+
+    @Autowired
+    private AuthorizationService authorizationService;
 
     public ChatWebSocketHandler(ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
@@ -352,7 +362,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             String deviceType = jwtUtil.getDeviceTypeFromToken(token);
             User user = userService.getUserInfo(userId);
             DeviceLogin device = userService.getActiveDevice(token, userId, deviceType);
-            if (user == null || !Integer.valueOf(1).equals(user.getStatus()) || device == null) {
+            if (user == null || !Integer.valueOf(1).equals(user.getStatus())
+                    || BroadcastNotificationAccountService.isNotificationAccount(user)
+                    || device == null) {
                 sendEvent(session, envelope("FORCE_LOGOUT", incoming.getRequestId(), null, null,
                         Map.of("message", "设备会话已经失效")));
                 closeQuietly(session, CloseStatus.POLICY_VIOLATION);
@@ -465,6 +477,19 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             throw new IllegalArgumentException("clientMsgId 无效");
         }
 
+        // A lost ACK is retried with the same clientMsgId. Resolve that retry
+        // before checking today's group membership or administrator role: the
+        // original message was already authorized and its mention snapshot is
+        // immutable. A mismatched retry is rejected rather than acknowledged.
+        ChatMessage committed = chatMessageService.getByClientMsgId(senderId, clientMsgId);
+        if (committed != null) {
+            if (!matchesCommittedMessage(committed, incoming)) {
+                throw new IllegalArgumentException("clientMsgId 与已提交消息不一致");
+            }
+            sendChatAck(session, incoming, committed, true);
+            return;
+        }
+
         Long toUserId = payloadLong(incoming, "toUserId");
         Long groupId = payloadLong(incoming, "groupId");
         validateTargetAndPermission(senderId, toUserId, groupId, incoming.getConversationId());
@@ -493,11 +518,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         String mentionUserIds = payloadString(incoming, "mentionUserIds");
-        if (StringUtils.hasText(mentionUserIds)
-                && (mentionUserIds.length() > 500
-                || !mentionUserIds.matches("^\\d+(?:,\\d+)*$"))) {
-            throw new IllegalArgumentException("@成员参数无效");
-        }
+        mentionUserIds = normalizeMentionTargets(mentionUserIds, groupId, senderId);
 
         boolean burn = payloadBoolean(incoming, "isBurn");
         if (burn && BURN_FORBIDDEN_TYPES.contains(contentType)) {
@@ -513,7 +534,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         message.setType(contentType);
         message.setContent(content);
         message.setReplyToId(StringUtils.hasText(replyToId) ? replyToId.trim() : null);
-        message.setMentionUserIds(StringUtils.hasText(mentionUserIds) ? mentionUserIds : null);
+        message.setMentionUserIds(mentionUserIds);
         message.setIsBurn(burn ? 1 : 0);
         message.setBurnDuration(5);
         message.setIsRecalled(0);
@@ -541,16 +562,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         ChatMessage saved = result.message();
-        Map<String, Object> ackPayload = new LinkedHashMap<>();
-        ackPayload.put("clientMsgId", saved.getClientMsgId());
-        ackPayload.put("messageId", saved.getMessageId());
-        ackPayload.put("conversationId", saved.getConversationId());
-        ackPayload.put("sequence", saved.getSequence());
-        ackPayload.put("serverTime", System.currentTimeMillis());
-        ackPayload.put("duplicated", result.duplicated());
-        sendEvent(session, envelope("CHAT_ACK", incoming.getRequestId(), saved.getClientMsgId(),
-                saved.getConversationId(), ackPayload));
-        ACK_COUNT.increment();
+        sendChatAck(session, incoming, saved, result.duplicated());
 
         if (!result.duplicated()) {
             WebSocketEnvelope deliver = envelope("CHAT_DELIVER", null, saved.getClientMsgId(),
@@ -644,9 +656,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         payload.put("lastSequence", changed.lastSequence());
         payload.put("lastReadSequence", changed.lastReadSequence());
         payload.put("unreadCount", changed.unreadCount());
-        deliverToConversation(changed.conversationId(),
-                envelope("CHAT_READ", null, null, changed.conversationId(), payload),
-                null);
+        // Read cursors are private state.  The reader's other devices still
+        // need the committed counter, while a group administrator learns
+        // mention-specific state exclusively from the guarded receipt API.
+        sendToUser(changed.userId(),
+                envelope("CHAT_READ", null, null, changed.conversationId(), payload));
     }
 
     /** Evicts a conversation from every connected device after membership removal. */
@@ -661,6 +675,25 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 null,
                 changed.conversationId(),
                 payload));
+    }
+
+    /**
+     * Sends a cache-invalidating event only to each original mention sender.
+     * The guarded REST detail endpoint remains the only path that returns
+     * recipient identities or read state.
+     */
+    public void notifyMentionReadReceiptChanged(MentionReadReceiptChangedEvent changed) {
+        if (changed == null || !StringUtils.hasText(changed.conversationId())) return;
+        Map<Long, List<String>> messageIdsBySender = new LinkedHashMap<>();
+        for (MentionReadReceiptChangedEvent.MessageChange change : changed.changes()) {
+            if (change == null || change.senderId() == null
+                    || !StringUtils.hasText(change.messageId())) continue;
+            messageIdsBySender.computeIfAbsent(change.senderId(), ignored -> new ArrayList<>())
+                    .add(change.messageId());
+        }
+        messageIdsBySender.forEach((senderId, messageIds) -> sendToUser(senderId,
+                envelope("MENTION_RECEIPT_CHANGED", null, null, changed.conversationId(),
+                        Map.of("messageIds", List.copyOf(messageIds)))));
     }
 
     private void handleRecall(WebSocketSession session, WebSocketEnvelope incoming) {
@@ -955,8 +988,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private void deliverPendingBroadcasts(WebSocketSession session, Long userId) {
         try {
-            for (Broadcast broadcast : broadcastService.listPending(userId)) {
-                sendBroadcast(session, userId, broadcast.getId());
+            for (Broadcast broadcast : safeBroadcasts(broadcastService.listPending(userId))) {
+                if (broadcast == null || broadcast.getId() == null) continue;
+                // Recovery contains no broadcast body. The client refreshes its
+                // current authorization snapshot before rendering any detail.
+                sendEvent(session, envelope("BROADCAST", null, null, null,
+                        Map.of("broadcastId", broadcast.getId())));
             }
         } catch (Exception exception) {
             // Broadcast delivery is important but must never invalidate an otherwise
@@ -965,54 +1002,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    private void sendBroadcast(WebSocketSession session, Long userId, Long broadcastId) {
-        BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, userId);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("broadcastId", broadcastId);
-        payload.put("broadcast", detail.broadcast());
-        payload.put("receiver", detail.receiver());
-        payload.put("confirmationOptions", detail.confirmationOptions());
-        if (sendEvent(session, envelope("BROADCAST", null, null, null, payload))) {
-            broadcastService.markDelivered(broadcastId, userId);
-        }
+    private List<Broadcast> safeBroadcasts(List<Broadcast> broadcasts) {
+        return broadcasts == null ? List.of() : broadcasts;
     }
 
-    /** REST 广播创建事务提交后调用，在线接收者立即收到，离线接收者登录后补推。 */
+    /**
+     * Cards and their post-commit refresh intents are committed by
+     * BroadcastNoticeOutboxService with the source transaction.  Keeping this
+     * compatibility entrypoint empty avoids a second, non-durable full-detail
+     * transport path after the controller returns.
+     */
     public void publishBroadcast(Long broadcastId) {
-        if (broadcastId == null) return;
-        List<Long> receiverIds;
-        try {
-            receiverIds = broadcastService.getReceiverIds(broadcastId);
-        } catch (Exception exception) {
-            log.warn("广播接收者查询失败: broadcastId={}, error={}",
-                    broadcastId, exception.getMessage());
-            return;
-        }
-        if (receiverIds == null) return;
-        Set<Long> onlineUserIds = clusterPresenceService.getOnlineUserIds(
-                Set.copyOf(ONLINE_SESSIONS.keySet()));
-        for (Long userId : receiverIds.stream().filter(Objects::nonNull).distinct().toList()) {
-            try {
-                if (!onlineUserIds.contains(userId)) continue;
-                boolean addressed = broadcastService.listPending(userId).stream()
-                        .anyMatch(item -> broadcastId.equals(item.getId()));
-                if (!addressed) continue;
-                BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, userId);
-                Map<String, Object> payload = new LinkedHashMap<>();
-                payload.put("broadcastId", broadcastId);
-                payload.put("broadcast", detail.broadcast());
-                payload.put("receiver", detail.receiver());
-                payload.put("confirmationOptions", detail.confirmationOptions());
-                WebSocketEnvelope event = envelope("BROADCAST", null, null, null, payload);
-                realtimeRouter.sendToUserWithReceipt(
-                        userId,
-                        event,
-                        () -> broadcastService.markDelivered(broadcastId, userId));
-            } catch (Exception exception) {
-                log.warn("广播实时投递失败: broadcastId={}, userId={}, error={}",
-                        broadcastId, userId, exception.getMessage());
-            }
-        }
+        // Intentionally no-op; see BroadcastNoticeOutboxServiceImpl.
     }
 
     /** REST/WS 确认完成后向广播创建者同步最新聚合统计。 */
@@ -1073,6 +1074,76 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         if (friendService.isBlockedBy(senderId, toUserId)) {
             throw new IllegalArgumentException("消息发送失败，对方暂不接受消息");
         }
+    }
+
+    /**
+     * Freezes group mention recipients at send time. `ALL` is accepted only
+     * from an owner/admin and expands to active peers, so later joins/leaves do
+     * not change the expected count in that message's read receipt.
+     */
+    private String normalizeMentionTargets(String rawMentionUserIds,
+                                           Long groupId,
+                                           Long senderId) {
+        if (!StringUtils.hasText(rawMentionUserIds)) return null;
+        if (groupId == null) throw new IllegalArgumentException("只有群聊可以@成员");
+        String value = rawMentionUserIds.trim();
+        if (value.length() > MAX_MENTION_TARGETS_SERIALIZED_LENGTH) {
+            throw new IllegalArgumentException("@成员参数无效");
+        }
+
+        List<Map<String, Object>> members = groupService.getGroupMembers(groupId);
+        LinkedHashSet<Long> activeMemberIds = new LinkedHashSet<>();
+        for (Map<String, Object> member : members) {
+            Long userId = numberToLong(member.get("userId"));
+            if (userId != null && userId > 0) activeMemberIds.add(userId);
+        }
+        LinkedHashSet<Long> activePeerIds = new LinkedHashSet<>(activeMemberIds);
+        activePeerIds.remove(senderId);
+
+        LinkedHashSet<Long> targetIds = new LinkedHashSet<>();
+        if ("ALL".equalsIgnoreCase(value)) {
+            if (groupService.getMemberRole(groupId, senderId) < 1) {
+                throw new IllegalArgumentException("只有群主或管理员可以@所有人");
+            }
+            targetIds.addAll(activeMemberIds);
+            targetIds.remove(senderId);
+        } else {
+            if (!value.matches("^\\d+(?:,\\d+)*$")) {
+                throw new IllegalArgumentException("@成员参数无效");
+            }
+            for (String item : value.split(",")) {
+                try {
+                    targetIds.add(Long.parseLong(item));
+                } catch (NumberFormatException exception) {
+                    throw new IllegalArgumentException("@成员参数无效");
+                }
+            }
+            if (targetIds.contains(senderId)) {
+                throw new IllegalArgumentException("不能@自己");
+            }
+            if (!activeMemberIds.containsAll(targetIds)) {
+                throw new IllegalArgumentException("@成员必须是当前群成员");
+            }
+            // Numeric targets are the direct-mention form.  A regular member
+            // must not reproduce an @all delivery set by naming every peer in
+            // the raw websocket payload.  In a two-person group, the sole
+            // peer is still a specific member and remains mentionable.
+            if (activePeerIds.size() > 1
+                    && targetIds.containsAll(activePeerIds)
+                    && groupService.getMemberRole(groupId, senderId) < 1) {
+                throw new IllegalArgumentException("只有群主或管理员可以@所有人");
+            }
+        }
+        if (targetIds.isEmpty()) throw new IllegalArgumentException("没有可@的群成员");
+        if (targetIds.size() > MAX_MENTION_TARGETS) {
+            throw new IllegalArgumentException("@成员数量超过上限");
+        }
+        String normalized = targetIds.stream().sorted().map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+        if (normalized.length() > MAX_MENTION_TARGETS_SERIALIZED_LENGTH) {
+            throw new IllegalArgumentException("@成员参数超出可保存长度");
+        }
+        return normalized;
     }
 
     private void deliverMessage(ChatMessage message, WebSocketEnvelope event) {
@@ -1609,48 +1680,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         WebSocketEnvelope event = envelope("BROADCAST_UPDATED", null, null, null,
                 Map.of("broadcastId", broadcastId, "status", "TARGETS_UPDATED"));
         targetUserIds.forEach(userId -> sendToUser(userId, event));
-        if (addedUserIds != null) {
-            addedUserIds.forEach(userId -> {
-                try {
-                    sendBroadcastToOnlineUser(broadcastId, userId);
-                } catch (Exception exception) {
-                    log.warn("新增广播目标实时通知失败: broadcastId={}, userId={}, error={}",
-                            broadcastId, userId, exception.getMessage());
-                }
-            });
-        }
-    }
-
-    private void sendBroadcastToOnlineUser(Long broadcastId, Long userId) {
-        if (broadcastId == null || userId == null) return;
-        BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, userId);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("broadcastId", broadcastId);
-        payload.put("broadcast", detail.broadcast());
-        payload.put("receiver", detail.receiver());
-        payload.put("confirmationOptions", detail.confirmationOptions());
-        sendToUser(userId, envelope("BROADCAST", null, null, null, payload));
+        // Card creation/redaction is intentionally not performed here. The
+        // source transaction owns both database mutation and durable outbox
+        // work; this post-commit notifier transports only a safe refresh hint.
     }
 
     private Set<Long> systemAdministratorIds() {
         Set<Long> administratorIds = new LinkedHashSet<>();
-        ONLINE_USERS.forEach((userId, user) -> {
-            if (user != null && "admin".equals(user.getUsername())) {
-                administratorIds.add(userId);
-            }
-        });
         try {
-            List<User> candidates = userService.searchUsers("admin");
-            if (candidates != null) {
-                candidates.stream()
-                        .filter(Objects::nonNull)
-                        .filter(user -> "admin".equals(user.getUsername()))
-                        .map(User::getId)
-                        .filter(Objects::nonNull)
-                        .forEach(administratorIds::add);
-            }
+            administratorIds.addAll(
+                    authorizationService.userIdsWithPermission(PermissionCode.BROADCAST_ALL));
         } catch (Exception exception) {
-            log.warn("管理员实时通知目标查询失败，保留本实例目标: {}", exception.getMessage());
+            log.warn("广播管理员实时通知目标查询失败: {}", exception.getMessage());
         }
         return administratorIds;
     }
@@ -1670,20 +1711,62 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     public void notifyBroadcastReminder(Long broadcastId, Long receiverUserId, Long operatorId) {
-        BroadcastDetailDTO detail = broadcastService.getDetail(broadcastId, receiverUserId);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("broadcastId", broadcastId);
-        payload.put("title", detail.broadcast().getTitle());
-        payload.put("operatorId", operatorId);
-        payload.put("message", "广播创建者提醒你尽快完成");
-        sendToUser(receiverUserId,
-                envelope(
-                        "BROADCAST_REMINDER",
-                        null,
-                        null,
-                        null,
-                        payload
-                )
-        );
+        // The reminder card and its safe sync trigger were already committed
+        // with BroadcastService.remindReceiver.  Do not emit the historical
+        // BROADCAST_REMINDER body after that transaction has released its lock.
+    }
+
+    private void sendChatAck(WebSocketSession session,
+                             WebSocketEnvelope incoming,
+                             ChatMessage saved,
+                             boolean duplicated) {
+        Map<String, Object> ackPayload = new LinkedHashMap<>();
+        ackPayload.put("clientMsgId", saved.getClientMsgId());
+        ackPayload.put("messageId", saved.getMessageId());
+        ackPayload.put("conversationId", saved.getConversationId());
+        ackPayload.put("sequence", saved.getSequence());
+        ackPayload.put("mentionUserIds", saved.getMentionUserIds());
+        ackPayload.put("serverTime", System.currentTimeMillis());
+        ackPayload.put("duplicated", duplicated);
+        sendEvent(session, envelope("CHAT_ACK", incoming.getRequestId(), saved.getClientMsgId(),
+                saved.getConversationId(), ackPayload));
+        ACK_COUNT.increment();
+    }
+
+    private boolean matchesCommittedMessage(ChatMessage committed, WebSocketEnvelope incoming) {
+        Long toUserId = payloadLong(incoming, "toUserId");
+        Long groupId = payloadLong(incoming, "groupId");
+        String requestedType = payloadString(incoming, "contentType");
+        String contentType = StringUtils.hasText(requestedType)
+                ? requestedType.trim().toLowerCase(Locale.ROOT) : "text";
+        String content = payloadString(incoming, "content");
+        String replyToId = payloadString(incoming, "replyToId");
+        String requestedConversation = incoming.getConversationId();
+        if (!Objects.equals(committed.getToUserId(), toUserId)
+                || !Objects.equals(committed.getGroupId(), groupId)
+                || !Objects.equals(committed.getType(), contentType)
+                || !Objects.equals(committed.getContent(), content == null ? "" : content)
+                || !Objects.equals(committed.getReplyToId(), StringUtils.hasText(replyToId) ? replyToId.trim() : null)
+                || !Objects.equals(Integer.valueOf(1).equals(committed.getIsBurn()), payloadBoolean(incoming, "isBurn"))) {
+            return false;
+        }
+        if (StringUtils.hasText(requestedConversation)
+                && !Objects.equals(committed.getConversationId(), requestedConversation)) {
+            return false;
+        }
+        String requestedMentions = payloadString(incoming, "mentionUserIds");
+        if (!StringUtils.hasText(requestedMentions)) return !StringUtils.hasText(committed.getMentionUserIds());
+        if ("ALL".equalsIgnoreCase(requestedMentions.trim())) {
+            return StringUtils.hasText(committed.getMentionUserIds());
+        }
+        if (!requestedMentions.trim().matches("^\\d+(?:,\\d+)*$")) return false;
+        String normalized = java.util.Arrays.stream(requestedMentions.trim().split(","))
+                .map(Long::parseLong)
+                .filter(id -> id > 0)
+                .distinct()
+                .sorted()
+                .map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+        return Objects.equals(committed.getMentionUserIds(), normalized);
     }
 }

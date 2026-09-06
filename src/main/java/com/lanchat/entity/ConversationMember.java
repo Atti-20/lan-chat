@@ -18,6 +18,8 @@ public class ConversationMember {
     private Long userId;
     private String role;
     private Long lastReadSequence;
+    /** First sequence eligible for this membership period's @ receipts. */
+    private Long receiptStartSequence;
     private Integer unreadCount;
     private Integer isMuted;
     private Integer isPinned;

@@ -5,7 +5,7 @@ import { api } from '../../services/api'
 import { useToast } from '../../composables/useToast'
 import { formatMessageTime } from '../../utils/format'
 import { nativeBridge } from '../../platform/nativeBridge'
-import UiIcon from '../base/UiIcon.vue'
+import UiIcon, { type IconName } from '../base/UiIcon.vue'
 
 interface Props {
   open: boolean
@@ -59,13 +59,12 @@ async function kickDevice(device: DeviceLogin): Promise<void> {
   }
 }
 
-function deviceIcon(type: string): string {
+function deviceIcon(type: string): IconName {
   switch (type?.toLowerCase()) {
-    case 'web': return '🌐'
-    case 'android': return '📱'
-    case 'ios': return '📱'
-    case 'desktop': return '🖥️'
-    default: return '💻'
+    case 'web': return 'globe'
+    case 'android': return 'smartphone'
+    case 'ios': return 'smartphone'
+    default: return 'monitor'
   }
 }
 
@@ -96,7 +95,7 @@ function shortDeviceName(name: string): string {
 
       <div v-else class="device-list">
         <div v-for="device in devices" :key="device.id" class="device-item">
-          <span class="device-icon">{{ deviceIcon(device.deviceType) }}</span>
+          <UiIcon class="device-icon" :name="deviceIcon(device.deviceType)" :size="24" />
           <div class="device-info">
             <div class="device-heading">
               <strong>{{ device.deviceType || '未知' }}</strong>
@@ -123,7 +122,7 @@ function shortDeviceName(name: string): string {
   z-index: 110;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(14px) saturate(125%);
@@ -137,7 +136,7 @@ function shortDeviceName(name: string): string {
   max-height: calc(100dvh - 40px);
   padding: 28px 24px 22px;
   gap: 2px;
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   background: var(--surface-raise);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   overflow-y: auto;
@@ -163,7 +162,7 @@ function shortDeviceName(name: string): string {
 .close-button:hover { background: var(--button-hover); }
 .close-button .ui-icon { width: 16px; }
 
-.device-sheet h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+.device-sheet h2 { margin: 0; font-size: var(--font-title); letter-spacing: -0.02em; }
 
 .device-loading {
   display: grid;
@@ -176,32 +175,32 @@ function shortDeviceName(name: string): string {
   width: 24px;
   height: 24px;
   border: 2px solid color-mix(in srgb, var(--blue) 16%, transparent);
-  border-top-color: var(--blue);
+  border-top-color: var(--accent-text);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.device-empty { padding: 28px 0; color: var(--ink-faint); font-size: 13px; text-align: center; }
+.device-empty { padding: 28px 0; color: var(--ink-faint); font-size: var(--font-body-sm); text-align: center; }
 
-.device-list { display: grid; margin-top: 14px; gap: 4px; }
+.device-list { display: grid; margin-top: 14px; gap: var(--space-1); }
 
 .device-item {
   display: flex;
-  padding: 12px;
+  padding: var(--space-3);
   align-items: center;
-  gap: 12px;
-  border-radius: 13px;
+  gap: var(--space-3);
+  border-radius: var(--radius-control);
   background: var(--fill);
   transition: background-color 150ms ease;
 }
 
-.device-icon { font-size: 22px; flex-shrink: 0; }
+.device-icon { color: var(--ink-soft); flex-shrink: 0; }
 .device-info { display: grid; min-width: 0; flex: 1; gap: 2px; }
 .device-heading { display: flex; align-items: center; gap: 7px; }
-.device-heading strong { font-size: 13px; font-weight: 600; }
-.device-heading span { padding: 2px 6px; border-radius: 999px; color: var(--blue); font-size: var(--font-micro); font-weight: 700; background: var(--active); }
-.device-info small { overflow: hidden; color: var(--ink-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.device-heading strong { font-size: var(--font-body-sm); font-weight: 600; }
+.device-heading span { padding: 2px 6px; border-radius: var(--radius-pill); color: var(--accent-text); font-size: var(--font-micro); font-weight: 700; background: var(--active); }
+.device-info small { overflow: hidden; color: var(--ink-soft); font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
 .device-time { color: var(--ink-faint); font-size: var(--font-caption); }
 
 .kick-button {
@@ -209,15 +208,15 @@ function shortDeviceName(name: string): string {
   min-height: 30px;
   padding: 0 10px;
   border: 0;
-  border-radius: 8px;
-  color: var(--coral);
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: var(--font-micro);
   font-weight: 700;
-  background: color-mix(in srgb, var(--coral) 8%, transparent);
+  background: color-mix(in srgb, var(--danger-bg) 8%, transparent);
   cursor: pointer;
   flex-shrink: 0;
   transition: background-color 150ms ease;
 }
-.kick-button:hover { background: color-mix(in srgb, var(--coral) 14%, transparent); }
+.kick-button:hover { background: color-mix(in srgb, var(--danger-bg) 14%, transparent); }
 .kick-button:disabled { opacity: 0.5; cursor: wait; }
 </style>

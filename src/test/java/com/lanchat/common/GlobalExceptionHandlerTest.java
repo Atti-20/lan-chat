@@ -1,5 +1,6 @@
 package com.lanchat.common;
 
+import com.lanchat.control.device.DeviceIdentityUnavailableException;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -41,6 +42,16 @@ class GlobalExceptionHandlerTest {
                 .andExpect(content().bytes(new byte[0]))
                 .andExpect(result -> assertInstanceOf(
                         AsyncRequestNotUsableException.class, result.getResolvedException()));
+    }
+
+    @Test
+    void disabledDeviceIdentityReturnsServiceUnavailable() {
+        var response = new GlobalExceptionHandler().handleDeviceIdentityUnavailable(
+                new DeviceIdentityUnavailableException("设备身份功能尚未启用"));
+
+        assertEquals(503, response.getStatusCode().value());
+        assertEquals(503, response.getBody().getCode());
+        assertEquals("设备身份功能尚未启用", response.getBody().getMsg());
     }
 
     @RestController

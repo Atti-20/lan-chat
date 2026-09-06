@@ -221,53 +221,53 @@ function closeFromBackdrop(): void {
 </template>
 
 <style scoped>
-.diagnostics-backdrop { position: fixed; z-index: 140; inset: 0; display: grid; padding: 24px; place-items: center; background: rgba(18, 29, 43, .34); backdrop-filter: blur(14px) saturate(125%); -webkit-backdrop-filter: blur(14px) saturate(125%); }
+.diagnostics-backdrop { position: fixed; z-index: 140; inset: 0; display: grid; padding: var(--space-6); place-items: center; background: rgba(18, 29, 43, .34); backdrop-filter: blur(14px) saturate(125%); -webkit-backdrop-filter: blur(14px) saturate(125%); }
 .diagnostics-workspace { width: 100%; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
-.diagnostics-panel { display: grid; width: min(880px, 100%); max-height: min(860px, calc(100dvh - 48px)); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid var(--glass-border); border-radius: 24px; color: var(--ink); background: var(--surface-raise); box-shadow: 0 28px 80px rgba(18, 38, 64, .28); }
+.diagnostics-panel { display: grid; width: min(880px, 100%); max-height: min(860px, calc(100dvh - 48px)); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius-sheet); color: var(--ink); background: var(--surface-raise); box-shadow: 0 28px 80px rgba(18, 38, 64, .28); }
 .diagnostics-panel--embedded { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
 .diagnostics-header { display: flex; padding: 22px 24px 18px; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid var(--separator); }
-.diagnostics-header p { margin: 0 0 6px; color: var(--blue); font-size: var(--font-caption); font-weight: 750; letter-spacing: .1em; }
-.diagnostics-header h2 { margin: 0; font-size: 23px; letter-spacing: -.035em; }
-.diagnostics-header span { display: block; margin-top: 5px; color: var(--ink-soft); font-size: 11px; }
-.icon-button { display: grid; width: 34px; height: 34px; padding: 0; place-items: center; border: 0; border-radius: 10px; color: var(--ink-soft); background: var(--fill); cursor: pointer; }
+.diagnostics-header p { margin: 0 0 6px; color: var(--accent-text); font-size: var(--font-caption); font-weight: 750; letter-spacing: .1em; }
+.diagnostics-header h2 { margin: 0; font-size: var(--font-title); letter-spacing: -.035em; }
+.diagnostics-header span { display: block; margin-top: 5px; color: var(--ink-soft); font-size: var(--font-micro); }
+.icon-button { display: grid; width: 34px; height: 34px; padding: 0; place-items: center; border: 0; border-radius: var(--radius-control); color: var(--ink-soft); background: var(--fill); cursor: pointer; }
 .diagnostics-body { padding: 20px 24px 24px; overflow-y: auto; }
-.diagnostics-error { padding: 10px 12px; margin: 0 0 14px; border-radius: 10px; color: var(--coral); font-size: 11px; background: color-mix(in srgb, var(--coral) 9%, transparent); }
+.diagnostics-error { padding: 10px 12px; margin: 0 0 14px; border-radius: var(--radius-control); color: var(--danger); font-size: var(--font-micro); background: color-mix(in srgb, var(--coral) 9%, transparent); }
 .summary-grid,
 .health-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .summary-grid article,
-.health-grid article { display: grid; min-width: 0; padding: 13px; gap: 7px; border: 1px solid var(--separator); border-radius: 13px; background: var(--surface); }
+.health-grid article { display: grid; min-width: 0; padding: 13px; gap: 7px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--surface); }
 .summary-grid span,
 .health-grid span { color: var(--ink-faint); font-size: var(--font-micro); font-weight: 650; }
 .summary-grid strong,
-.health-grid strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.summary-grid .state-online { color: var(--green); }
+.health-grid strong { overflow: hidden; font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
+.summary-grid .state-online { color: var(--success); }
 .summary-grid .state-offline,
 .summary-grid .state-degraded,
-.health-grid strong.down { color: var(--coral); }
+.health-grid strong.down { color: var(--danger); }
 .detail-section { padding-top: 22px; margin-top: 20px; border-top: 1px solid var(--separator); }
-.section-heading { display: flex; margin-bottom: 12px; align-items: center; justify-content: space-between; gap: 12px; }
-.section-heading h3 { margin: 0; font-size: 14px; }
+.section-heading { display: flex; margin-bottom: 12px; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.section-heading h3 { margin: 0; font-size: var(--font-body); }
 .section-heading button,
 .section-heading span { border: 0; color: var(--ink-faint); font: inherit; font-size: var(--font-caption); background: none; }
-.section-heading button { color: var(--blue); cursor: pointer; }
+.section-heading button { color: var(--accent-text); cursor: pointer; }
 .detail-list { display: grid; margin: 0; grid-template-columns: 1fr 1fr; gap: 0 20px; }
 .detail-list div { display: grid; min-width: 0; padding: 10px 0; grid-template-columns: 92px minmax(0, 1fr); border-bottom: 1px solid var(--separator); }
 .detail-list dt { color: var(--ink-faint); font-size: var(--font-caption); }
 .detail-list dd { min-width: 0; margin: 0; overflow: hidden; color: var(--ink-soft); font-size: var(--font-caption); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .capability-row { display: flex; margin-top: 14px; flex-wrap: wrap; gap: 7px; }
-.capability-row span { padding: 4px 8px; border-radius: 999px; color: var(--green); font-size: var(--font-micro); background: color-mix(in srgb, var(--green) 10%, transparent); }
-.capability-row span.unsupported { color: var(--coral); background: color-mix(in srgb, var(--coral) 9%, transparent); }
+.capability-row span { padding: 4px 8px; border-radius: var(--radius-pill); color: var(--success); font-size: var(--font-micro); background: color-mix(in srgb, var(--green) 10%, transparent); }
+.capability-row span.unsupported { color: var(--danger); background: color-mix(in srgb, var(--coral) 9%, transparent); }
 .health-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.warning-list { padding: 10px 12px 10px 28px; margin: 13px 0 0; border-radius: 12px; color: #a76300; font-size: var(--font-caption); line-height: 1.7; background: rgba(255, 159, 10, .1); }
+.warning-list { padding: 10px 12px 10px 28px; margin: 13px 0 0; border-radius: var(--radius-control); color: #a76300; font-size: var(--font-caption); line-height: 1.7; background: rgba(255, 159, 10, .1); }
 .connection-events { margin-top: 16px; }
-.connection-events h4 { margin: 0 0 8px; color: var(--ink-soft); font-size: 11px; }
+.connection-events h4 { margin: 0 0 8px; color: var(--ink-soft); font-size: var(--font-micro); }
 .connection-events > div { display: grid; padding: 7px 0; grid-template-columns: 108px 116px minmax(0, 1fr); gap: 9px; border-top: 1px solid var(--separator); font-size: var(--font-micro); }
 .connection-events time,
 .connection-events span { overflow: hidden; color: var(--ink-faint); text-overflow: ellipsis; white-space: nowrap; }
-.diagnostics-actions { display: flex; padding: 15px 24px; flex-wrap: wrap; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--separator); background: var(--surface-glass); }
-.diagnostics-actions button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 10px; color: var(--ink-soft); font: inherit; font-size: var(--font-caption); font-weight: 650; background: var(--fill); cursor: pointer; }
+.diagnostics-actions { display: flex; padding: 15px 24px; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--separator); background: var(--surface-glass); }
+.diagnostics-actions button { min-height: 34px; padding: 0 12px; border: 0; border-radius: var(--radius-control); color: var(--ink-soft); font: inherit; font-size: var(--font-caption); font-weight: 650; background: var(--fill); cursor: pointer; }
 .diagnostics-actions button:disabled { opacity: .42; cursor: not-allowed; }
-.diagnostics-actions .primary-action { color: white; background: var(--blue); }
+.diagnostics-actions .primary-action { color: white; background: var(--action-bg); }
 
 @media (max-width: 720px) {
   .diagnostics-backdrop { padding: 0; align-items: end; }

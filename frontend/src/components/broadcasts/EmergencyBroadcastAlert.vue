@@ -28,36 +28,6 @@ const expired = computed(() => {
   const parsed = Date.parse(deadline)
   return !Number.isNaN(parsed) && parsed <= Date.now()
 })
-const resolvedOptions = computed(() => {
-  if (props.confirmationOptions.length) return [...props.confirmationOptions]
-  const raw = props.broadcast?.confirmationOptions
-  if (!raw) return ['RECEIVED', 'EXECUTED', 'NEED_SUPPORT']
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (Array.isArray(parsed) && parsed.every((value) => typeof value === 'string')) return parsed
-  } catch {
-    return ['RECEIVED', 'EXECUTED', 'NEED_SUPPORT']
-  }
-  return ['RECEIVED', 'EXECUTED', 'NEED_SUPPORT']
-})
-const quickConfirmation = computed(() => resolvedOptions.value.includes('RECEIVED')
-  ? 'RECEIVED'
-  : resolvedOptions.value[0])
-const canQuickConfirm = computed(() => Boolean(
-  props.broadcast?.confirmationRequired
-  && quickConfirmation.value
-  && !expired.value,
-))
-
-function confirmationLabel(status?: string): string {
-  if (!status) return '确认收到'
-  return {
-    RECEIVED: '确认收到',
-    EXECUTED: '确认已执行',
-    NEED_SUPPORT: '报告需要支援',
-  }[status] ?? `确认：${status}`
-}
-
 function formatDeadline(value?: string): string {
   if (!value) return '未设置截止时间'
   const date = new Date(value)
@@ -71,10 +41,6 @@ function formatDeadline(value?: string): string {
   }).format(date)} 前处理`
 }
 
-function confirm(): void {
-  if (!props.broadcast || !quickConfirmation.value) return
-  emit('confirm', props.broadcast.id, quickConfirmation.value)
-}
 </script>
 
 <template>
@@ -115,16 +81,9 @@ function confirm(): void {
       <p v-if="expired" class="expired-note">确认时限已结束，仍可打开广播查看完整内容。</p>
 
       <footer class="alert-actions">
-        <button class="secondary-button" type="button" @click="emit('open', broadcast.id)">查看完整广播</button>
-        <button
-          v-if="canQuickConfirm"
-          class="primary-button confirm-button"
-          type="button"
-          :disabled="busy"
-          @click="confirm"
-        >
-          <UiIcon name="check" :size="16" />
-          {{ busy ? '正在确认…' : confirmationLabel(quickConfirmation) }}
+        <button class="primary-button confirm-button" type="button" :disabled="busy" @click="emit('open', broadcast.id)">
+          <UiIcon name="arrow-right" :size="16" />
+          {{ busy ? '正在打开…' : '打开并处理' }}
         </button>
       </footer>
     </section>
@@ -137,7 +96,7 @@ function confirm(): void {
   z-index: 160;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: color-mix(in srgb, var(--backdrop) 88%, transparent);
   backdrop-filter: blur(16px) saturate(120%);
@@ -149,7 +108,7 @@ function confirm(): void {
   width: min(100%, 560px);
   padding: 25px 26px 23px 31px;
   border: 1px solid color-mix(in srgb, var(--coral) 22%, var(--glass-border));
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   color: var(--ink);
   background: var(--surface-raise);
   box-shadow: 0 26px 80px color-mix(in srgb, var(--coral) 16%, var(--shadow-color)), inset 0 1px 0 var(--highlight-soft);
@@ -163,19 +122,19 @@ function confirm(): void {
   background: var(--coral);
 }
 
-.alert-header { display: flex; align-items: flex-start; gap: 12px; }
-.alert-symbol { display: grid; width: 46px; height: 46px; flex: 0 0 auto; place-items: center; border-radius: 15px; color: var(--coral); background: color-mix(in srgb, var(--coral) 11%, var(--fill)); }
+.alert-header { display: flex; align-items: flex-start; gap: var(--space-3); }
+.alert-symbol { display: grid; width: 46px; height: 46px; flex: 0 0 auto; place-items: center; border-radius: 15px; color: var(--danger); background: color-mix(in srgb, var(--coral) 11%, var(--fill)); }
 .alert-heading { min-width: 0; flex: 1; }
-.alert-kicker { margin: 1px 0 4px; color: var(--coral); font-size: var(--font-caption); font-weight: 750; letter-spacing: 0.08em; }
-.alert-title { margin: 0; font-size: 21px; line-height: 1.25; letter-spacing: -0.035em; }
-.dismiss-button { display: inline-flex; min-width: 40px; height: 34px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 10px; color: var(--ink-soft); background: var(--fill); cursor: pointer; }
+.alert-kicker { margin: 1px 0 4px; color: var(--danger); font-size: var(--font-caption); font-weight: 750; letter-spacing: 0.08em; }
+.alert-title { margin: 0; font-size: var(--font-title); line-height: 1.25; letter-spacing: -0.035em; }
+.dismiss-button { display: inline-flex; min-width: 40px; height: 34px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-control); color: var(--ink-soft); background: var(--fill); cursor: pointer; }
 .dismiss-button:hover { background: var(--button-hover); }
 
 .alert-content {
   display: -webkit-box;
   margin: 20px 2px 0;
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--font-body);
   line-height: 1.75;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -184,15 +143,15 @@ function confirm(): void {
 }
 
 .alert-meta { display: flex; margin-top: 17px; flex-wrap: wrap; gap: 7px; }
-.alert-meta span { padding: 5px 8px; border-radius: 9px; color: var(--ink-soft); font-size: var(--font-caption); font-weight: 600; background: var(--fill); }
-.expired-note { margin: 13px 0 0; color: #d97706; font-size: 11px; line-height: 1.5; }
+.alert-meta span { padding: 5px 8px; border-radius: var(--radius-sm); color: var(--ink-soft); font-size: var(--font-caption); font-weight: 600; background: var(--fill); }
+.expired-note { margin: 13px 0 0; color: var(--warning); font-size: var(--font-micro); line-height: 1.5; }
 .alert-actions { display: flex; margin-top: 22px; align-items: center; justify-content: flex-end; gap: 9px; }
-.confirm-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: var(--coral); box-shadow: 0 5px 16px color-mix(in srgb, var(--coral) 26%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.26); }
-.confirm-button:hover { background: color-mix(in srgb, var(--coral) 88%, #000); }
+.confirm-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: var(--danger-bg); box-shadow: 0 5px 16px color-mix(in srgb, var(--coral) 26%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.26); }
+.confirm-button:hover { background: color-mix(in srgb, var(--danger-bg) 88%, #000); }
 
 @media (max-width: 560px) {
   .alert-backdrop { padding: 14px; place-items: end center; }
-  .emergency-alert { width: 100%; padding: 23px 20px calc(20px + env(safe-area-inset-bottom)) 25px; border-radius: 22px; }
+  .emergency-alert { width: 100%; padding: 23px 20px calc(20px + env(safe-area-inset-bottom)) 25px; border-radius: var(--radius-sheet); }
   .alert-actions { display: grid; grid-template-columns: 1fr; }
   .alert-actions .secondary-button,
   .alert-actions .primary-button { width: 100%; }

@@ -4,12 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lanchat.cluster.ClusterPresenceService;
 import com.lanchat.cluster.RealtimeRouter;
 import com.lanchat.common.DeviceSessionsRevokedEvent;
-import com.lanchat.dto.BroadcastDetailDTO;
 import com.lanchat.dto.FileTransferOfferDTO;
 import com.lanchat.dto.FileTransferVO;
 import com.lanchat.dto.WebSocketEnvelope;
 import com.lanchat.entity.Broadcast;
-import com.lanchat.entity.BroadcastReceiver;
 import com.lanchat.entity.DeviceLogin;
 import com.lanchat.entity.User;
 import com.lanchat.security.JwtUtil;
@@ -24,6 +22,9 @@ import com.lanchat.service.UserService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -49,6 +50,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("chat-websocket-online-sessions")
 class ChatWebSocketClusterRoutingTest {
 
     private static final long LOCAL_USER_ID = 7_007L;
@@ -64,6 +67,7 @@ class ChatWebSocketClusterRoutingTest {
     private UserService userService;
     private FileTransferService fileTransferService;
     private BroadcastService broadcastService;
+    private ChatMessageService chatMessageService;
     private RealtimeRouter realtimeRouter;
     private ClusterPresenceService presenceService;
     private ChatWebSocketHandler handler;
@@ -77,6 +81,7 @@ class ChatWebSocketClusterRoutingTest {
         userService = mock(UserService.class);
         fileTransferService = mock(FileTransferService.class);
         broadcastService = mock(BroadcastService.class);
+        chatMessageService = mock(ChatMessageService.class);
         realtimeRouter = mock(RealtimeRouter.class);
         presenceService = mock(ClusterPresenceService.class);
         when(broadcastService.listPending(any())).thenReturn(List.of());
@@ -86,7 +91,7 @@ class ChatWebSocketClusterRoutingTest {
         handler = new ChatWebSocketHandler(
                 objectMapper,
                 jwtUtil,
-                mock(ChatMessageService.class),
+                chatMessageService,
                 conversationService,
                 mock(FileService.class),
                 userService,
@@ -154,31 +159,34 @@ class ChatWebSocketClusterRoutingTest {
     }
 
     @Test
-    void broadcastPublishingRoutesToGloballyOnlineRemoteReceiver() {
-        Broadcast broadcast = new Broadcast();
-        broadcast.setId(31L);
-        BroadcastReceiver receiver = new BroadcastReceiver();
-        receiver.setBroadcastId(31L);
-        receiver.setUserId(REMOTE_USER_ID);
-        when(broadcastService.getReceiverIds(31L)).thenReturn(List.of(REMOTE_USER_ID));
-        doReturn(Set.of(REMOTE_USER_ID))
-                .when(presenceService).getOnlineUserIds(any());
-        when(broadcastService.listPending(REMOTE_USER_ID)).thenReturn(List.of(broadcast));
-        when(broadcastService.getDetail(31L, REMOTE_USER_ID))
-                .thenReturn(new BroadcastDetailDTO(broadcast, receiver, List.of(), false));
+    void broadcastCompatibilityEntrypointsNeverEmitAnUncommittedCardFrame() {
+        clearInvocations(realtimeRouter, chatMessageService);
 
         handler.publishBroadcast(31L);
+        handler.notifyBroadcastReminder(31L, REMOTE_USER_ID, 7L);
 
-        ArgumentCaptor<WebSocketEnvelope> event = ArgumentCaptor.forClass(WebSocketEnvelope.class);
-        ArgumentCaptor<Runnable> receipt = ArgumentCaptor.forClass(Runnable.class);
-        verify(realtimeRouter).sendToUserWithReceipt(
-                eq(REMOTE_USER_ID), event.capture(), receipt.capture());
-        assertEquals("BROADCAST", event.getValue().getEvent());
-        verify(broadcastService, never()).markDelivered(31L, REMOTE_USER_ID);
+        verify(chatMessageService, never()).saveSystemDirectMessage(any(), any(), any(), any(), any());
+        verify(realtimeRouter, never()).sendToUser(any(), any());
+        verify(realtimeRouter, never()).sendToUserWithReceipt(any(), any(), any());
+    }
 
-        receipt.getValue().run();
+    @Test
+    void authenticationRefreshesPendingBroadcastByIdentifierOnly() throws Exception {
+        when(broadcastService.listPending(LOCAL_USER_ID)).thenReturn(List.of(broadcast(31L)));
 
-        verify(broadcastService).markDelivered(31L, REMOTE_USER_ID);
+        WebSocketSession session = authenticateLocalUser();
+
+        ArgumentCaptor<TextMessage> frames = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session, org.mockito.Mockito.atLeast(2)).sendMessage(frames.capture());
+        String refresh = frames.getAllValues().stream()
+                .map(TextMessage::getPayload)
+                .filter(payload -> payload.contains("\"event\":\"BROADCAST\""))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(refresh.contains("\"broadcastId\":31"));
+        assertTrue(!refresh.contains("\"content\""));
+        assertTrue(!refresh.contains("\"receiver\""));
+        verify(chatMessageService, never()).saveSystemDirectMessage(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -303,6 +311,18 @@ class ChatWebSocketClusterRoutingTest {
         user.setNickname("user-" + userId);
         user.setStatus(1);
         return user;
+    }
+
+    private Broadcast broadcast(Long id) {
+        Broadcast broadcast = new Broadcast();
+        broadcast.setId(id);
+        broadcast.setSenderId(7L);
+        broadcast.setTitle("消防演练");
+        broadcast.setContent("请在集合点签到");
+        broadcast.setStatus("ACTIVE");
+        broadcast.setPriority("IMPORTANT");
+        broadcast.setConfirmationRequired(true);
+        return broadcast;
     }
 
     private FileTransferVO transfer() {

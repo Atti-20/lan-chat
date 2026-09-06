@@ -70,7 +70,7 @@ function activateItem(item: RailItem): void {
       >
         <UiIcon :name="item.icon" :size="23" />
         <span class="rail-label">{{ item.label }}</span>
-        <b v-if="item.id === 'messages'&& messageCount" class="rail-badge">{{messageCount > 99 ? '99+' : messageCount}}</b>
+        <b v-if="item.id === 'messages' && messageCount" class="rail-badge">{{ messageCount > 99 ? '99+' : messageCount }}</b>
         <b v-if="item.id === 'contacts' && requestCount" class="rail-badge">{{ Math.min(requestCount, 9) }}</b>
         <b v-else-if="item.id === 'broadcasts' && broadcastCount" class="rail-badge">{{ Math.min(broadcastCount, 9) }}</b>
       </button>
@@ -105,13 +105,13 @@ function activateItem(item: RailItem): void {
   flex: 0 0 auto;
   place-items: center;
   border: 0;
-  border-radius: 14px;
-  color: var(--blue);
+  border-radius: var(--radius-md);
+  color: var(--accent-text);
   background: transparent;
   box-shadow: none;
 }
 .rail-brand .brand-logo { width: 32px; height: 32px; }
-.rail-items { position: relative; display: grid; width: 100%; margin: auto 0; gap: 4px; }
+.rail-items { position: relative; display: grid; width: 100%; margin: auto 0; gap: var(--space-1); }
 .rail-item {
   position: relative;
   z-index: 1;
@@ -123,7 +123,7 @@ function activateItem(item: RailItem): void {
   justify-items: center;
   row-gap: 2px;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   color: var(--ink-faint);
   font-size: var(--font-micro);
   font-weight: 600;
@@ -133,7 +133,7 @@ function activateItem(item: RailItem): void {
 }
 .rail-label { display: block; min-width: 0; line-height: 14px; }
 .rail-item:hover { color: var(--ink); }
-.rail-item--active { color: var(--blue); }
+.rail-item--active { color: var(--accent-text); }
 .rail-item .ui-icon { width: 23px; height: 23px; }
 .liquid-lens {
   position: absolute;
@@ -156,14 +156,20 @@ function activateItem(item: RailItem): void {
   top: 5px;
   right: 6px;
   display: grid;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   place-items: center;
+  box-sizing: border-box;
   border: 2px solid var(--surface);
-  border-radius: 999px;
+  border-radius: 50%;
   color: white;
-  font-size: var(--font-caption);
+  font-size: 8px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.06em;
+  line-height: 1;
+  white-space: nowrap;
   background: var(--coral);
 }
 .rail-profile { width: 100%; min-height: 58px; flex: 0 0 auto; }
@@ -180,7 +186,7 @@ function activateItem(item: RailItem): void {
     min-height: 64px;
     padding: 6px;
     border: 1px solid var(--glass-border);
-    border-radius: 22px;
+    border-radius: var(--radius-sheet);
     background: var(--rail-bg);
     box-shadow: 0 10px 30px var(--shadow-color), inset 0 1px 0 var(--highlight);
     backdrop-filter: blur(20px) saturate(150%);

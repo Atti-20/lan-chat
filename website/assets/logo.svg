@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 560" fill="currentColor">
+  <!-- Outer M Shape -->
+  <path d="M 0,0 L 250,270 L 500,0 L 500,390 L 430,440 L 430,135 L 250,330 L 70,135 L 70,440 L 0,390 Z"/>
+  <!-- Interlocking Bottom X Shape -->
+  <path d="M 250,295 L 480,480 L 480,560 L 250,375 L 20,560 L 20,480 Z"/>
+</svg>

@@ -1,6 +1,4 @@
 import { computed, onBeforeUnmount, readonly, ref, shallowRef } from 'vue'
-import { nativeBridge } from '../platform/nativeBridge'
-import { selectedNode } from '../platform/nodeContext'
 import { api } from '../services/api'
 import { subscribeRealtimeEvents } from '../services/realtimeEvents'
 import type {
@@ -286,20 +284,9 @@ export function useBroadcasts(options: UseBroadcastsOptions = {}) {
       if (detail.broadcast.priority === 'EMERGENCY' && detail.receiver) {
         emergencyAlert.value = detail
       }
-      if (nativeBridge.runtime() !== 'web'
-        && (document.visibilityState !== 'visible' || !document.hasFocus())) {
-        void nativeBridge.notify({
-          title: detail.broadcast.priority === 'EMERGENCY'
-            ? `紧急广播：${detail.broadcast.title}`
-            : detail.broadcast.title,
-          body: detail.broadcast.content.slice(0, 120),
-          target: {
-            kind: 'broadcast',
-            value: String(broadcastId),
-            nodeOrigin: selectedNode()?.origin,
-          },
-        }).catch(() => undefined)
-      }
+      // The technical notification account's CHAT_DELIVER is the canonical
+      // local-notification source.  Emitting another alert for this state
+      // refresh would make a single broadcast appear twice when online.
     } catch {
       // 实时事件与权限变更可能并发；REST 可见列表始终是最终依据。
     }

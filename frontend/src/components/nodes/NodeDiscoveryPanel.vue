@@ -62,13 +62,13 @@ function selectNode(node: DesktopNode): void {
 </template>
 
 <style scoped>
-.node-discovery { width: min(560px, 100%); padding: 16px; border: 1px solid var(--glass-border); border-radius: 18px; background: var(--surface-glass); box-shadow: 0 10px 28px var(--shadow-color); backdrop-filter: blur(16px) saturate(145%); }
+.node-discovery { width: min(560px, 100%); padding: var(--space-4); border: 1px solid var(--glass-border); border-radius: 18px; background: var(--surface-glass); box-shadow: 0 10px 28px var(--shadow-color); backdrop-filter: blur(16px) saturate(145%); }
 .node-discovery header { display: flex; align-items: center; gap: 10px; }
-.discovery-icon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 11px; color: var(--blue); background: var(--active); }
+.discovery-icon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); color: var(--accent-text); background: var(--active); }
 .node-discovery header > div:nth-child(2) { min-width: 0; flex: 1; }
-.node-discovery h2 { margin: 0; font-size: 13px; }
+.node-discovery h2 { margin: 0; font-size: var(--font-body-sm); }
 .node-discovery p { margin: 3px 0 0; overflow: hidden; color: var(--ink-faint); font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
-.node-discovery header > button { padding: 5px 8px; border: 0; border-radius: 8px; color: var(--blue); font: inherit; font-size: var(--font-micro); background: var(--fill); cursor: pointer; }
+.node-discovery header > button { padding: 5px 8px; border: 0; border-radius: var(--radius-sm); color: var(--accent-text); font: inherit; font-size: var(--font-micro); background: var(--fill); cursor: pointer; }
 .node-discovery header > button:disabled { opacity: .5; }
 
 @media (max-width: 860px) {

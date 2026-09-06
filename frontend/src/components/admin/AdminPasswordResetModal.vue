@@ -94,7 +94,7 @@ function submit(): void {
   z-index: 112;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(14px) saturate(125%);
@@ -106,7 +106,7 @@ function submit(): void {
   width: min(100%, 420px);
   padding: 26px;
   border: 1px solid var(--glass-border);
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   background: var(--surface-raise);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
 }
@@ -127,18 +127,18 @@ function submit(): void {
 }
 .close-button:hover { background: var(--button-hover); }
 .close-button:disabled { opacity: .45; cursor: default; }
-.reset-icon { display: grid; width: 46px; height: 46px; margin-bottom: 14px; place-items: center; border-radius: 14px; color: var(--blue); background: var(--active); }
-.reset-kicker { margin: 0 0 5px; color: var(--blue); font-size: var(--font-micro); font-weight: 800; letter-spacing: .14em; }
-.reset-sheet h2 { max-width: calc(100% - 36px); margin: 0; font-size: 20px; letter-spacing: -.025em; }
-.reset-desc { margin: 7px 0 18px; color: var(--ink-soft); font-size: 12px; line-height: 1.55; }
+.reset-icon { display: grid; width: 46px; height: 46px; margin-bottom: 14px; place-items: center; border-radius: var(--radius-md); color: var(--accent-text); background: var(--active); }
+.reset-kicker { margin: 0 0 5px; color: var(--accent-text); font-size: var(--font-micro); font-weight: 800; letter-spacing: .14em; }
+.reset-sheet h2 { max-width: calc(100% - 36px); margin: 0; font-size: var(--font-title); letter-spacing: -.025em; }
+.reset-desc { margin: 7px 0 18px; color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.55; }
 .reset-form { display: grid; gap: 14px; }
 .reset-form label { display: grid; gap: 6px; }
-.reset-form label span { color: var(--ink-soft); font-size: 12px; font-weight: 600; }
-.form-error { margin: -2px 0 0; color: var(--coral); font-size: 12px; line-height: 1.5; }
+.reset-form label span { color: var(--ink-soft); font-size: var(--font-caption); font-weight: 600; }
+.form-error { margin: -2px 0 0; color: var(--danger); font-size: var(--font-caption); line-height: 1.5; }
 .reset-form .primary-button { width: 100%; margin-top: 5px; }
 
 @media (max-width: 520px) {
   .reset-backdrop { padding: 14px; }
-  .reset-sheet { padding: 24px 20px 20px; border-radius: 20px; }
+  .reset-sheet { padding: 24px 20px 20px; border-radius: var(--radius-lg); }
 }
 </style>

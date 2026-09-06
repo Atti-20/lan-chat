@@ -123,21 +123,21 @@ function requestBroadcastPermission(enabled: boolean): void {
 .account-identity { display: grid; min-width: 0; gap: 3px; }
 .account-identity strong,
 .account-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-identity strong { color: var(--ink); font-size: 14px; }
+.account-identity strong { color: var(--ink); font-size: var(--font-body); }
 .account-identity small { color: var(--ink-faint); font-size: var(--font-caption); }
 .account-status {
   padding: 4px 7px;
-  border-radius: 999px;
-  color: var(--green);
+  border-radius: var(--radius-pill);
+  color: var(--success);
   font-size: var(--font-caption);
   font-weight: 700;
   background: color-mix(in srgb, var(--green) 11%, transparent);
 }
-.account-status--banned { color: var(--coral); background: color-mix(in srgb, var(--coral) 10%, transparent); }
+.account-status--banned { color: var(--danger); background: color-mix(in srgb, var(--coral) 10%, transparent); }
 .account-status--archived { color: var(--ink-faint); background: var(--fill); }
 .account-tools {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .broadcast-permission {
   display: flex;
@@ -145,18 +145,18 @@ function requestBroadcastPermission(enabled: boolean): void {
   padding: 8px 10px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  border-radius: 10px;
+  gap: var(--space-3);
+  border-radius: var(--radius-control);
   background: var(--fill);
 }
 .broadcast-permission span { display: grid; min-width: 0; gap: 2px; }
-.broadcast-permission strong { color: var(--ink); font-size: 11px; }
+.broadcast-permission strong { color: var(--ink); font-size: var(--font-micro); }
 .broadcast-permission small { color: var(--ink-faint); font-size: var(--font-micro); line-height: 1.4; }
 .account-mute {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .account-tool-label { color: var(--ink-soft); font-size: var(--font-caption); font-weight: 700; }
 .account-time-fields {
@@ -171,10 +171,10 @@ function requestBroadcastPermission(enabled: boolean): void {
   height: 36px;
   padding: 0 7px;
   border: 1px solid var(--separator);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-caption);
   background: var(--surface);
 }
 .account-time-fields > span { color: var(--ink-faint); font-size: var(--font-caption); }
@@ -182,8 +182,8 @@ function requestBroadcastPermission(enabled: boolean): void {
 .account-actions button {
   min-height: 36px;
   border: 0;
-  border-radius: 9px;
-  color: var(--blue);
+  border-radius: var(--radius-sm);
+  color: var(--accent-text);
   font: inherit;
   font-size: var(--font-caption);
   font-weight: 700;
@@ -196,7 +196,7 @@ function requestBroadcastPermission(enabled: boolean): void {
 .administrator-note {
   margin: 0;
   padding: 9px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--ink-soft);
   font-size: var(--font-caption);
   line-height: 1.5;
@@ -204,19 +204,19 @@ function requestBroadcastPermission(enabled: boolean): void {
 }
 .account-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .account-actions--single { grid-template-columns: 1fr; }
-.account-actions .danger-button { color: var(--coral); background: color-mix(in srgb, var(--coral) 9%, transparent); }
+.account-actions .danger-button { color: var(--danger); background: color-mix(in srgb, var(--danger-bg) 9%, transparent); }
 .account-card button:focus-visible,
 .account-card input:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 48%, transparent); outline-offset: 2px; }
 
 @media (max-width: 360px) {
   .account-card { padding: 10px; }
   .account-card-header { gap: 7px; }
-  .account-identity strong { font-size: 13px; }
+  .account-identity strong { font-size: var(--font-body-sm); }
   .account-identity small { font-size: var(--font-micro); }
   .account-status { padding-inline: 6px; font-size: var(--font-micro); }
   .account-mute { gap: 6px; }
-  .account-time-fields { gap: 4px; }
-  .account-time-fields input { padding-inline: 5px; font-size: 11px; }
+  .account-time-fields { gap: var(--space-1); }
+  .account-time-fields input { padding-inline: 5px; font-size: var(--font-micro); }
   .account-actions { gap: 5px; }
   .account-actions button { font-size: var(--font-micro); }
 }

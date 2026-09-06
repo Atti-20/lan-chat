@@ -43,7 +43,7 @@ function toggle(): void {
   padding: 2px;
   align-items: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--separator-strong);
   cursor: pointer;
   transition: background-color 180ms var(--ease-liquid), transform 140ms var(--ease-liquid);

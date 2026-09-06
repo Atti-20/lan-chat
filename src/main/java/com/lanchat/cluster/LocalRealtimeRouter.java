@@ -19,15 +19,18 @@ public final class LocalRealtimeRouter implements RealtimeRouter {
     }
 
     @Override
-    public void sendToUserWithReceipt(Long userId,
-                                      WebSocketEnvelope event,
-                                      Runnable onDelivered) {
+    public boolean sendToUserWithReceipt(Long userId,
+                                         WebSocketEnvelope event,
+                                         Runnable onDelivered) {
         LocalRealtimeDelivery target = delivery;
         if (target != null
                 && target.sendToUserWithReceipt(userId, event) > 0
                 && onDelivered != null) {
             onDelivered.run();
         }
+        // No local session is an offline-safe result: the message/card remains
+        // in the durable source and a future authentication sync will recover it.
+        return true;
     }
 
     @Override

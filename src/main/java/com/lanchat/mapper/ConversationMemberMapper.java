@@ -14,13 +14,16 @@ public interface ConversationMemberMapper extends BaseMapper<ConversationMember>
 
     @Insert("""
             INSERT INTO conversation_member
-                (conversation_id, user_id, role, last_read_sequence, unread_count,
+                (conversation_id, user_id, role, last_read_sequence, receipt_start_sequence, unread_count,
                  is_muted, is_pinned, join_time)
             VALUES
                 (#{conversationId}, #{userId}, #{role},
                  COALESCE((SELECT last_sequence
                            FROM conversation
                            WHERE id = #{conversationId}), 0),
+                 COALESCE((SELECT last_sequence
+                           FROM conversation
+                           WHERE id = #{conversationId}), 0) + 1,
                  0, 0, 0, NOW())
             ON DUPLICATE KEY UPDATE
                 role = VALUES(role),
@@ -28,6 +31,11 @@ public interface ConversationMemberMapper extends BaseMapper<ConversationMember>
                     left_time IS NULL,
                     last_read_sequence,
                     VALUES(last_read_sequence)
+                ),
+                receipt_start_sequence = IF(
+                    left_time IS NULL,
+                    receipt_start_sequence,
+                    VALUES(receipt_start_sequence)
                 ),
                 unread_count = IF(left_time IS NULL, unread_count, 0),
                 join_time = IF(left_time IS NULL, join_time, NOW()),

@@ -1,13 +1,17 @@
+/* MeshX design tokens and shared controls. See frontend/DESIGN.md.
+ * Components own their layout; theme, type and control contracts live here. */
 :root {
-  font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
-  color: #1d1d1f;
-  background: #edf0f4;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: var(--canvas);
   color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --ink: #1d1d1f;
-  --ink-soft: #6e6e73;
-  --ink-faint: #8e8e93;
+  --ink-soft: #63636a;
+  --ink-faint: #6a6a72;
   --canvas: #edf0f4;
   --panel: #ffffff;
   --panel-muted: #f7f7f9;
@@ -19,6 +23,19 @@
   --violet: #5856d6;
   --coral: #ff3b30;
   --green: #34c759;
+  --accent-text: #0064d2;
+  --action-bg: #006fe8;
+  --action-hover: #005ec7;
+  --on-accent: #ffffff;
+  --success: #1d7534;
+  --success-bg: #21833b;
+  --warning: #9d5900;
+  --danger: #c52b24;
+  --danger-bg: #c52b24;
+  --focus-ring: rgba(0, 111, 232, 0.55);
+  --preview-canvas: #e8eaee;
+  --media-canvas: #000000;
+  --document-paper: #ffffff;
   --glass: rgba(255, 255, 255, 0.68);
   --glass-strong: rgba(255, 255, 255, 0.82);
   --glass-border: rgba(255, 255, 255, 0.78);
@@ -43,21 +60,47 @@
   --radius-lg: 20px;
   --radius-md: 14px;
   --radius-control: 12px;
+  --radius-sm: 8px;
+  --radius-bubble: 18px;
+  --radius-sheet: 24px;
+  --radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --control-height: 44px;
+  --control-compact: 36px;
+  --control-icon: 40px;
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 24px;
   --surface-border: 1px solid var(--glass-border);
   --surface-shadow: 0 18px 52px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   --font-micro: 0.6875rem;
   --font-caption: 0.75rem;
+  --font-body-sm: 0.8125rem;
+  --font-body: 0.875rem;
+  --font-body-lg: 0.9375rem;
+  --font-subtitle: 1rem;
+  --font-title-sm: 1.125rem;
+  --font-title: 1.25rem;
+  --font-page-title: 1.5rem;
+  --line-body: 1.5;
+  --line-reading: 1.65;
+  --duration-fast: 160ms;
   --press-scale: 0.985;
   --ease-liquid: cubic-bezier(0.22, 0.78, 0.24, 1);
 }
 
 [data-theme="dark"] {
-  color: #f5f5f7;
-  background: #0f0f10;
   color-scheme: dark;
   --ink: #f5f5f7;
   --ink-soft: #a1a1aa;
-  --ink-faint: #71717a;
+  --ink-faint: #9a9aa3;
   --canvas: #0f0f10;
   --panel: #1c1c1e;
   --panel-muted: #2c2c2e;
@@ -69,6 +112,14 @@
   --violet: #5e5ce6;
   --coral: #ff453a;
   --green: #30d158;
+  --accent-text: #70b5ff;
+  --action-bg: #006fe8;
+  --action-hover: #005ec7;
+  --success: #62dc7c;
+  --warning: #ffb54a;
+  --danger: #ff756b;
+  --focus-ring: rgba(112, 181, 255, 0.8);
+  --preview-canvas: #252528;
   --glass: rgba(28, 28, 30, 0.68);
   --glass-strong: rgba(28, 28, 30, 0.82);
   --glass-border: rgba(255, 255, 255, 0.08);
@@ -91,7 +142,7 @@
   --body-gradient: radial-gradient(circle at 50% -10%, rgba(30, 30, 32, 0.96), transparent 44rem), linear-gradient(180deg, #0a0a0b 0%, #1a1a1c 100%);
 }
 
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
 html,
 body,
@@ -107,12 +158,36 @@ body {
   overflow-x: hidden;
   background: var(--body-gradient);
   font-optical-sizing: auto;
-  line-height: 1.45;
+  line-height: var(--line-body);
+}
+
+/* Native desktop windows are their own frame.  Keep only the host operating
+ * system title bar and let the chat workspace meet every client-area edge.
+ * This must stay global: a scoped rule in ChatView was transformed by Vue into
+ * a selector for html only, leaving the browser-style 20px card shell active.
+ */
+html[data-runtime='tauri'] .chat-page {
+  height: 100vh;
+  max-height: 100vh;
+  padding: 0;
+}
+
+html[data-runtime='tauri'] .chat-shell {
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 button,
 input,
-textarea { font: inherit; }
+textarea,
+select { font: inherit; }
+
+select { color: var(--ink); }
+pre, code, kbd, samp { font-family: var(--font-mono); }
 
 /* iOS WKWebView 在聚焦字号小于 16px 的输入框时会强制放大整页且不还原。
  * 触摸屏上把可编辑控件的最小字号抬到 16px；组件内的紧凑字号定义
@@ -128,13 +203,18 @@ button { color: inherit; }
 button,
 a,
 input,
-textarea { -webkit-tap-highlight-color: transparent; }
+textarea,
+select,
+summary { -webkit-tap-highlight-color: transparent; }
 
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
-textarea:focus-visible {
-  outline: 3px solid rgba(0, 122, 255, 0.26);
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -187,26 +267,27 @@ body .cropper-backdrop[class] {
 .icon-button {
   border: 0;
   cursor: pointer;
-  transition: transform 160ms var(--ease-liquid), background-color 160ms ease, box-shadow 160ms ease;
+  font-size: var(--font-body);
+  transition: transform var(--duration-fast) var(--ease-liquid), background-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
 }
 
 .primary-button {
-  min-height: 46px;
-  padding: 0 20px;
-  border-radius: 10px;
-  color: #fff;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-control);
+  color: var(--on-accent);
   font-weight: 650;
-  background: var(--blue);
+  background: var(--action-bg);
   box-shadow: 0 5px 14px rgba(0, 122, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
-.primary-button:hover { background: color-mix(in srgb, var(--blue) 88%, #000); }
+.primary-button:hover:not(:disabled) { background: var(--action-hover); }
 
 .secondary-button {
-  min-height: 42px;
-  padding: 0 16px;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-4);
   border: 1px solid var(--separator);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--ink);
   font-weight: 600;
   background: var(--surface-glass);
@@ -217,12 +298,12 @@ body .cropper-backdrop[class] {
 
 .icon-button {
   display: inline-grid;
-  width: 40px;
-  height: 40px;
+  width: var(--control-icon);
+  height: var(--control-icon);
   padding: 0;
   place-items: center;
   border: 1px solid var(--separator);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--surface-glass);
 }
 
@@ -240,10 +321,12 @@ body .cropper-backdrop[class] {
 
 .field {
   width: 100%;
-  min-height: 46px;
-  padding: 0 14px;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
+  font-size: var(--font-body);
   color: var(--ink);
   background: var(--fill);
   outline: none;
@@ -258,14 +341,16 @@ body .cropper-backdrop[class] {
 
 input::placeholder,
 textarea::placeholder {
-  color: color-mix(in srgb, var(--ink-faint) 86%, transparent);
+  color: var(--ink-faint);
   font-size: .92em;
   font-weight: 400;
   letter-spacing: 0;
   opacity: 1;
 }
 
-.field::placeholder { color: color-mix(in srgb, var(--ink-faint) 86%, transparent); }
+.field::placeholder { color: var(--ink-faint); }
+.field:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.secondary-button:hover:not(:disabled), .icon-button:hover:not(:disabled) { background: var(--button-hover); }
 
 /* Shared visual language: structural navigation is a heavier material, while
  * content surfaces are lighter and actions answer immediately on press. */
@@ -316,8 +401,9 @@ body .apple-modal-surface[class] {
 
 body .apple-modal-close[class] {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: var(--control-icon);
+  height: var(--control-icon);
+  flex: 0 0 auto;
   padding: 0;
   place-items: center;
   border: 0;
@@ -328,7 +414,7 @@ body .apple-modal-close[class] {
   transition: transform 140ms var(--ease-liquid), background-color 160ms ease;
 }
 
-body .apple-modal-close[class]:hover { background: var(--button-hover); }
+body .apple-modal-close[class]:hover:not(:disabled) { background: var(--button-hover); }
 body .apple-modal-close[class]:active:not(:disabled) { transform: scale(.92); }
 body .apple-modal-close[class]:disabled { cursor: default; opacity: .45; }
 
@@ -346,7 +432,7 @@ body .apple-modal-close[class]:disabled { cursor: default; opacity: .45; }
     border-right: 0 !important;
     border-bottom: 0 !important;
     border-left: 0 !important;
-    border-radius: 24px 24px 0 0 !important;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0 !important;
   }
 }
 
@@ -376,6 +462,14 @@ body .apple-modal-close[class]:disabled { cursor: default; opacity: .45; }
 /* Material is decorative, never required for legibility. Keep the same surface
  * hierarchy for people who reduce transparency or increase contrast. */
 @media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass: var(--panel);
+    --glass-strong: var(--panel);
+    --surface-glass: var(--panel);
+    --surface-raise: var(--panel);
+    --surface-tint: var(--panel-muted);
+    --rail-bg: var(--panel-muted);
+  }
   .glass-surface,
   .profile-sheet.detail-panel,
   .context-panel.detail-panel {
@@ -386,12 +480,18 @@ body .apple-modal-close[class]:disabled { cursor: default; opacity: .45; }
 
   .modal-backdrop.detail-backdrop,
   .context-backdrop.detail-backdrop,
-  .apple-modal-backdrop { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  body .modal-backdrop[class],
+  body .context-backdrop[class],
+  body .reset-backdrop[class],
+  body .diagnostics-backdrop[class],
+  body .image-preview-backdrop[class],
+  body .cropper-backdrop[class],
+  body .apple-modal-backdrop[class] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 
   .apple-structural-surface,
   .apple-content-surface,
   .apple-float-surface,
-  .apple-modal-surface { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  body .apple-modal-surface[class] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 }
 
 @media (prefers-contrast: more) {
@@ -403,7 +503,14 @@ body .apple-modal-close[class]:disabled { cursor: default; opacity: .45; }
   button:focus-visible,
   a:focus-visible,
   input:focus-visible,
-  textarea:focus-visible { outline-color: var(--blue); }
+  textarea:focus-visible,
+  select:focus-visible,
+  summary:focus-visible { outline-color: var(--accent-text); }
+}
+
+@media (pointer: coarse) {
+  .primary-button, .secondary-button, .icon-button,
+  body .apple-modal-close[class] { min-width: 44px; min-height: 44px; }
 }
 
 @supports not (backdrop-filter: blur(1px)) {

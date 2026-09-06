@@ -34,6 +34,8 @@ export type IconName =
   | 'trash'
   | 'check'
   | 'monitor'
+  | 'smartphone'
+  | 'globe'
   | 'lock'
   | 'sun'
   | 'moon'
@@ -79,6 +81,7 @@ const iconClasses = computed(() => [
     :role="label ? 'img' : undefined"
     :aria-label="label || undefined"
     :aria-hidden="label ? undefined : true"
+    focusable="false"
   >
     <!-- Product mark: the only non-24px glyph, kept as a line icon to match the set. -->
     <template v-if="name === 'brand'">
@@ -226,6 +229,16 @@ const iconClasses = computed(() => [
       <path d="M8 21h8M12 17v4" />
     </template>
 
+    <template v-else-if="name === 'smartphone'">
+      <rect x="6" y="2" width="12" height="20" rx="2" />
+      <path d="M11 18h2" />
+    </template>
+
+    <template v-else-if="name === 'globe'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18Z" />
+    </template>
+
     <template v-else-if="name === 'lock'">
       <rect width="18" height="11" x="3" y="11" rx="2" />
       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -247,8 +260,8 @@ const iconClasses = computed(() => [
 .ui-icon {
   display: block;
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
   overflow: visible;
 }
 </style>

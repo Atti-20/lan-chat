@@ -5,33 +5,50 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lanchat.common.FileReferenceUtil;
 import com.lanchat.dto.ReliableMessageResult;
+import com.lanchat.dto.MentionReadReceiptDTO;
+import com.lanchat.dto.MentionReadRecipientDTO;
 import com.lanchat.entity.ChatMessage;
+import com.lanchat.entity.ConversationMember;
 import com.lanchat.entity.FileMetadata;
 import com.lanchat.entity.MessageRecall;
+import com.lanchat.entity.User;
 import com.lanchat.mapper.ChatMessageMapper;
+import com.lanchat.mapper.ConversationMemberMapper;
 import com.lanchat.mapper.FileAccessGrantMapper;
 import com.lanchat.mapper.FileMetadataMapper;
 import com.lanchat.mapper.MessageRecallMapper;
+import com.lanchat.mapper.UserMapper;
 import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.ConversationService;
 import com.lanchat.service.FileService;
+import com.lanchat.service.GroupService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage> implements ChatMessageService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatMessageServiceImpl.class);
+
+    private static final Pattern BROADCAST_CARD_ID = Pattern.compile(
+            "\\\"broadcastId\\\"\\s*:\\s*(\\d+)(?=\\s*[,}])");
 
     @Autowired
     private MessageRecallMapper messageRecallMapper;
@@ -47,6 +64,15 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
 
     @Autowired
     private FileService fileService;
+
+    @Autowired
+    private ConversationMemberMapper conversationMemberMapper;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private GroupService groupService;
 
     /** 撤回时限：2分钟 */
     private static final long RECALL_LIMIT_SECONDS = 120;
@@ -255,6 +281,165 @@ public class ChatMessageServiceImpl extends ServiceImpl<ChatMessageMapper, ChatM
                 .orderByDesc(ChatMessage::getCreateTime)
                 .last("LIMIT " + limit);
         return list(wrapper);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MentionReadReceiptDTO getMentionReadReceipt(String messageId, Long requesterId) {
+        ChatMessage message = getByMessageId(messageId);
+        if (message == null || requesterId == null
+                || !requesterId.equals(message.getFromUserId())
+                || message.getGroupId() == null
+                || message.getSequence() == null
+                || message.getMentionUserIds() == null
+                || message.getMentionUserIds().isBlank()) {
+            throw new IllegalArgumentException("该消息没有可查看的@已读状态");
+        }
+        if (groupService.getMemberRole(message.getGroupId(), requesterId) < 0) {
+            throw new IllegalArgumentException("只有仍在群内的发送者可查看@成员已读状态");
+        }
+
+        LinkedHashSet<Long> targetIds = new LinkedHashSet<>();
+        for (String rawId : message.getMentionUserIds().split(",")) {
+            try {
+                long userId = Long.parseLong(rawId.trim());
+                if (userId > 0) targetIds.add(userId);
+            } catch (NumberFormatException ignored) {
+                // Persisted records predate strict websocket validation. Ignore
+                // malformed fragments rather than exposing an inconsistent row.
+            }
+        }
+        if (targetIds.isEmpty()) {
+            throw new IllegalArgumentException("该消息没有可查看的@成员");
+        }
+
+        List<ConversationMember> membership = conversationMemberMapper.selectList(
+                new LambdaQueryWrapper<ConversationMember>()
+                        .eq(ConversationMember::getConversationId, message.getConversationId())
+                        .in(ConversationMember::getUserId, targetIds));
+        Map<Long, ConversationMember> memberByUserId = membership.stream().collect(Collectors.toMap(
+                ConversationMember::getUserId, Function.identity(), (first, ignored) -> first));
+        Map<Long, User> userById = userMapper.selectBatchIds(targetIds).stream().collect(Collectors.toMap(
+                User::getId, Function.identity(), (first, ignored) -> first));
+        List<Long> persistedReaders = baseMapper.selectMentionReceiptReaderIds(messageId);
+        Set<Long> persistedReaderIds = persistedReaders == null
+                ? Set.of() : new LinkedHashSet<>(persistedReaders);
+
+        List<MentionReadRecipientDTO> recipients = targetIds.stream().map(userId -> {
+            ConversationMember member = memberByUserId.get(userId);
+            long lastReadSequence = member == null || member.getLastReadSequence() == null
+                    ? 0 : member.getLastReadSequence();
+            // A rejoin begins at the sequence following the then-current
+            // conversation cursor.  Use that durable floor instead of wall
+            // clock timestamps, whose second-level precision is ambiguous
+            // around a leave/rejoin boundary.
+            long receiptStartSequence = member == null || member.getReceiptStartSequence() == null
+                    ? 1 : member.getReceiptStartSequence();
+            boolean predatesCurrentMembership = message.getSequence() < receiptStartSequence;
+            User user = userById.get(userId);
+            return new MentionReadRecipientDTO(
+                    userId,
+                    user == null ? "已注销用户" : user.getNickname(),
+                    user == null ? "" : user.getAvatar(),
+                    persistedReaderIds.contains(userId)
+                            || (!predatesCurrentMembership && lastReadSequence >= message.getSequence())
+            );
+        }).toList();
+        int readCount = (int) recipients.stream().filter(MentionReadRecipientDTO::read).count();
+        return new MentionReadReceiptDTO(
+                messageId,
+                recipients.size(),
+                readCount,
+                recipients.size() - readCount,
+                recipients
+        );
+    }
+
+    @Override
+    @Transactional
+    public ChatMessage saveSystemDirectMessage(Long senderId, Long recipientId,
+                                                String type, String content) {
+        return saveSystemDirectMessage(senderId, recipientId, type, content, null);
+    }
+
+    @Override
+    @Transactional
+    public ChatMessage saveSystemDirectMessage(Long senderId, Long recipientId,
+                                                String type, String content,
+                                                String clientMsgId) {
+        if (senderId == null || recipientId == null || senderId.equals(recipientId)
+                || type == null || type.isBlank() || content == null || content.isBlank()) {
+            throw new IllegalArgumentException("系统通知消息参数无效");
+        }
+        String idempotencyKey = clientMsgId == null || clientMsgId.isBlank()
+                ? "system-" + UUID.randomUUID().toString().replace("-", "")
+                : clientMsgId.trim();
+        if (idempotencyKey.length() > 64 || !idempotencyKey.matches("^[A-Za-z0-9_-]{8,64}$")) {
+            throw new IllegalArgumentException("系统通知消息幂等键无效");
+        }
+        // The lock is held through the subsequent sequence allocation.  A
+        // concurrent retry waits here and observes the committed card instead
+        // of reserving an unused conversation sequence after a duplicate key.
+        ChatMessage existing = baseMapper.selectBySenderAndClientMsgIdForUpdate(senderId, idempotencyKey);
+        if (existing != null) return existing;
+        String conversationId = conversationService.ensurePrivateConversation(senderId, recipientId);
+        ChatMessage message = new ChatMessage();
+        message.setMessageId(UUID.randomUUID().toString().replace("-", ""));
+        message.setClientMsgId(idempotencyKey);
+        message.setConversationId(conversationId);
+        message.setSequence(conversationService.nextSequence(conversationId));
+        message.setFromUserId(senderId);
+        message.setToUserId(recipientId);
+        message.setType(type.trim().toLowerCase(java.util.Locale.ROOT));
+        message.setContent(content);
+        message.setIsBurn(0);
+        message.setBurnDuration(0);
+        message.setIsRecalled(0);
+        message.setStatus(0);
+        message.setClientCreatedAt(LocalDateTime.now());
+        message.setCreateTime(LocalDateTime.now());
+        try {
+            save(message);
+        } catch (DuplicateKeyException duplicate) {
+            ChatMessage concurrent = getByClientMsgId(senderId, idempotencyKey);
+            if (concurrent != null) return concurrent;
+            throw duplicate;
+        }
+        conversationService.updateLastMessage(conversationId, message.getMessageId(), senderId);
+        return message;
+    }
+
+    @Override
+    @Transactional
+    public List<ChatMessage> redactSystemBroadcastCards(Long senderId,
+                                                         Long recipientId,
+                                                         Long broadcastId) {
+        if (senderId == null || recipientId == null || broadcastId == null) return List.of();
+        List<ChatMessage> cards = list(new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getFromUserId, senderId)
+                .eq(ChatMessage::getToUserId, recipientId)
+                .eq(ChatMessage::getType, "broadcast")
+                .eq(ChatMessage::getIsRecalled, 0));
+        cards = cards.stream()
+                .filter(card -> belongsToBroadcast(card, broadcastId))
+                .toList();
+        if (cards.isEmpty()) return List.of();
+        List<String> messageIds = cards.stream().map(ChatMessage::getMessageId).toList();
+        update(new LambdaUpdateWrapper<ChatMessage>()
+                .in(ChatMessage::getMessageId, messageIds)
+                .set(ChatMessage::getIsRecalled, 1)
+                .set(ChatMessage::getContent, ""));
+        cards.forEach(card -> {
+            card.setIsRecalled(1);
+            card.setContent("");
+        });
+        return cards;
+    }
+
+    private boolean belongsToBroadcast(ChatMessage card, Long broadcastId) {
+        if (card == null || card.getContent() == null || broadcastId == null) return false;
+        Matcher matcher = BROADCAST_CARD_ID.matcher(card.getContent());
+        return matcher.find() && Long.toString(broadcastId).equals(matcher.group(1));
     }
 
     private List<ChatMessage> queryHistory(String conversationId, Long beforeSequence, int limit) {

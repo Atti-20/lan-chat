@@ -64,14 +64,14 @@ function sourceLabel(source: DesktopNode['source']): string {
 
 <style scoped>
 .node-list { display: grid; max-height: 178px; margin-top: 12px; gap: 6px; overflow-y: auto; }
-.node-item { display: flex; width: 100%; min-height: 48px; padding: 8px 9px; align-items: center; gap: 9px; border: 1px solid transparent; border-radius: 12px; color: var(--ink); text-align: left; background: var(--surface); cursor: pointer; }
+.node-item { display: flex; width: 100%; min-height: 48px; padding: 8px 9px; align-items: center; gap: 9px; border: 1px solid transparent; border-radius: var(--radius-control); color: var(--ink); text-align: left; background: var(--surface); cursor: pointer; }
 .node-item:hover:not(:disabled) { border-color: color-mix(in srgb, var(--blue) 26%, transparent); background: var(--active); }
 .node-item:disabled { cursor: default; }
 .node-item.current { background: color-mix(in srgb, var(--green) 7%, var(--surface)); }
 .node-signal { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 10%, transparent); }
 .health-probing .node-signal,
 .health-unknown .node-signal { background: var(--blue); box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 10%, transparent); }
-.health-degraded .node-signal { background: #ff9f0a; box-shadow: 0 0 0 4px rgba(255, 159, 10, .1); }
+.health-degraded .node-signal { background: var(--warning); box-shadow: 0 0 0 4px rgba(255, 159, 10, .1); }
 .health-offline { opacity: .55; }
 .health-offline .node-signal { background: var(--ink-faint); box-shadow: none; }
 .node-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
@@ -79,6 +79,6 @@ function sourceLabel(source: DesktopNode['source']): string {
 .node-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-copy strong { font-size: var(--font-caption); }
 .node-copy small { color: var(--ink-faint); font-size: var(--font-micro); }
-.node-action { color: var(--blue); font-size: var(--font-micro); font-weight: 700; white-space: nowrap; }
-.node-item.current .node-action { color: var(--green); }
+.node-action { color: var(--accent-text); font-size: var(--font-micro); font-weight: 700; white-space: nowrap; }
+.node-item.current .node-action { color: var(--success); }
 </style>

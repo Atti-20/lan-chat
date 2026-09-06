@@ -112,7 +112,7 @@ function submit(): void {
   z-index: 106;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(14px) saturate(125%);
@@ -126,7 +126,7 @@ function submit(): void {
   padding: 34px 30px 26px;
   justify-items: center;
   border: 1px solid var(--glass-border);
-  border-radius: 24px;
+  border-radius: var(--radius-sheet);
   overflow: hidden;
   text-align: center;
   background: var(--surface-raise);
@@ -175,7 +175,7 @@ function submit(): void {
   width: 62px;
   height: 62px;
   margin-bottom: 16px;
-  padding: 12px;
+  padding: var(--space-3);
   grid-template-columns: repeat(2, 1fr);
   gap: 7px;
   border: 1px solid color-mix(in srgb, var(--blue) 24%, var(--separator));
@@ -189,14 +189,14 @@ function submit(): void {
 
 .eyebrow {
   margin: 0 0 5px;
-  color: var(--blue);
-  font-family: "SF Mono", ui-monospace, monospace;
+  color: var(--accent-text);
+  font-family: var(--font-mono);
   font-size: var(--font-micro);
   font-weight: 750;
   letter-spacing: .16em;
 }
-.join-sheet h2 { margin: 0; font-size: 22px; letter-spacing: -.035em; }
-.description { margin: 7px 0 20px; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.join-sheet h2 { margin: 0; font-size: var(--font-title); letter-spacing: -.035em; }
+.description { margin: 7px 0 20px; color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.5; }
 .join-sheet form { display: grid; width: 100%; }
 
 .code-field {
@@ -219,7 +219,7 @@ function submit(): void {
   width: 100%;
   border: 0;
   color: var(--ink);
-  font-family: "SF Mono", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: clamp(17px, 5vw, 22px);
   font-weight: 750;
   letter-spacing: .14em;
@@ -232,7 +232,7 @@ function submit(): void {
 .code-hint,
 .form-error { min-height: 30px; margin: 8px 2px 0; font-size: var(--font-caption); line-height: 1.4; }
 .code-hint { color: var(--ink-faint); }
-.form-error { color: var(--coral); }
+.form-error { color: var(--danger); }
 
 .actions { display: grid; margin-top: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .actions .secondary-button,

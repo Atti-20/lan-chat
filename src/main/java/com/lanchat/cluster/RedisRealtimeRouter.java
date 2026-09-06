@@ -74,11 +74,11 @@ public class RedisRealtimeRouter implements RealtimeRouter {
     }
 
     @Override
-    public void sendToUserWithReceipt(Long userId,
-                                      WebSocketEnvelope envelope,
-                                      Runnable onDelivered) {
-        if (userId == null || envelope == null || onDelivered == null) return;
-        route(newEvent(RealtimeRouteScope.USER, List.of(userId), null, true, envelope), onDelivered);
+    public boolean sendToUserWithReceipt(Long userId,
+                                         WebSocketEnvelope envelope,
+                                         Runnable onDelivered) {
+        if (userId == null || envelope == null || onDelivered == null) return false;
+        return route(newEvent(RealtimeRouteScope.USER, List.of(userId), null, true, envelope), onDelivered);
     }
 
     @Override
@@ -119,21 +119,21 @@ public class RedisRealtimeRouter implements RealtimeRouter {
         return instanceId;
     }
 
-    private void route(RealtimeRouteEvent event, Runnable onDelivered) {
+    private boolean route(RealtimeRouteEvent event, Runnable onDelivered) {
         if (onDelivered != null) registerReceipt(event.eventId(), onDelivered);
         markSeen(event.eventId(), event.createdAt());
         int delivered = deliverLocal(event);
         if (delivered > 0) completeReceipt(event.eventId());
         if (!clusterProperties.isEnabled()) {
             discardReceipt(event.eventId());
-            return;
+            return true;
         }
         try {
             String json = objectMapper.writeValueAsString(event);
             if (json.getBytes(StandardCharsets.UTF_8).length > MAX_ROUTE_BYTES) {
                 log.warn("跨实例实时事件超过大小限制: event={}", event.envelope().getEvent());
                 discardReceipt(event.eventId());
-                return;
+                return false;
             }
             Long subscribers = redisTemplate.convertAndSend(channel, json);
             if (event.deliveryReceiptRequested()
@@ -141,14 +141,21 @@ public class RedisRealtimeRouter implements RealtimeRouter {
                     && (subscribers == null || subscribers <= 0)) {
                 discardReceipt(event.eventId());
             }
+            // Redis accepted the publication even when no remote session is
+            // currently present. The durable chat source remains authoritative
+            // for that offline target; only a publish/serialization failure is
+            // a route failure that requires the outbox to retry.
+            return true;
         } catch (RuntimeException exception) {
             discardReceipt(event.eventId());
             log.warn("Redis 跨实例实时路由不可用，已保留本实例投递: event={}, error={}",
                     event.envelope().getEvent(), exception.getMessage());
+            return false;
         } catch (Exception exception) {
             discardReceipt(event.eventId());
             log.warn("跨实例实时事件序列化失败: event={}, error={}",
                     event.envelope().getEvent(), exception.getMessage());
+            return false;
         }
     }
 

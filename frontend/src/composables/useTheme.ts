@@ -2,6 +2,7 @@ import { readonly, shallowRef } from 'vue'
 import meshxDark from '../assets/meshx-dark.svg'
 import meshxLight from '../assets/meshx-light.svg'
 import { readTheme, writeTheme, type ThemeMode } from '../utils/storage'
+import { syncMobileAppearance } from '../platform/mobileAppearance'
 
 function resolveInitial(): ThemeMode {
   const stored = readTheme()
@@ -18,7 +19,8 @@ function applyMode(next: ThemeMode): void {
   // MeshX_light for dark mode and MeshX_dark for light mode.
   if (favicon) favicon.href = next === 'dark' ? meshxLight : meshxDark
   const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-  if (themeColor) themeColor.content = next === 'dark' ? '#0f172a' : '#ffffff'
+  if (themeColor) themeColor.content = next === 'dark' ? '#0f0f10' : '#edf0f4'
+  void syncMobileAppearance(next)
 }
 
 applyMode(mode.value)

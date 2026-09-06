@@ -19,8 +19,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 mdns-sd = "0.20"
 base64 = "0.22"
+ed25519-dalek = { version = "2.2", features = ["pkcs8", "rand_core"] }
 futures-util = "0.3"
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
+rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["cookies", "json", "multipart", "rustls-tls", "stream"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 sha2 = "0.10"
 tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tauri-plugin-autostart = "2"

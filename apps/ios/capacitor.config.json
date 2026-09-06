@@ -1,0 +1,10 @@
+{
+  "appId": "com.atti20.lanchat",
+  "appName": "MeshX",
+  "webDir": "../../frontend/dist-mobile",
+  "backgroundColor": "#f4f7fb",
+  "loggingBehavior": "none",
+  "ios": {
+    "loggingBehavior": "none"
+  }
+}

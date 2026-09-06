@@ -14,6 +14,11 @@ x-lanchat-environment: &lanchat-environment
   LANCHAT_NODE_ID: ${LANCHAT_NODE_ID:-lanchat-private}
   LANCHAT_NODE_NAME: ${LANCHAT_NODE_NAME:-LanChat Private Node}
   LANCHAT_ORGANIZATION_NAME: ${LANCHAT_ORGANIZATION_NAME:-Private Organization}
+  MESHX_CONTROL_ID: ${MESHX_CONTROL_ID:-control-private}
+  MESHX_ORGANIZATION_ID: ${MESHX_ORGANIZATION_ID:-org-private}
+  MESHX_DEVICE_IDENTITY_ENABLED: ${MESHX_DEVICE_IDENTITY_ENABLED:-false}
+  MESHX_DEVICE_SIGNING_PRIVATE_KEY: ${MESHX_DEVICE_SIGNING_PRIVATE_KEY:-}
+  MESHX_DEVICE_SIGNING_PUBLIC_KEY: ${MESHX_DEVICE_SIGNING_PUBLIC_KEY:-}
   LANCHAT_MODE: ${LANCHAT_MODE:-LAN_FIRST}
   LANCHAT_ADVERTISED_HOST: ${LANCHAT_ADVERTISED_HOST:-}
   LANCHAT_ADVERTISED_PORT: ${LANCHAT_ADVERTISED_PORT:-8080}
@@ -83,15 +88,17 @@ services:
       MYSQL_DATABASE: lan_chat
       MYSQL_USER: lanchat
       MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MESHX_ORGANIZATION_ID: ${MESHX_ORGANIZATION_ID:-org-private}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_general_ci
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./sql/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - ./deploy/mysql-init.sh:/docker-entrypoint-initdb.d/001-init.sh:ro
+      - ./sql/init.sql:/opt/meshx/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --user=root --password=\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysql -h 127.0.0.1 --user=root lan_chat --batch --execute='SELECT 1 FROM organization LIMIT 0; SELECT 1 FROM device_session LIMIT 0;' >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 30

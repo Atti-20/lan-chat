@@ -26,6 +26,7 @@ watch(() => props.source, async (source, _previous, onCleanup) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const blob = await response.blob()
       if (blob.size === 0) throw new Error('empty evidence image')
+      if (cancelled) return
       objectUrl = URL.createObjectURL(blob)
     }
     if (!cancelled) resolved.value = objectUrl || url
@@ -41,5 +42,5 @@ watch(() => props.source, async (source, _previous, onCleanup) => {
 </template>
 
 <style scoped>
-.evidence-placeholder { display: block; min-height: 120px; border-radius: 12px; background: var(--fill); }
+.evidence-placeholder { display: block; min-height: 120px; border-radius: var(--radius-control); background: var(--fill); }
 </style>

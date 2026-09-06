@@ -43,7 +43,7 @@ const toast = useToast()
   gap: 10px;
   border-radius: 17px;
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--font-body);
   font-weight: 650;
   text-align: left;
   pointer-events: auto;
@@ -60,7 +60,7 @@ const toast = useToast()
 }
 
 .toast--success .toast-dot { background: var(--green); box-shadow: 0 0 0 5px rgba(48, 209, 88, 0.12); }
-.toast--warning .toast-dot { background: #ff9f0a; box-shadow: 0 0 0 5px rgba(255, 159, 10, 0.12); }
+.toast--warning .toast-dot { background: var(--warning); box-shadow: 0 0 0 5px rgba(255, 159, 10, 0.12); }
 .toast--danger .toast-dot { background: var(--coral); box-shadow: 0 0 0 5px rgba(255, 107, 107, 0.12); }
 
 .toast-enter-active,

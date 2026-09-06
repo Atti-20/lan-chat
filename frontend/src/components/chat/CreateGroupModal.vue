@@ -96,7 +96,7 @@ function submit(): void {
   z-index: 100;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(14px) saturate(125%);
@@ -110,7 +110,7 @@ function submit(): void {
   max-height: calc(100dvh - 40px);
   padding: 28px 26px 22px;
   flex-direction: column;
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   background: var(--surface-raise);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   overflow: hidden;
@@ -138,7 +138,7 @@ function submit(): void {
 
 .group-sheet h2 {
   margin: 0 0 4px;
-  font-size: 21px;
+  font-size: var(--font-title);
   font-weight: 700;
   letter-spacing: -0.03em;
 }
@@ -150,7 +150,7 @@ function submit(): void {
 }
 .group-name > span {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--font-caption);
   font-weight: 600;
 }
 
@@ -162,12 +162,12 @@ function submit(): void {
 }
 .member-label {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--font-caption);
   font-weight: 600;
 }
 .member-count {
-  color: var(--blue);
-  font-size: 11px;
+  color: var(--accent-text);
+  font-size: var(--font-micro);
   font-weight: 600;
 }
 
@@ -184,7 +184,7 @@ function submit(): void {
   padding: 8px 10px;
   align-items: center;
   gap: 11px;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   transition: background-color 150ms ease;
 }
@@ -202,7 +202,7 @@ function submit(): void {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--font-body);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -221,7 +221,7 @@ function submit(): void {
 }
 .checkbox .ui-icon { width: 14px; }
 .friend-row--selected .checkbox {
-  border-color: var(--blue);
+  border-color: var(--accent-text);
   background: var(--blue);
   color: #fff;
 }
@@ -229,7 +229,7 @@ function submit(): void {
 .empty-tip {
   margin: 40px 0;
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: var(--font-body-sm);
   text-align: center;
 }
 

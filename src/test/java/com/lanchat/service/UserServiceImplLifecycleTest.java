@@ -2,6 +2,7 @@ package com.lanchat.service;
 
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.lanchat.common.DeviceSessionsRevokedEvent;
+import com.lanchat.control.rbac.AuthorizationService;
 import com.lanchat.entity.AdminUserLifecycleAudit;
 import com.lanchat.entity.ChatGroup;
 import com.lanchat.entity.ConversationMember;
@@ -70,6 +71,7 @@ class UserServiceImplLifecycleTest {
     private AdminUserLifecycleAuditMapper auditMapper;
     private FileService fileService;
     private UserServiceImpl service;
+    private AuthorizationService authorizationService;
 
     @BeforeEach
     void setUp() {
@@ -99,6 +101,7 @@ class UserServiceImplLifecycleTest {
         temporaryRoomMapper = mock(TemporaryRoomMapper.class);
         auditMapper = mock(AdminUserLifecycleAuditMapper.class);
         fileService = mock(FileService.class);
+        authorizationService = mock(AuthorizationService.class);
         service = new UserServiceImpl();
 
         ReflectionTestUtils.setField(service, "userMapper", userMapper);
@@ -116,6 +119,7 @@ class UserServiceImplLifecycleTest {
         ReflectionTestUtils.setField(service, "temporaryRoomMapper", temporaryRoomMapper);
         ReflectionTestUtils.setField(service, "adminUserLifecycleAuditMapper", auditMapper);
         ReflectionTestUtils.setField(service, "fileService", fileService);
+        ReflectionTestUtils.setField(service, "authorizationService", authorizationService);
 
         when(fileMetadataMapper.selectList(any())).thenReturn(List.of());
         when(chatGroupMapper.selectList(any())).thenReturn(List.of());
@@ -291,6 +295,7 @@ class UserServiceImplLifecycleTest {
     void rootAdministratorCanNeverBeArchived() {
         when(userMapper.lockById(1L)).thenReturn(1L);
         when(userMapper.selectById(1L)).thenReturn(user(1L, "admin"));
+        when(authorizationService.isOrganizationOwner(1L)).thenReturn(true);
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.archiveUserByAdmin(1L, 1L));

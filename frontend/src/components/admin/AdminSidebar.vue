@@ -39,6 +39,7 @@ const modules: ModuleItem[] = [
     title: '运行日志',
     icon: 'terminal',
   },
+  { id: 'audit', title: '操作审计', icon: 'lock' },
 ]
 
 const connectionLabel = computed(() => ({
@@ -80,7 +81,7 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
         <span v-else-if="item.id === 'diagnostics'" class="module-meta module-health" :class="{ healthy: connectionHealthy }">
           <i />{{ connectionLabel }}
         </span>
-        <span v-else class="module-meta">实时</span>
+        <span v-else class="module-meta">{{ item.id === 'audit' ? '操作记录' : '实时' }}</span>
       </button>
     </nav>
 
@@ -102,9 +103,9 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
   background: var(--surface-raise);
 }
 .admin-sidebar-header { padding: 22px 18px 17px; }
-.admin-sidebar-header p { margin: 0 0 3px; color: var(--blue); font-size: 11px; font-weight: 600; }
-.admin-sidebar-header h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.03em; }
-.module-list { display: grid; padding: 10px 8px; gap: 4px; }
+.admin-sidebar-header p { margin: 0 0 3px; color: var(--accent-text); font-size: var(--font-micro); font-weight: 600; }
+.admin-sidebar-header h1 { margin: 0; font-size: var(--font-page-title); font-weight: 700; letter-spacing: -.03em; }
+.module-list { display: grid; padding: 10px 8px; gap: var(--space-1); }
 .module-item {
   display: grid;
   width: 100%;
@@ -114,7 +115,7 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
   align-items: center;
   gap: 11px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   color: var(--ink);
   text-align: left;
   background: transparent;
@@ -123,16 +124,16 @@ const connectionHealthy = computed(() => ['ONLINE', 'SYNCING'].includes(props.co
 }
 .module-item:hover { background: var(--hover); }
 .module-item--active { background: var(--active); }
-.module-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; color: var(--blue); background: var(--fill); }
+.module-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: var(--radius-control); color: var(--accent-text); background: var(--fill); }
 .module-item--active .module-icon { color: white; background: var(--blue); }
 .module-copy { display: grid; min-width: 0; }
-.module-copy strong { font-size: 13px; }
+.module-copy strong { font-size: var(--font-body-sm); }
 .module-meta { align-self: start; padding-top: 3px; color: var(--ink-faint); font-size: var(--font-micro); white-space: nowrap; }
-.module-health { display: inline-flex; align-items: center; gap: 5px; color: var(--coral); }
+.module-health { display: inline-flex; align-items: center; gap: 5px; color: var(--danger); }
 .module-health i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.module-health.healthy { color: var(--green); }
-.admin-sidebar-footer { display: flex; padding: 15px 18px; margin-top: auto; align-items: center; gap: 8px; border-top: 1px solid var(--separator); color: var(--ink-faint); font-size: var(--font-micro); }
-.admin-sidebar-footer .ui-icon { color: var(--blue); }
+.module-health.healthy { color: var(--success); }
+.admin-sidebar-footer { display: flex; padding: 15px 18px; margin-top: auto; align-items: center; gap: var(--space-2); border-top: 1px solid var(--separator); color: var(--ink-faint); font-size: var(--font-micro); }
+.admin-sidebar-footer .ui-icon { color: var(--accent-text); }
 .module-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 55%, transparent); outline-offset: -2px; }
 
 @media (max-width: 760px) {

@@ -1,5 +1,6 @@
-import type { AuthSession, DiscoveredNode } from '../types'
+import type { AuthSession, DiscoveredNode, NodeRuntimeStatus } from '../types'
 import { registerPlugin } from '@capacitor/core'
+import { isTauri } from '@tauri-apps/api/core'
 import { capacitorPlatform, isCapacitorRuntime } from './mobileRuntime'
 import { verifyMobileNode } from './mobileNodeVerification'
 import {
@@ -10,8 +11,11 @@ import {
   type NavigationKind,
   type NavigationTarget,
 } from './navigationTarget'
+import { NotificationDeliveryDeduper } from './notificationDeliveryDeduper'
+import { initializeMobileNotification, MESSAGE_NOTIFICATION_CHANNEL_ID } from './mobileNotifications'
+import { resolveRuntimeKind, type RuntimeKind } from './runtimeKind'
 
-export type RuntimeKind = 'web' | 'tauri' | 'capacitor'
+export type { RuntimeKind } from './runtimeKind'
 export type DesktopPlatform = 'web' | 'macos' | 'windows' | 'linux' | 'android' | 'ios' | 'unknown'
 export type DesktopNodeSource = 'MDNS' | 'SERVER_FALLBACK' | 'CACHE' | 'MANUAL'
 export type DesktopNodeHealth = 'UNKNOWN' | 'PROBING' | 'HEALTHY' | 'DEGRADED' | 'OFFLINE'
@@ -31,12 +35,16 @@ export interface DesktopNode extends DiscoveredNode {
   failureCount: number
   pinned: boolean
   protocolVersion: number
+  organizationId?: string | null
   apiOrigin?: string
   apiBasePath?: string
   webSocketPath?: string
   healthPath?: string
   appPath?: string
   lastSuccessfulAt?: string | null
+  deviceIdentityEnabled?: boolean
+  controlSigningPublicKey?: string | null
+  controlSigningKeyFingerprint?: string | null
 }
 
 export type DesktopNavigationTarget = NavigationTarget
@@ -45,6 +53,8 @@ export interface NotificationInput {
   title: string
   body: string
   target?: DesktopNavigationTarget
+  /** Stable business key used to suppress a reconnect retry of the same alert. */
+  dedupeKey?: string
 }
 
 export interface UpdateResult {
@@ -100,6 +110,7 @@ interface MeshXAuthPlugin {
 const meshXAuth = registerPlugin<MeshXAuthPlugin>('MeshXAuth')
 const mobileNavigationDeduper = new NavigationDeliveryDeduper()
 const mobileNotificationIds = new MonotonicNotificationIdAllocator()
+const notificationDeliveryDeduper = new NotificationDeliveryDeduper()
 
 export interface NativeFileSaveResult {
   location: string
@@ -120,6 +131,7 @@ export interface NativeFileSaveOptions {
 export interface NativeBridge {
   runtime(): RuntimeKind
   runtimeInfo(): Promise<RuntimeInfo>
+  nodeRuntimeStatus(): Promise<NodeRuntimeStatus>
   confirm(message: string, options?: ConfirmOptions): Promise<boolean>
   discoveredNodes(): Promise<DesktopNode[]>
   discoverNodeOrigins(): Promise<string[]>
@@ -151,7 +163,10 @@ export interface NativeBridge {
 }
 
 function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+  // Tauri installs this marker before application scripts in both dev and
+  // packaged windows. Do not infer IPC support from a Vite build mode or URL:
+  // the desktop bundle also needs to remain usable in a normal browser.
+  return typeof window !== 'undefined' && isTauri()
 }
 
 function desktopDeviceName(): string {
@@ -174,6 +189,7 @@ const webBridge: NativeBridge = {
     version: import.meta.env.VITE_APP_VERSION || 'web',
     updaterConfigured: false,
   }),
+  nodeRuntimeStatus: async () => ({ running: false, active: false }),
 
   confirm: async (message, options) => window.confirm(
     options?.title ? `${options.title}\n\n${message}` : message,
@@ -201,12 +217,18 @@ const webBridge: NativeBridge = {
   clearNodeSession: async () => undefined,
   saveFile: async () => null,
 
-  notify: async ({ title, body }) => {
+  notify: async ({ title, body, dedupeKey }) => {
     if (!('Notification' in window)) return
     const permission = Notification.permission === 'default'
       ? await Notification.requestPermission()
       : Notification.permission
-    if (permission === 'granted') new Notification(title, { body })
+    if (permission !== 'granted' || !notificationDeliveryDeduper.accept(dedupeKey)) return
+    try {
+      new Notification(title, { body })
+    } catch (cause) {
+      notificationDeliveryDeduper.forget(dedupeKey)
+      throw cause
+    }
   },
 
   autostartEnabled: async () => false,
@@ -231,6 +253,7 @@ const capacitorBridge: NativeBridge = {
     version: import.meta.env.VITE_APP_VERSION || 'mobile',
     updaterConfigured: false,
   }),
+  nodeRuntimeStatus: async () => ({ running: false, active: false }),
 
   confirm: async (message, options) => window.confirm(
     options?.title ? `${options.title}\n\n${message}` : message,
@@ -288,19 +311,32 @@ const capacitorBridge: NativeBridge = {
     }
   },
 
-  notify: async ({ title, body, target }) => {
+  notify: async ({ title, body, target, dedupeKey }) => {
+    const platform = capacitorPlatform()
+    // Delivery must not summon a permission dialog after the app backgrounds.
+    // The foreground settings control owns the explicit permission request.
+    const ready = await initializeMobileNotification({ requestPermission: false })
+    if (!ready) {
+      console.info('MeshX 通知权限未授权，跳过本地通知')
+      return
+    }
+    if (!notificationDeliveryDeduper.accept(dedupeKey)) return
     const { LocalNotifications } = await import('@capacitor/local-notifications')
-    let permission = await LocalNotifications.checkPermissions()
-    if (permission.display === 'prompt') permission = await LocalNotifications.requestPermissions()
-    if (permission.display !== 'granted') return
-    await LocalNotifications.schedule({
-      notifications: [{
-        id: mobileNotificationIds.next(),
-        title,
-        body,
-        extra: target ? { lanchatTarget: JSON.stringify(target) } : undefined,
-      }],
-    })
+    try {
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: mobileNotificationIds.next(),
+          title,
+          body,
+          channelId: platform === 'android' ? MESSAGE_NOTIFICATION_CHANNEL_ID : undefined,
+          autoCancel: true,
+          extra: target ? { lanchatTarget: JSON.stringify(target) } : undefined,
+        }],
+      })
+    } catch (cause) {
+      notificationDeliveryDeduper.forget(dedupeKey)
+      throw cause
+    }
   },
 
   autostartEnabled: async () => false,
@@ -326,6 +362,11 @@ const tauriBridge: NativeBridge = {
   runtimeInfo: async () => {
     const { invoke } = await import('@tauri-apps/api/core')
     return invoke<RuntimeInfo>('runtime_info')
+  },
+
+  nodeRuntimeStatus: async () => {
+    const { invoke } = await import('@tauri-apps/api/core')
+    return invoke<NodeRuntimeStatus>('node_runtime_status')
   },
 
   confirm: async (message, options) => {
@@ -435,7 +476,7 @@ const tauriBridge: NativeBridge = {
     }
   },
 
-  notify: async ({ title, body, target }) => {
+  notify: async ({ title, body, target, dedupeKey }) => {
     const {
       isPermissionGranted,
       requestPermission,
@@ -444,12 +485,18 @@ const tauriBridge: NativeBridge = {
     let granted = await isPermissionGranted()
     if (!granted) granted = await requestPermission() === 'granted'
     if (!granted) return
-    sendNotification({
-      title,
-      body,
-      extra: target ? { lanchatTarget: JSON.stringify(target) } : undefined,
-      autoCancel: true,
-    })
+    if (!notificationDeliveryDeduper.accept(dedupeKey)) return
+    try {
+      sendNotification({
+        title,
+        body,
+        extra: target ? { lanchatTarget: JSON.stringify(target) } : undefined,
+        autoCancel: true,
+      })
+    } catch (cause) {
+      notificationDeliveryDeduper.forget(dedupeKey)
+      throw cause
+    }
   },
 
   autostartEnabled: async () => {
@@ -529,8 +576,13 @@ const tauriBridge: NativeBridge = {
   },
 }
 
-export const nativeBridge: NativeBridge = isTauriRuntime()
+const runtimeKind = resolveRuntimeKind({
+  tauri: isTauriRuntime(),
+  capacitor: isCapacitorRuntime(),
+})
+
+export const nativeBridge: NativeBridge = runtimeKind === 'tauri'
   ? tauriBridge
-  : isCapacitorRuntime()
+  : runtimeKind === 'capacitor'
     ? capacitorBridge
     : webBridge

@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeshX — LAN-first 私有 AI 协作基础设施</title>
+  <meta name="description" content="MeshX 面向企业、校园、工厂和应急环境，提供控制面集中管理、数据面优先局域网直连的高可靠私有即时协作与 AI Ops 基础设施。">
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0284c7',
+              600: '#0284c7',
+              700: '#0369a1',
+              900: '#0c4a6e',
+            },
+            mesh: {
+              dark: '#0b0f19',
+              card: '#111827',
+              border: '#1f2937',
+              accent: '#38bdf8',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            mono: ['Fira Code', 'JetBrains Mono', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.05); }
+    }
+    .animate-pulse-glow {
+      animation: pulse-slow 6s infinite ease-in-out;
+    }
+    .glass-panel {
+      background: rgba(17, 24, 39, 0.75);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(56, 189, 248, 0.12);
+    }
+    .glass-card:hover {
+      border-color: rgba(56, 189, 248, 0.35);
+      box-shadow: 0 0 25px -5px rgba(56, 189, 248, 0.15);
+    }
+    .logo-gradient {
+      filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
+    }
+  </style>
+</head>
+<body class="bg-[#070a12] text-slate-200 font-sans antialiased selection:bg-sky-500 selection:text-white">
+
+  <!-- Glow background effects -->
+  <div class="fixed inset-0 overflow-hidden pointer-events-none z-0">
+    <div class="absolute -top-40 -left-40 w-96 h-96 bg-sky-600/20 rounded-full blur-[128px] animate-pulse-glow"></div>
+    <div class="absolute top-1/3 -right-40 w-[30rem] h-[30rem] bg-indigo-600/15 rounded-full blur-[140px] animate-pulse-glow" style="animation-delay: 2s;"></div>
+    <div class="absolute -bottom-40 left-1/4 w-[32rem] h-[32rem] bg-cyan-500/10 rounded-full blur-[150px] animate-pulse-glow" style="animation-delay: 4s;"></div>
+  </div>
+
+  <!-- Navigation -->
+  <header class="sticky top-0 z-50 glass-panel border-b border-slate-800/80">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <!-- MeshX Official SVG Logo -->
+        <div class="w-10 h-10 rounded-xl bg-slate-900 border border-sky-500/30 flex items-center justify-center p-2 shadow-lg shadow-sky-500/20 text-sky-400 hover:text-cyan-300 transition">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 560" fill="currentColor" class="w-full h-full logo-gradient">
+            <path d="M 0,0 L 250,270 L 500,0 L 500,390 L 430,440 L 430,135 L 250,330 L 70,135 L 70,440 L 0,390 Z"/>
+            <path d="M 250,295 L 480,480 L 480,560 L 250,375 L 20,560 L 20,480 Z"/>
+          </svg>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+            MeshX <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 font-mono">v0.3.0</span>
+          </span>
+          <span class="text-[10px] text-slate-400 tracking-wider font-mono">LAN-FIRST AI INFRASTRUCTURE</span>
+        </div>
+      </div>
+
+      <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-slate-300">
+        <a href="#features" class="hover:text-sky-400 transition-colors">核心优势</a>
+        <a href="#architecture" class="hover:text-sky-400 transition-colors">架构演进</a>
+        <a href="#security" class="hover:text-sky-400 transition-colors">安全合规</a>
+        <a href="#showcase" class="hover:text-sky-400 transition-colors">功能特性</a>
+        <a href="#platforms" class="hover:text-sky-400 transition-colors">多端覆盖</a>
+        <a href="#deploy" class="hover:text-sky-400 transition-colors">极速部署</a>
+        <a href="#faq" class="hover:text-sky-400 transition-colors">常见问题</a>
+      </nav>
+
+      <div class="flex items-center space-x-4">
+        <a href="https://github.com/Atti-20/lan-chat" target="_blank" rel="noopener noreferrer" class="hidden sm:flex items-center space-x-2 px-3.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 text-sm transition font-mono">
+          <i data-lucide="github" class="w-4 h-4"></i>
+          <span>GitHub</span>
+        </a>
+        <a href="#deploy" class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-medium text-sm shadow-md shadow-sky-500/20 transition">
+          <i data-lucide="rocket" class="w-4 h-4"></i>
+          <span>私有部署</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="relative z-10">
+
+    <!-- Hero Section -->
+    <section class="relative pt-20 pb-20 md:pt-28 md:pb-32 overflow-hidden">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        
+        <!-- Large Brand Mark Header -->
+        <div class="flex justify-center mb-6">
+          <div class="w-20 h-20 rounded-2xl bg-slate-900/90 border border-sky-500/40 p-3.5 shadow-2xl shadow-sky-500/30 text-sky-400 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 560" fill="currentColor" class="w-full h-full logo-gradient">
+              <path d="M 0,0 L 250,270 L 500,0 L 500,390 L 430,440 L 430,135 L 250,330 L 70,135 L 70,440 L 0,390 Z"/>
+              <path d="M 250,295 L 480,480 L 480,560 L 250,375 L 20,560 L 20,480 Z"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Status Pill -->
+        <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/90 border border-sky-500/30 text-sky-300 text-xs font-mono mb-8 shadow-inner">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+          <span class="font-semibold text-slate-200">MeshX v0.3.0 发布</span>
+          <span class="text-slate-500">|</span>
+          <span>控制面集中管理 · 数据面局域网 P2P 直连</span>
+        </div>
+
+        <h1 class="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white mb-6 leading-tight">
+          新一代 <span class="bg-gradient-to-r from-sky-400 via-indigo-300 to-cyan-400 bg-clip-text text-transparent">LAN-First</span><br>
+          私有 AI 即时协作基础设施
+        </h1>
+
+        <p class="max-w-3xl mx-auto text-lg sm:text-xl text-slate-400 font-normal mb-10 leading-relaxed">
+          专为企业、校园、工厂与高安全要求的组织设计。即使离线或完全断开公网，也能在局域网内提供毫秒级 P2P 直连沟通、断点续传、应急广播与全流程审计能力。
+        </p>
+
+        <!-- CTA Buttons -->
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+          <a href="#deploy" class="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-semibold text-base shadow-xl shadow-sky-500/25 flex items-center justify-center gap-2 transition transform hover:-translate-y-0.5">
+            <i data-lucide="terminal" class="w-5 h-5"></i>
+            <span>Docker Compose 一键部署</span>
+          </a>
+          <a href="#architecture" class="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 font-semibold text-base flex items-center justify-center gap-2 transition">
+            <i data-lucide="cpu" class="w-5 h-5 text-sky-400"></i>
+            <span>了解 P2P 架构演进</span>
+          </a>
+        </div>
+
+        <!-- Live Preview Showcase Window -->
+        <div class="max-w-5xl mx-auto rounded-2xl glass-panel p-2 md:p-4 shadow-2xl shadow-sky-950/50 border border-slate-700/60">
+          
+          <!-- Mockup Header -->
+          <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800 text-xs font-mono text-slate-400 bg-slate-950/60 rounded-t-xl">
+            <div class="flex items-center space-x-2">
+              <span class="w-3 h-3 rounded-full bg-rose-500/80"></span>
+              <span class="w-3 h-3 rounded-full bg-amber-500/80"></span>
+              <span class="w-3 h-3 rounded-full bg-emerald-500/80"></span>
+              <span class="ml-2 text-slate-300 font-semibold flex items-center gap-1.5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 560" fill="currentColor" class="w-3.5 h-3.5 text-sky-400">
+                  <path d="M 0,0 L 250,270 L 500,0 L 500,390 L 430,440 L 430,135 L 250,330 L 70,135 L 70,440 L 0,390 Z"/>
+                  <path d="M 250,295 L 480,480 L 480,560 L 250,375 L 20,560 L 20,480 Z"/>
+                </svg>
+                MeshX Client Console — Node: lan-node-01
+              </span>
+            </div>
+            <div class="flex items-center space-x-4">
+              <span class="flex items-center gap-1.5 text-emerald-400"><i data-lucide="wifi" class="w-3.5 h-3.5"></i> mDNS Auto-Discovered</span>
+              <span class="flex items-center gap-1.5 text-sky-400"><i data-lucide="zap" class="w-3.5 h-3.5"></i> WebRTC P2P Direct: 0.8ms</span>
+            </div>
+          </div>
+
+          <!-- Mockup Body -->
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-4 p-4 text-left font-sans bg-slate-950/40 rounded-b-xl min-h-[380px]">
+            
+            <!-- Sidebar -->
+            <div class="md:col-span-4 space-y-2 border-r border-slate-800/80 pr-3">
+              <div class="text-xs font-mono text-slate-400 px-2 py-1 uppercase tracking-wider">局域网自动发现节点</div>
+              
+              <div class="p-2.5 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-between cursor-pointer">
+                <div class="flex items-center space-x-3">
+                  <div class="relative">
+                    <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-white text-xs">研发</div>
+                    <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-slate-900"></span>
+                  </div>
+                  <div>
+                    <div class="text-sm font-medium text-white">研发组临时项目群</div>
+                    <div class="text-xs text-sky-300 font-mono">P2P 直连 (192.168.1.102)</div>
+                  </div>
+                </div>
+                <span class="text-[10px] bg-sky-500/20 text-sky-300 px-1.5 py-0.5 rounded font-mono">2 MiB/s</span>
+              </div>
+
+              <div class="p-2.5 rounded-lg hover:bg-slate-800/50 flex items-center justify-between cursor-pointer transition">
+                <div class="flex items-center space-x-3">
+                  <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-slate-200 text-xs">Alice</div>
+                  <div>
+                    <div class="text-sm font-medium text-slate-300">爱丽丝 (Alice)</div>
+                    <div class="text-xs text-slate-400">已自动回退服务端中转</div>
+                  </div>
+                </div>
+                <span class="text-xs text-slate-400">10:42</span>
+              </div>
+
+              <div class="p-2.5 rounded-lg hover:bg-slate-800/50 flex items-center justify-between cursor-pointer transition">
+                <div class="flex items-center space-x-3">
+                  <div class="w-8 h-8 rounded-full bg-amber-600/30 text-amber-300 flex items-center justify-center font-bold text-xs"><i data-lucide="radio" class="w-4 h-4"></i></div>
+                  <div>
+                    <div class="text-sm font-medium text-slate-300">全员应急广播</div>
+                    <div class="text-xs text-slate-400">回执统计：98/100</div>
+                  </div>
+                </div>
+                <span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">广播</span>
+              </div>
+            </div>
+
+            <!-- Chat Content -->
+            <div class="md:col-span-8 flex flex-col justify-between space-y-4 pl-2">
+              <div class="space-y-3 text-sm">
+                <!-- System notification -->
+                <div class="text-center my-2">
+                  <span class="text-[11px] font-mono bg-slate-800/80 text-slate-400 px-3 py-1 rounded-full border border-slate-700">
+                    <i data-lucide="shield-check" class="w-3 h-3 inline mr-1 text-emerald-400"></i>
+                    双向设备证书握手成功，已建立端到端私有数据管道
+                  </span>
+                </div>
+
+                <!-- Message 1 -->
+                <div class="flex items-start space-x-2">
+                  <div class="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center text-xs text-slate-300 font-bold shrink-0">Bob</div>
+                  <div class="bg-slate-800/90 p-3 rounded-2xl rounded-tl-none border border-slate-700 text-slate-200 max-w-[85%]">
+                    <p class="text-xs text-slate-400 font-mono mb-1">鲍勃 · 10:43:12</p>
+                    <p>已向局域网节点组广播更新，100MB 架构演进文档正在进行 WebRTC 分片直传：</p>
+                    
+                    <!-- File attachment card -->
+                    <div class="mt-2.5 p-2.5 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-between">
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 rounded-lg bg-sky-500/20 text-sky-400">
+                          <i data-lucide="file-code" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                          <div class="text-xs font-semibold text-white font-mono">MeshX_Architecture_v0.3.0.pdf</div>
+                          <div class="text-[10px] text-slate-400 font-mono">100 MiB · SHA-256 Verified</div>
+                        </div>
+                      </div>
+                      <span class="text-xs text-emerald-400 font-mono flex items-center gap-1">
+                        <i data-lucide="check-circle2" class="w-3.5 h-3.5"></i> 直传成功
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Message 2 (Self) -->
+                <div class="flex items-start justify-end space-x-2">
+                  <div class="bg-sky-600/20 p-3 rounded-2xl rounded-tr-none border border-sky-500/30 text-slate-100 max-w-[85%]">
+                    <p class="text-[10px] text-sky-300 font-mono mb-1 text-right">我 (Client Node) · 10:43:45 · ACK 已确认</p>
+                    <p class="text-sm">收到！本地 SQLite 索引已更新，`clientMsgId` 幂等校验通过，无需连接外部互联网。</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Input bar -->
+              <div class="pt-2 border-t border-slate-800 flex items-center space-x-2">
+                <input type="text" readonly value="发送局域网加密消息... (全端单活控制/自动分片续传/多实例路由)" class="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-400 font-mono cursor-not-allowed">
+                <button class="px-4 py-2 bg-sky-600 text-white rounded-lg text-xs font-medium flex items-center gap-1">
+                  <i data-lucide="send" class="w-3.5 h-3.5"></i> 发送
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Core Features Grid -->
+    <section id="features" class="py-20 bg-slate-950/50 border-y border-slate-800/80">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="text-xs font-mono font-semibold text-sky-400 uppercase tracking-widest mb-2">Core Value Propositions</h2>
+          <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">为什么选择 MeshX？四大核心突破</p>
+          <p class="mt-4 text-slate-400 text-base">打破传统中心化即时通讯对公网与中央服务器的过度依赖，重塑私有环境下的即时协作。</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          
+          <!-- Card 1 -->
+          <div class="glass-card p-6 rounded-2xl transition duration-300 flex flex-col justify-between">
+            <div>
+              <div class="w-12 h-12 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-400 flex items-center justify-center mb-5">
+                <i data-lucide="wifi-off" class="w-6 h-6"></i>
+              </div>
+              <h3 class="text-xl font-bold text-white mb-2">LAN-First & 自动发现</h3>
+              <p class="text-sm text-slate-400 leading-relaxed">
+                使用 mDNS / DNS-SD 局域网无配置发现节点。支持 WebRTC DataChannel 与本地 TCP 局域网直传，数据零出网，不写公网带宽。
+              </p>
+            </div>
+            <div class="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-sky-400">
+              <span>_meshx-node._tcp.local</span>
+              <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Card 2 -->
+          <div class="glass-card p-6 rounded-2xl transition duration-300 flex flex-col justify-between">
+            <div>
+              <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mb-5">
+                <i data-lucide="shield-check" class="w-6 h-6"></i>
+              </div>
+              <h3 class="text-xl font-bold text-white mb-2">100% 可靠消息引擎</h3>
+              <p class="text-sm text-slate-400 leading-relaxed">
+                数据库事务 ACK、`clientMsgId` 幂等去重、会话增量 sequence 补拉与 IndexedDB/SQLite 离线发件箱，断网自动补发不丢漏。
+              </p>
+            </div>
+            <div class="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-indigo-400">
+              <span>Transactional ACK</span>
+              <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Card 3 -->
+          <div class="glass-card p-6 rounded-2xl transition duration-300 flex flex-col justify-between">
+            <div>
+              <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mb-5">
+                <i data-lucide="lock" class="w-6 h-6"></i>
+              </div>
+              <h3 class="text-xl font-bold text-white mb-2">零信任安全与物理审计</h3>
+              <p class="text-sm text-slate-400 leading-relaxed">
+                扩展名/MIME/文件头三重深度校验、10分钟签名临时访问、HttpOnly 令牌轮换与单活设备约束，物理擦除流程带完整独立审计表。
+              </p>
+            </div>
+            <div class="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-emerald-400">
+              <span>File Head Inspection</span>
+              <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Card 4 -->
+          <div class="glass-card p-6 rounded-2xl transition duration-300 flex flex-col justify-between">
+            <div>
+              <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mb-5">
+                <i data-lucide="layers" class="w-6 h-6"></i>
+              </div>
+              <h3 class="text-xl font-bold text-white mb-2">多实例扩展与 MinIO</h3>
+              <p class="text-sm text-slate-400 leading-relaxed">
+                后端原生支持 Spring Boot 3.5 多实例集群，共享 Redis Pub/Sub 全局 Presence 与跨实例路由，支持 LOCAL 与私有 MinIO 存储动态无缝切换。
+              </p>
+            </div>
+            <div class="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-cyan-400">
+              <span>Redis Cluster Bus</span>
+              <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="architecture" class="py-20 relative">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="text-xs font-mono font-semibold text-sky-400 uppercase tracking-widest mb-2">System Architecture Evolution</h2>
+          <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">控制面与数据面分离架构</p>
+          <p class="mt-4 text-slate-400 text-base">MeshX 将传统中心化架构演进为“控制面集中管控，数据面自治 P2P 直连”，兼组安全合规与极限协同性能。</p>
+        </div>
+
+        <!-- Architecture Diagram Card -->
+        <div class="glass-panel p-6 sm:p-10 rounded-2xl border border-slate-700/80 shadow-2xl">
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            
+            <!-- Column 1: Control Plane -->
+            <div class="lg:col-span-5 p-6 rounded-xl bg-slate-900/90 border border-indigo-500/30 space-y-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-mono font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <i data-lucide="server" class="w-4 h-4"></i> MeshX Control Plane (控制面)
+                </span>
+                <span class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono">Spring Boot 3.5</span>
+              </div>
+              <p class="text-xs text-slate-400">负责身份认证、组织架构、RBAC 权限、设备策略、签名授权、在线 Presence 与审计日志。</p>
+              
+              <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+                <div class="p-2 rounded bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="database" class="w-3.5 h-3.5 text-sky-400"></i> MySQL 8 (持久化)
+                </div>
+                <div class="p-2 rounded bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i> Redis (Bus/Presence)
+                </div>
+                <div class="p-2 rounded bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-emerald-400"></i> MinIO / LOCAL Storage
+                </div>
+                <div class="p-2 rounded bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="radio" class="w-3.5 h-3.5 text-amber-400"></i> mDNS Control Announce
+                </div>
+              </div>
+            </div>
+
+            <!-- Interconnect Arrow -->
+            <div class="lg:col-span-2 flex flex-col items-center justify-center text-center space-y-2 py-4 lg:py-0">
+              <div class="p-3 rounded-full bg-slate-800 border border-slate-700 text-sky-400">
+                <i data-lucide="repeat" class="w-6 h-6"></i>
+              </div>
+              <span class="text-xs font-mono text-slate-400">策略授权 & 离线信箱回退</span>
+            </div>
+
+            <!-- Column 2: Data Plane -->
+            <div class="lg:col-span-5 p-6 rounded-xl bg-slate-900/90 border border-sky-500/30 space-y-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-mono font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <i data-lucide="cpu" class="w-4 h-4"></i> MeshX Data Plane (数据面)
+                </span>
+                <span class="text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono">Rust / Tauri / Native</span>
+              </div>
+              <p class="text-xs text-slate-400">消息与文件传输优先局域网 P2P 直连，本地保存完全自治副本（SQLite / IndexedDB）。</p>
+              
+              <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+                <div class="p-2 rounded bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="monitor" class="w-3.5 h-3.5 text-sky-400"></i> Desktop Full Node (Rust)
+                </div>
+                <div class="p-2 rounded bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="smartphone" class="w-3.5 h-3.5 text-emerald-400"></i> Mobile Node (Android/iOS)
+                </div>
+                <div class="p-2 rounded bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="globe" class="w-3.5 h-3.5 text-indigo-400"></i> Web Client (Vue 3.5)
+                </div>
+                <div class="p-2 rounded bg-slate-950/80 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i> WebRTC & P2P Stream
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Feature Showcase Tabs -->
+    <section id="showcase" class="py-20 bg-slate-950/50 border-t border-slate-800/80">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-12">
+          <h2 class="text-xs font-mono font-semibold text-sky-400 uppercase tracking-widest mb-2">Feature Highlights</h2>
+          <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">深入探索 MeshX 核心功能</p>
+        </div>
+
+        <!-- Interactive Tabs Navigation -->
+        <div class="flex flex-wrap justify-center gap-2 mb-8" id="tab-buttons">
+          <button onclick="switchTab('tab-messaging')" id="btn-tab-messaging" class="px-5 py-2.5 rounded-xl font-medium text-sm transition bg-sky-600 text-white shadow-lg shadow-sky-500/20">
+            可靠消息主链路
+          </button>
+          <button onclick="switchTab('tab-upload')" id="btn-tab-upload" class="px-5 py-2.5 rounded-xl font-medium text-sm transition bg-slate-800 text-slate-300 hover:bg-slate-700">
+            断点续传与存储
+          </button>
+          <button onclick="switchTab('tab-collaboration')" id="btn-tab-collaboration" class="px-5 py-2.5 rounded-xl font-medium text-sm transition bg-slate-800 text-slate-300 hover:bg-slate-700">
+            临时房间与应急广播
+          </button>
+          <button onclick="switchTab('tab-cluster')" id="btn-tab-cluster" class="px-5 py-2.5 rounded-xl font-medium text-sm transition bg-slate-800 text-slate-300 hover:bg-slate-700">
+            多实例与诊断
+          </button>
+        </div>
+
+        <!-- Tab Content Panes -->
+        <div class="glass-panel p-6 sm:p-8 rounded-2xl border border-slate-700/80 shadow-xl">
+          
+          <!-- Tab 1: Messaging -->
+          <div id="tab-messaging" class="tab-content space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              <div class="space-y-4">
+                <h3 class="text-2xl font-bold text-white flex items-center gap-2">
+                  <i data-lucide="message-square-check" class="w-6 h-6 text-sky-400"></i>
+                  事务级 ACK 与可靠消息机制
+                </h3>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                  通过客户端在本地生成的唯一 <code class="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-sky-300">clientMsgId</code>，配合服务端的唯一联合索引 <code class="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-sky-300">UNIQUE (from_user_id, client_msg_id)</code>，彻底解决网络重试导致的消息重复问题。
+                </p>
+                <ul class="space-y-2 text-xs font-mono text-slate-400">
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 同一事务内分配会话 Sequence 并保存消息</li>
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 只有事务完全成功后才向客户端返回 CHAT_ACK</li>
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 重连后通过 SYNC_REQUEST 自动拉取遗漏缺口</li>
+                </ul>
+              </div>
+              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 overflow-x-auto">
+                <div class="text-slate-500 mb-2">// 可靠消息链路工作流</div>
+                <div class="text-sky-400">1. Local IndexedDB/SQLite</div>
+                <div class="text-slate-400 pl-4">└─ Write message with clientMsgId, status="PENDING"</div>
+                <div class="text-sky-400 mt-1">2. WebSocket CHAT_SEND</div>
+                <div class="text-slate-400 pl-4">└─ Server verifies session permission & attachments</div>
+                <div class="text-sky-400 mt-1">3. Database Transaction</div>
+                <div class="text-slate-400 pl-4">└─ Assign sequence → Save Msg → Return CHAT_ACK</div>
+                <div class="text-emerald-400 mt-1">4. Delivery</div>
+                <div class="text-slate-400 pl-4">└─ Move out of local Outbox → Deliver CHAT_DELIVER</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 2: Upload -->
+          <div id="tab-upload" class="tab-content hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              <div class="space-y-4">
+                <h3 class="text-2xl font-bold text-white flex items-center gap-2">
+                  <i data-lucide="file-up" class="w-6 h-6 text-indigo-400"></i>
+                  2MB 窗口分片 SHA-256 断点续传
+                </h3>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                  采用 2 MiB 滚动窗口计算文件完整 SHA-256，无需将 100MB 大文件一次性加载至内存。支持分片幂等重试、缺片查询与持久化对象清理重试队列。
+                </p>
+                <ul class="space-y-2 text-xs font-mono text-slate-400">
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 支持 LOCAL 私有目录与 MinIO S3 动态切换</li>
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 文件扩展名、MIME 与头部 Magic Bytes 三重校验</li>
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 10分钟临时签名预览地址与完整 file_access_log 审计</li>
+                </ul>
+              </div>
+              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 overflow-x-auto">
+                <div class="text-slate-500 mb-2">// REST Upload Protocol</div>
+                <div class="text-indigo-400">POST /api/v1/file/uploads</div>
+                <div class="text-slate-400 pl-4">└─ Return uploadId, totalParts, missingParts</div>
+                <div class="text-indigo-400 mt-1">PUT /api/v1/file/uploads/{id}/parts/{partNumber}</div>
+                <div class="text-slate-400 pl-4">└─ Upload binary chunk with ?sha256=...</div>
+                <div class="text-emerald-400 mt-1">POST /api/v1/file/uploads/{id}/complete</div>
+                <div class="text-slate-400 pl-4">└─ Re-verify total size & final SHA-256 checksum</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Collaboration -->
+          <div id="tab-collaboration" class="tab-content hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              <div class="space-y-4">
+                <h3 class="text-2xl font-bold text-white flex items-center gap-2">
+                  <i data-lucide="users" class="w-6 h-6 text-emerald-400"></i>
+                  临时房间与全员应急广播
+                </h3>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                  提供独立生命周期的临时协作房间与强受控的应急广播系统，满足项目现场敏捷协同与突发事件响应需求。
+                </p>
+                <ul class="space-y-2 text-xs font-mono text-slate-400">
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 临时房间支持房间码、成员角色与 FREEZE/ARCHIVE/DESTROY 生命周期</li>
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 应急广播支持管理员极速授权与全员/好友复选发送</li>
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 在线实时推送 + 离线上线补拉，附带实时回执统计与保留历史的撤销</li>
+                </ul>
+              </div>
+              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 overflow-x-auto">
+                <div class="text-slate-500 mb-2">// Broadcast Receipt Snapshot</div>
+                <div class="text-amber-400">Broadcast ID: bc_20260801_01</div>
+                <div class="text-slate-300">Target Count: 100 Members</div>
+                <div class="text-emerald-400">Delivered: 98 | Pending: 2</div>
+                <div class="text-slate-400">Recall Status: ACTIVE (Admin recall retains audit)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 4: Cluster -->
+          <div id="tab-cluster" class="tab-content hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              <div class="space-y-4">
+                <h3 class="text-2xl font-bold text-white flex items-center gap-2">
+                  <i data-lucide="activity" class="w-6 h-6 text-cyan-400"></i>
+                  多实例集群路由与全局 Presence
+                </h3>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                  同一逻辑节点可无缝扩展多个 Spring Boot 实例。利用 Redis Pub/Sub 进行跨实例实时消息路由、设备下线与 WebRTC 信令转发，全局 Presence 带有自动续约与故障自愈机制。
+                </p>
+                <ul class="space-y-2 text-xs font-mono text-slate-400">
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> Redis Pub/Sub 带实例 ID 去重，避免事件自回放</li>
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 管理员实时连接诊断，探测 MySQL、Redis 延迟与 JVM 堆状态</li>
+                  <li class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> 运行日志流式导出，支持关键字与错误堆栈智能分析</li>
+                </ul>
+              </div>
+              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 overflow-x-auto">
+                <div class="text-slate-500 mb-2">// Cluster Metrics Snapshot</div>
+                <div class="text-cyan-400">Instance 1: lanchat-1 (Sessions: 142)</div>
+                <div class="text-cyan-400">Instance 2: lanchat-2 (Sessions: 158)</div>
+                <div class="text-slate-300">Redis Ping Latency: 0.45 ms</div>
+                <div class="text-slate-300">MySQL Ping Latency: 1.12 ms</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Security & Compliance Section -->
+    <section id="security" class="py-20 relative">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="text-xs font-mono font-semibold text-sky-400 uppercase tracking-widest mb-2">Zero-Trust & Compliance</h2>
+          <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">金融级安全与权限防护</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          
+          <div class="glass-panel p-6 rounded-xl border border-slate-800 space-y-3">
+            <div class="w-10 h-10 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+              <i data-lucide="key" class="w-5 h-5"></i>
+            </div>
+            <h4 class="text-lg font-bold text-white">HttpOnly Cookie 令牌轮换</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Refresh Token 保存在 <code class="font-mono bg-slate-900 px-1 text-sky-300">HttpOnly + SameSite=Strict</code> Cookie 中，刷新时自动轮换；Access Token 仅短期保存在内存/sessionStorage，杜绝 XSS 泄露。
+            </p>
+          </div>
+
+          <div class="glass-panel p-6 rounded-xl border border-slate-800 space-y-3">
+            <div class="w-10 h-10 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <i data-lucide="smartphone" class="w-5 h-5"></i>
+            </div>
+            <h4 class="text-lg font-bold text-white">设备会话单活约束</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              数据库约束 <code class="font-mono bg-slate-900 px-1 text-indigo-300">UNIQUE (user_id, device_type)</code>，同一账号同一设备类型单活登录，新登录自动吊销旧设备并发送 WebSocket 下线通知。
+            </p>
+          </div>
+
+          <div class="glass-panel p-6 rounded-xl border border-slate-800 space-y-3">
+            <div class="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <i data-lucide="user-x" class="w-5 h-5"></i>
+            </div>
+            <h4 class="text-lg font-bold text-white">归档与独立物理擦除</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              支持用户非破坏性归档与匿名化。高风险数据物理擦除需独立二次审批流程，并写入不可篡改的 <code class="font-mono bg-slate-900 px-1 text-emerald-300">user_physical_erasure_audit</code> 审计表。
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Multi-Platform Section -->
+    <section id="platforms" class="py-20 bg-slate-950/50 border-t border-slate-800/80">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="text-xs font-mono font-semibold text-sky-400 uppercase tracking-widest mb-2">Cross-Platform Support</h2>
+          <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">全平台多端原生体验</p>
+          <p class="mt-4 text-slate-400 text-base">一套通用基础，覆盖 Web、桌面端与移动端。</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+          
+          <!-- Web -->
+          <div class="glass-card p-6 rounded-2xl space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="p-3 rounded-xl bg-sky-500/10 text-sky-400">
+                <i data-lucide="globe" class="w-6 h-6"></i>
+              </div>
+              <span class="text-xs font-mono px-2 py-1 rounded bg-slate-800 text-slate-300">Vue 3.5 + Vite 8</span>
+            </div>
+            <h3 class="text-xl font-bold text-white">Web 客户端</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              同源托管与 PWA 支持，轻量高效。提供完整离线 IndexedDB 发件箱、连接诊断与跨实例消息提醒。
+            </p>
+            <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-sky-400 font-mono">
+              <span>开箱即用 · 浏览器直访问</span>
+              <i data-lucide="external-link" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Desktop -->
+          <div class="glass-card p-6 rounded-2xl space-y-4 border-sky-500/30">
+            <div class="flex items-center justify-between">
+              <div class="p-3 rounded-xl bg-indigo-500/10 text-indigo-400">
+                <i data-lucide="monitor" class="w-6 h-6"></i>
+              </div>
+              <span class="text-xs font-mono px-2 py-1 rounded bg-indigo-500/20 text-indigo-300">Tauri 2 + Rust</span>
+            </div>
+            <h3 class="text-xl font-bold text-white">桌面原生端 (macOS / Win)</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              内置 Rust 原生 mDNS 节点浏览、系统托盘、开机自启、受限深链唤醒与原生 Cookie Jar 凭据隔离。
+            </p>
+            <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-indigo-400 font-mono">
+              <span>Full Node Runtime (开发中)</span>
+              <i data-lucide="download" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Mobile -->
+          <div class="glass-card p-6 rounded-2xl space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="p-3 rounded-xl bg-emerald-500/10 text-emerald-400">
+                <i data-lucide="smartphone" class="w-6 h-6"></i>
+              </div>
+              <span class="text-xs font-mono px-2 py-1 rounded bg-slate-800 text-slate-300">Capacitor 8 (Android/iOS)</span>
+            </div>
+            <h3 class="text-xl font-bold text-white">移动客户端</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              原生 NSD 节点扫描、本地通知、受控 LAN Debug 变体与后台自动重连。支持离线通知补拉。
+            </p>
+            <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-emerald-400 font-mono">
+              <span>Android APK / iOS App</span>
+              <i data-lucide="download" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Quick Deployment Section -->
+    <section id="deploy" class="py-20 relative">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="text-xs font-mono font-semibold text-sky-400 uppercase tracking-widest mb-2">Quick Deployment</h2>
+          <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">30秒私有化极速部署</p>
+          <p class="mt-4 text-slate-400 text-base">使用 Docker Compose 部署包含统一网关、多实例 Spring Boot、MySQL、Redis 与 MinIO 的完整私有环境。</p>
+        </div>
+
+        <div class="max-w-4xl mx-auto glass-panel p-6 sm:p-8 rounded-2xl border border-slate-700/80 shadow-2xl">
+          
+          <div class="flex items-center justify-between pb-4 mb-4 border-b border-slate-800 font-mono text-xs">
+            <span class="text-slate-300 font-semibold flex items-center gap-2">
+              <i data-lucide="terminal" class="w-4 h-4 text-sky-400"></i> Docker Compose Deployment Commands
+            </span>
+            <button onclick="copyCode()" class="text-slate-400 hover:text-white flex items-center gap-1 transition">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> 复制命令
+            </button>
+          </div>
+
+          <pre id="deploy-code" class="bg-slate-950 p-4 rounded-xl font-mono text-xs text-slate-200 overflow-x-auto border border-slate-800 leading-relaxed"><code># 1. 复制配置文件模板
+cp .env.example .env
+chmod 600 .env
+
+# 2. 生成并填入强密码 (JWT_SECRET, DB_PASSWORD, REDIS_PASSWORD 等)
+# 使用密码管理器或 openssl rand -base64 32
+
+# 3. 校验并构建启动私有集群 (包含 lanchat 与 lanchat-2 双实例)
+docker compose config --quiet
+docker compose up --build -d
+
+# 4. 访问统一网关控制台
+# 打开 http://localhost:8080/app/
+# 使用管理员账号 admin 与 .env 中设置的 LANCHAT_BOOTSTRAP_ADMIN_PASSWORD 登录</code></pre>
+
+          <div class="mt-6 pt-4 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-mono text-slate-400">
+            <div class="flex items-center gap-2">
+              <i data-lucide="shield" class="w-4 h-4 text-emerald-400"></i> 默认关闭自助注册
+            </div>
+            <div class="flex items-center gap-2">
+              <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i> 强配置启动校验门禁
+            </div>
+            <div class="flex items-center gap-2">
+              <i data-lucide="server" class="w-4 h-4 text-emerald-400"></i> 容器以非 root 只读根运行
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- FAQ Accordion Section -->
+    <section id="faq" class="py-20 bg-slate-950/50 border-t border-slate-800/80">
+      <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center mb-16">
+          <h2 class="text-xs font-mono font-semibold text-sky-400 uppercase tracking-widest mb-2">Frequently Asked Questions</h2>
+          <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">常见问题解答</p>
+        </div>
+
+        <div class="space-y-4">
+          
+          <div class="glass-panel rounded-xl p-5 border border-slate-800 cursor-pointer" onclick="toggleFaq(this)">
+            <div class="flex items-center justify-between font-semibold text-white text-sm sm:text-base">
+              <span>MeshX 必须连接互联网才能使用吗？</span>
+              <i data-lucide="chevron-down" class="w-5 h-5 text-slate-400 transition-transform"></i>
+            </div>
+            <p class="mt-3 text-xs sm:text-sm text-slate-400 hidden leading-relaxed">
+              完全不需要。MeshX 遵循纯粹的 LAN-First 设计原则，控制面与数据面均可在完全切断公网的纯局域网环境中流畅运行，依靠 DNS-SD / mDNS 自动发现节点与 P2P 直连。
+            </p>
+          </div>
+
+          <div class="glass-panel rounded-xl p-5 border border-slate-800 cursor-pointer" onclick="toggleFaq(this)">
+            <div class="flex items-center justify-between font-semibold text-white text-sm sm:text-base">
+              <span>如果 P2P 协商超时或失败会怎样？</span>
+              <i data-lucide="chevron-down" class="w-5 h-5 text-slate-400 transition-transform"></i>
+            </div>
+            <p class="mt-3 text-xs sm:text-sm text-slate-400 hidden leading-relaxed">
+              MeshX 内置了无缝降级保护。WebRTC P2P 直连默认在 2 秒内尝试协商；如果协商失败、超时或处于跨网段复杂环境，系统会自动且透明地降级为由控制面（Spring Boot 服务器）进行安全中转或保存至离线信箱。
+            </p>
+          </div>
+
+          <div class="glass-panel rounded-xl p-5 border border-slate-800 cursor-pointer" onclick="toggleFaq(this)">
+            <div class="flex items-center justify-between font-semibold text-white text-sm sm:text-base">
+              <span>如何保证传输文件的安全性？</span>
+              <i data-lucide="chevron-down" class="w-5 h-5 text-slate-400 transition-transform"></i>
+            </div>
+            <p class="mt-3 text-xs sm:text-sm text-slate-400 hidden leading-relaxed">
+              文件上传时会在服务端同时核对扩展名、MIME 类型和 Magic Bytes 文件头容器结构。文件存储支持 LOCAL 私有目录与 MinIO 私有 Bucket。生成的文件下载预览地址均为 10 分钟短时签名地址，每次访问均会重新复核会话权限，并记录完整审计日志。
+            </p>
+          </div>
+
+          <div class="glass-panel rounded-xl p-5 border border-slate-800 cursor-pointer" onclick="toggleFaq(this)">
+            <div class="flex items-center justify-between font-semibold text-white text-sm sm:text-base">
+              <span>什么是 AI Ops Agent 基础设施？</span>
+              <i data-lucide="chevron-down" class="w-5 h-5 text-slate-400 transition-transform"></i>
+            </div>
+            <p class="mt-3 text-xs sm:text-sm text-slate-400 hidden leading-relaxed">
+              MeshX 为 Node Runtime 暴露了结构化工具接口（如查看节点健康度、网络延迟、结构化日志）。AI Agent 可以在得到管理员明确授权的前提下自然语言诊断并生成修复建议，任何具有副作用的操作均需经过确认与完整审计。
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/80 bg-slate-950 py-12 relative z-10 text-slate-400 text-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-6">
+      
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-slate-900 border border-sky-500/30 p-1.5 flex items-center justify-center text-sky-400">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 560" fill="currentColor" class="w-full h-full">
+            <path d="M 0,0 L 250,270 L 500,0 L 500,390 L 430,440 L 430,135 L 250,330 L 70,135 L 70,440 L 0,390 Z"/>
+            <path d="M 250,295 L 480,480 L 480,560 L 250,375 L 20,560 L 20,480 Z"/>
+          </svg>
+        </div>
+        <div>
+          <span class="font-bold text-white font-mono">MeshX Infrastructure</span>
+          <p class="text-[11px] text-slate-500">LAN-first 私有 AI 协作基础设施 · Open Source MIT License</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-6 font-mono text-slate-400">
+        <a href="https://github.com/Atti-20/lan-chat" target="_blank" rel="noopener noreferrer" class="hover:text-white transition">GitHub Repo</a>
+        <span>·</span>
+        <a href="#architecture" class="hover:text-white transition">Architecture Evolution</a>
+        <span>·</span>
+        <a href="#deploy" class="hover:text-white transition">Docker Deployment</a>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- Interactive JavaScript -->
+  <script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+
+    // Tab Switching Logic
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(tabId).classList.remove('hidden');
+
+      const btnMap = {
+        'tab-messaging': 'btn-tab-messaging',
+        'tab-upload': 'btn-tab-upload',
+        'tab-collaboration': 'btn-tab-collaboration',
+        'tab-cluster': 'btn-tab-cluster'
+      };
+
+      Object.values(btnMap).forEach(btnId => {
+        const btn = document.getElementById(btnId);
+        btn.className = "px-5 py-2.5 rounded-xl font-medium text-sm transition bg-slate-800 text-slate-300 hover:bg-slate-700";
+      });
+
+      const activeBtn = document.getElementById(btnMap[tabId]);
+      activeBtn.className = "px-5 py-2.5 rounded-xl font-medium text-sm transition bg-sky-600 text-white shadow-lg shadow-sky-500/20";
+    }
+
+    // FAQ Accordion Toggle
+    function toggleFaq(card) {
+      const text = card.querySelector('p');
+      const icon = card.querySelector('i');
+      text.classList.toggle('hidden');
+      icon.classList.toggle('rotate-180');
+    }
+
+    // Copy Code Command
+    function copyCode() {
+      const code = document.getElementById('deploy-code').innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        alert('部署命令已复制到剪贴板！');
+      });
+    }
+  </script>
+
+</body>
+</html>

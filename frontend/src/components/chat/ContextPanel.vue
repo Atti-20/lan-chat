@@ -41,6 +41,14 @@ function temporaryRoom(): TemporaryRoom | null {
     : null
 }
 
+function isSystemNotification(): boolean {
+  const source = props.conversation.source
+  return props.conversation.kind === 'private'
+    && 'username' in source
+    && source.username === 'broadcast-notify'
+    && source.signature === '系统广播通知账户'
+}
+
 function roomStatusLabel(status?: TemporaryRoom['status']): string {
   return status ? {
     ACTIVE: '协作中',
@@ -98,7 +106,7 @@ function saveRemark(): void {
           <p v-if="conversation.subtitle" class="bio">{{ conversation.subtitle }}</p>
         </div>
 
-        <template v-if="conversation.kind === 'private'">
+        <template v-if="conversation.kind === 'private' && !isSystemNotification()">
           <!-- 备注管理 -->
           <div class="remark-section">
             <div class="remark-header">
@@ -150,6 +158,11 @@ function saveRemark(): void {
           </button>
         </template>
 
+        <div v-else-if="conversation.kind === 'private'" class="system-notification-detail">
+          <UiIcon name="bell" :size="20" />
+          <strong>系统通知账户</strong>
+          <p>它只会发送广播内容概览和创建者的确认提醒，不能作为普通好友聊天。</p>
+        </div>
         <div v-else-if="conversation.kind === 'temporary' && temporaryRoom()" class="room-detail-section">
           <dl class="room-facts">
             <div><dt>到期时间</dt><dd>{{ formatRoomExpiry(temporaryRoom()?.expiresAt) }}</dd></div>
@@ -201,8 +214,8 @@ function saveRemark(): void {
   max-height: calc(100dvh - 60px);
   padding: 32px 24px 24px;
   flex-direction: column;
-  gap: 16px;
-  border-radius: 22px;
+  gap: var(--space-4);
+  border-radius: var(--radius-sheet);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   overflow-y: auto;
 }
@@ -223,6 +236,9 @@ function saveRemark(): void {
   cursor: pointer;
   transition: background-color 150ms ease;
 }
+.system-notification-detail { display: grid; padding: 16px; justify-items: center; gap: 8px; border-radius: var(--radius-control); color: var(--ink-soft); text-align: center; background: var(--fill); }
+.system-notification-detail .ui-icon { color: var(--accent-text); }
+.system-notification-detail p { margin: 0; font-size: var(--font-caption); line-height: 1.55; }
 .context-close:hover { background: var(--button-hover); }
 .context-close .ui-icon { width: 15px; }
 
@@ -232,14 +248,14 @@ function saveRemark(): void {
   justify-items: center;
   text-align: center;
 }
-.context-profile > strong { margin-top: 12px; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
-.status-line { margin-top: 3px; color: var(--ink-faint); font-size: 12px; font-weight: 500; }
-.bio { margin: 10px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.context-profile > strong { margin-top: 12px; font-size: var(--font-title-sm); font-weight: 700; letter-spacing: -0.02em; }
+.status-line { margin-top: 3px; color: var(--ink-faint); font-size: var(--font-caption); font-weight: 500; }
+.bio { margin: 10px 0 0; color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.6; }
 
 /* 备注 */
 .remark-section {
   padding: 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: var(--fill);
 }
 .remark-header {
@@ -250,7 +266,7 @@ function saveRemark(): void {
 }
 .remark-label {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--font-micro);
   font-weight: 600;
 }
 .remark-edit-btn {
@@ -259,8 +275,8 @@ function saveRemark(): void {
   gap: 3px;
   padding: 0;
   border: 0;
-  color: var(--blue);
-  font-size: 11px;
+  color: var(--accent-text);
+  font-size: var(--font-micro);
   font-weight: 600;
   background: none;
   cursor: pointer;
@@ -270,7 +286,7 @@ function saveRemark(): void {
 
 .remark-display {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-body);
   font-weight: 500;
   word-break: break-all;
 }
@@ -279,53 +295,53 @@ function saveRemark(): void {
   font-weight: 400;
 }
 
-.remark-edit { display: grid; gap: 8px; }
+.remark-edit { display: grid; gap: var(--space-2); }
 .remark-field {
   width: 100%;
   min-height: 36px;
   padding: 8px 10px;
   border: 1px solid var(--separator, #e5e5ea);
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: var(--radius-control);
+  font-size: var(--font-body-sm);
   background: var(--surface);
   outline: none;
   transition: border-color 150ms ease;
 }
-.remark-field:focus { border-color: var(--blue); }
+.remark-field:focus { border-color: var(--accent-text); }
 .remark-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .remark-actions button {
   min-height: 30px;
   padding: 0 14px;
   border: 0;
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-caption);
   font-weight: 600;
   cursor: pointer;
   transition: background-color 150ms ease;
 }
 .room-detail-section { display: grid; gap: 14px; }
-.room-facts { display: grid; margin: 0; gap: 1px; overflow: hidden; border: 1px solid var(--separator); border-radius: 14px; background: var(--separator); }
+.room-facts { display: grid; margin: 0; gap: 1px; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--radius-md); background: var(--separator); }
 .room-facts > div { display: grid; padding: 11px 12px; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; background: var(--surface-raise); }
-.room-facts dt { color: var(--ink-faint); font-size: 11px; }
-.room-facts dd { margin: 0; color: var(--ink); font-size: 11px; text-align: right; overflow-wrap: anywhere; }
-.room-code { font-family: "SF Mono", ui-monospace, monospace; letter-spacing: .06em; }
+.room-facts dt { color: var(--ink-faint); font-size: var(--font-micro); }
+.room-facts dd { margin: 0; color: var(--ink); font-size: var(--font-micro); text-align: right; overflow-wrap: anywhere; }
+.room-code { font-family: var(--font-mono); letter-spacing: .06em; }
 .remark-cancel { color: var(--ink); background: var(--button-hover); }
 .remark-cancel:hover { background: var(--button-hover-strong); }
-.remark-save { color: #fff; background: var(--blue); }
-.remark-save:hover { background: color-mix(in srgb, var(--blue) 88%, #000); }
+.remark-save { color: #fff; background: var(--action-bg); }
+.remark-save:hover { background: color-mix(in srgb, var(--action-bg) 88%, #000); }
 .remark-save:disabled { opacity: 0.5; }
 
-.action-list { display: grid; gap: 4px; }
+.action-list { display: grid; gap: var(--space-1); }
 .action-list button {
   display: flex;
   height: 48px;
   padding: 0 14px;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--font-body-sm);
   font-weight: 500;
   background: var(--fill);
   cursor: pointer;
@@ -337,8 +353,8 @@ function saveRemark(): void {
   width: 32px;
   height: 32px;
   place-items: center;
-  border-radius: 10px;
-  color: var(--blue);
+  border-radius: var(--radius-control);
+  color: var(--accent-text);
   background: rgba(0, 122, 255, 0.08);
 }
 .action-icon .ui-icon { width: 17px; }
@@ -349,11 +365,11 @@ function saveRemark(): void {
   padding: 0 14px;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   border: 0;
-  border-radius: 14px;
-  color: var(--coral);
-  font-size: 13px;
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: var(--font-body-sm);
   font-weight: 600;
   background: color-mix(in srgb, var(--coral) 8%, transparent);
   cursor: pointer;
@@ -369,15 +385,15 @@ function saveRemark(): void {
   align-items: center;
   justify-content: space-between;
 }
-.member-heading strong { font-size: 13px; }
+.member-heading strong { font-size: var(--font-body-sm); }
 .member-heading span {
   display: grid;
   min-width: 23px;
   height: 22px;
   padding: 0 6px;
   place-items: center;
-  border-radius: 8px;
-  color: var(--blue);
+  border-radius: var(--radius-sm);
+  color: var(--accent-text);
   font-size: var(--font-caption);
   font-weight: 600;
   background: rgba(0, 122, 255, 0.09);
@@ -389,15 +405,15 @@ function saveRemark(): void {
   padding: 8px 6px;
   align-items: center;
   gap: 10px;
-  border-radius: 11px;
+  border-radius: var(--radius-control);
   transition: background-color 150ms ease;
 }
 .member-item:hover { background: var(--hover); }
 .member-item > span { display: grid; min-width: 0; gap: 2px; }
-.member-item strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.member-item strong { overflow: hidden; font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
 .member-item small { color: var(--ink-soft); font-size: var(--font-micro); }
 
 @media (max-width: 520px) {
-  .context-panel { width: calc(100% - 32px); padding: 28px 18px 18px; border-radius: 20px; }
+  .context-panel { width: calc(100% - 32px); padding: 28px 18px 18px; border-radius: var(--radius-lg); }
 }
 </style>

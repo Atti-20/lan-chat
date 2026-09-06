@@ -242,47 +242,56 @@ watch(() => props.createdUsername, (createdUsername) => {
 </template>
 
 <style scoped>
-.admin-console { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--surface); }
+.admin-console { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--surface); container: admin / inline-size; }
 .admin-header { display: flex; flex: 0 0 auto; padding: 22px 24px; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--separator); background: var(--surface-glass); }
-.admin-header p { margin: 0 0 5px; color: var(--blue); font-size: var(--font-micro); font-weight: 800; letter-spacing: .16em; }
-.admin-header h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
-.admin-header span { color: var(--ink-soft); font-size: 11px; }
-.header-actions { display: flex; align-items: center; gap: 8px; }
+.admin-header p { margin: 0 0 5px; color: var(--accent-text); font-size: var(--font-micro); font-weight: 800; letter-spacing: .16em; }
+.admin-header h2 { margin: 0; font-size: var(--font-title); letter-spacing: -.04em; }
+.admin-header span { color: var(--ink-soft); font-size: var(--font-micro); }
+.header-actions { display: flex; align-items: center; gap: var(--space-2); }
 .header-actions button,
 .row-actions button,
-.mute-fields button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 10px; color: var(--blue); font-size: 11px; font-weight: 700; background: var(--active); cursor: pointer; }
+.mute-fields button { min-height: 34px; padding: 0 12px; border: 0; border-radius: var(--radius-control); color: var(--accent-text); font-size: var(--font-micro); font-weight: 700; background: var(--active); cursor: pointer; }
 .header-actions button:disabled,
 .row-actions button:disabled,
 .mute-fields button:disabled { opacity: .45; cursor: default; }
-.account-create { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; gap: 10px; padding: 14px 24px; align-items: end; border-bottom: 1px solid var(--separator); background: var(--surface-raise); }
-.account-create label { display: grid; gap: 6px; }
+.account-create { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) auto; gap: var(--space-3); padding: var(--space-3) var(--space-6); align-items: end; border-bottom: 1px solid var(--separator); background: var(--surface-raise); }
+.account-create label { display: grid; min-width: 0; gap: var(--space-2); }
 .account-create label span { color: var(--ink-soft); font-size: var(--font-caption); font-weight: 700; }
-.account-create input { min-width: 0; height: 38px; padding: 0 11px; border: 1px solid var(--separator); border-radius: 10px; color: var(--ink); font: inherit; background: var(--surface); }
-.account-create button { height: 38px; padding: 0 15px; border: 0; border-radius: 10px; color: white; font-size: 11px; font-weight: 750; background: var(--blue); cursor: pointer; }
+.account-create input { min-width: 0; height: var(--control-height); padding: 0 var(--space-3); border: 1px solid var(--separator); border-radius: var(--radius-control); color: var(--ink); font-size: var(--font-body); background: var(--surface); }
+.account-create button { height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); color: var(--on-accent); font-size: var(--font-body); font-weight: 650; background: var(--action-bg); cursor: pointer; }
 .account-create button:disabled { opacity: .5; cursor: default; }
-.account-create p { grid-column: 1 / -1; margin: 0; color: var(--coral); font-size: var(--font-caption); }
+.account-create p { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: var(--font-caption); }
 .admin-card-list { display: none; }
 .admin-table-wrap { min-height: 0; flex: 1; overflow: auto; }
-.admin-table { width: 100%; border-collapse: collapse; }
+.admin-table { width: 100%; min-width: 1040px; border-collapse: collapse; }
 .admin-table th { position: sticky; z-index: 1; top: 0; padding: 12px 18px; color: var(--ink-faint); text-align: left; font-size: var(--font-caption); font-weight: 700; background: var(--surface-raise); }
 .admin-table td { padding: 14px 18px; border-top: 1px solid var(--separator); vertical-align: middle; }
 .user-cell { display: flex; min-width: 180px; align-items: center; gap: 10px; }
 .user-cell div { display: grid; gap: 3px; }
-.user-cell strong { font-size: 12px; }
+.user-cell strong { font-size: var(--font-caption); }
 .user-cell small { color: var(--ink-faint); font-size: var(--font-micro); }
-.status-badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: var(--green); font-size: var(--font-caption); font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
-.status-badge.banned { color: var(--coral); background: color-mix(in srgb, var(--coral) 10%, transparent); }
+.status-badge { display: inline-flex; white-space: nowrap; padding: 5px 9px; border-radius: var(--radius-pill); color: var(--success); font-size: var(--font-caption); font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
+.status-badge.banned { color: var(--danger); background: color-mix(in srgb, var(--coral) 10%, transparent); }
 .status-badge.archived { color: var(--ink-faint); background: var(--fill); }
 .archived-cell { color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.5; }
 .permission-switch { display: inline-flex; min-width: 138px; align-items: center; gap: 9px; color: var(--ink-soft); font-size: var(--font-caption); font-weight: 650; }
 .mute-fields { display: flex; min-width: 260px; align-items: center; gap: 6px; }
-.mute-fields input { width: 92px; height: 34px; padding: 0 8px; border: 1px solid var(--separator); border-radius: 9px; color: var(--ink); font: inherit; background: var(--surface); }
+.mute-fields input { width: 92px; height: 34px; padding: 0 8px; border: 1px solid var(--separator); border-radius: var(--radius-sm); color: var(--ink); font: inherit; background: var(--surface); }
 .mute-fields span { color: var(--ink-faint); font-size: var(--font-caption); }
 .row-actions { display: flex; min-width: 206px; gap: 7px; }
 .row-actions--admin { min-width: 0; }
-.row-actions .danger-button { color: var(--coral); background: color-mix(in srgb, var(--coral) 9%, transparent); }
+.row-actions .danger-button { color: var(--danger); background: color-mix(in srgb, var(--danger-bg) 9%, transparent); }
 .protected-copy { color: var(--ink-faint); font-size: var(--font-caption); }
-.empty-cell { height: 180px; color: var(--ink-soft); text-align: center !important; font-size: 12px; }
+.empty-cell { height: 180px; color: var(--ink-soft); text-align: center !important; font-size: var(--font-caption); }
+
+/* Follow available workspace width, including a user-resized sidebar. */
+@container admin (max-width: 680px) {
+  .admin-header { flex-wrap: wrap; }
+  .account-create { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 50%; overflow-y: auto; flex-shrink: 0; }
+}
+@container admin (max-width: 440px) {
+  .account-create { grid-template-columns: minmax(0, 1fr); }
+}
 
 @media (max-width: 760px) {
   .admin-header {
@@ -292,7 +301,7 @@ watch(() => props.createdUsername, (createdUsername) => {
     gap: 10px;
   }
   .admin-header p { margin-bottom: 3px; }
-  .admin-header h2 { font-size: 20px; }
+  .admin-header h2 { font-size: var(--font-title); }
   .header-actions { gap: 5px; }
   .header-actions button { min-height: 40px; padding: 0 10px; }
   .account-create {
@@ -317,7 +326,7 @@ watch(() => props.createdUsername, (createdUsername) => {
     padding: 44px 18px;
     color: var(--ink-soft);
     text-align: center;
-    font-size: 12px;
+    font-size: var(--font-caption);
   }
 }
 </style>

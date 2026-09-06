@@ -33,11 +33,12 @@
         "font-src": "'self' data:",
         "media-src": "'self' blob:",
         "frame-src": "'self' blob:",
+        "worker-src": "'self' blob: customprotocol: asset:",
         "object-src": "'none'",
         "base-uri": "'self'",
         "form-action": "'self'"
       },
-      "devCsp": "default-src 'self' customprotocol: asset: http://127.0.0.1:1420; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
+      "devCsp": "default-src 'self' customprotocol: asset: http://127.0.0.1:1420; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob: customprotocol: asset:"
     }
   },
   "bundle": {

@@ -121,6 +121,8 @@ function formatBytes(bytes: number): string {
 <style scoped>
 .log-toolbar {
   flex: none;
+  min-width: 0;
+  container: log-toolbar / inline-size;
   border-bottom: 1px solid var(--separator);
   background: var(--surface-raise);
 }
@@ -130,13 +132,13 @@ function formatBytes(bytes: number): string {
   padding: 20px 24px 16px;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: var(--space-5);
 }
 .heading-copy { min-width: 0; }
-.heading-copy p { margin: 0 0 5px; color: var(--blue); font-family: "SF Mono", Menlo, monospace; font-size: var(--font-micro); font-weight: 750; letter-spacing: .12em; }
-.heading-copy h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
-.heading-copy span { display: block; margin-top: 5px; color: var(--ink-soft); font-size: 11px; }
-.toolbar-actions { display: flex; flex: none; gap: 8px; }
+.heading-copy p { margin: 0 0 5px; color: var(--accent-text); font-family: var(--font-mono); font-size: var(--font-micro); font-weight: 750; letter-spacing: .12em; }
+.heading-copy h2 { margin: 0; font-size: var(--font-title); letter-spacing: -.04em; }
+.heading-copy span { display: block; margin-top: 5px; color: var(--ink-soft); font-size: var(--font-micro); }
+.toolbar-actions { display: flex; flex: none; gap: var(--space-2); }
 .toolbar-actions button,
 .apply-button {
   display: inline-flex;
@@ -146,15 +148,15 @@ function formatBytes(bytes: number): string {
   justify-content: center;
   gap: 7px;
   border: 0;
-  border-radius: 10px;
-  color: var(--blue);
+  border-radius: var(--radius-control);
+  color: var(--accent-text);
   font: inherit;
   font-size: var(--font-caption);
   font-weight: 700;
   background: var(--active);
   cursor: pointer;
 }
-.toolbar-actions .export-button { color: white; background: var(--blue); }
+.toolbar-actions .export-button { color: white; background: var(--action-bg); }
 .toolbar-actions button:disabled,
 .apply-button:disabled { opacity: .5; cursor: default; }
 .incident-rail {
@@ -169,11 +171,11 @@ function formatBytes(bytes: number): string {
 }
 .incident { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-soft); font-size: var(--font-caption); }
 .incident i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.incident strong { color: var(--ink); font-family: "SF Mono", Menlo, monospace; font-size: var(--font-caption); }
-.incident--error { color: var(--coral); }
-.incident--warn { color: #d97706; }
-.incident--info { color: var(--blue); }
-.file-summary { margin-left: auto; overflow: hidden; color: var(--ink-faint); font-family: "SF Mono", Menlo, monospace; font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
+.incident strong { color: var(--ink); font-family: var(--font-mono); font-size: var(--font-caption); }
+.incident--error { color: var(--danger); }
+.incident--warn { color: var(--warning); }
+.incident--info { color: var(--accent-text); }
+.file-summary { margin-left: auto; overflow: hidden; color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
 .log-filters {
   display: grid;
   padding: 13px 24px;
@@ -189,7 +191,7 @@ function formatBytes(bytes: number): string {
   min-width: 0;
   height: 36px;
   border: 1px solid var(--separator);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--ink);
   font: inherit;
   font-size: var(--font-caption);
@@ -204,14 +206,26 @@ function formatBytes(bytes: number): string {
 .toolbar-meta { display: flex; padding: 0 24px 12px; align-items: center; gap: 14px; color: var(--ink-faint); font-size: var(--font-micro); }
 .toolbar-meta span + span::before { margin-right: 14px; content: "·"; }
 
+@container log-toolbar (max-width: 660px) {
+  .toolbar-heading { flex-wrap: wrap; gap: var(--space-3); }
+  .log-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .apply-button { grid-column: 1 / -1; }
+  .incident-rail, .toolbar-meta { flex-wrap: wrap; }
+  .file-summary { width: 100%; margin-left: 0; }
+}
+.log-filters select:focus-visible, .log-filters input:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 @media (max-width: 760px) {
-  .toolbar-heading { min-height: 0; padding: 16px; align-items: flex-start; }
-  .heading-copy h2 { font-size: 20px; }
+  .toolbar-heading { min-height: 0; padding: var(--space-4); align-items: flex-start; }
+  .heading-copy h2 { font-size: var(--font-title); }
   .heading-copy span { display: none; }
   .toolbar-actions button { width: 36px; padding: 0; }
   .toolbar-actions button :deep(.ui-icon) { margin: 0; }
   .toolbar-actions button { font-size: 0; }
-  .incident-rail { padding: 0 16px; gap: 12px; }
+  .incident-rail { padding: 0 16px; gap: var(--space-3); }
   .file-summary { display: none; }
   .log-filters { padding: 12px 16px; grid-template-columns: 116px minmax(0, 1fr); }
   .apply-button { grid-column: 1 / -1; }

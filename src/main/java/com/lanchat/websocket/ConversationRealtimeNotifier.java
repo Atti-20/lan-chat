@@ -2,6 +2,7 @@ package com.lanchat.websocket;
 
 import com.lanchat.common.ConversationMembershipChangedEvent;
 import com.lanchat.common.ConversationReadChangedEvent;
+import com.lanchat.common.MentionReadReceiptChangedEvent;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -24,5 +25,10 @@ public class ConversationRealtimeNotifier {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onMembershipChanged(ConversationMembershipChangedEvent event) {
         webSocketHandler.notifyConversationMembershipChanged(event);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onMentionReadReceiptChanged(MentionReadReceiptChangedEvent event) {
+        webSocketHandler.notifyMentionReadReceiptChanged(event);
     }
 }

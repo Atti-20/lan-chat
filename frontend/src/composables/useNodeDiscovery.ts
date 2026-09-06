@@ -74,6 +74,7 @@ export function useNodeDiscovery() {
         ...rawNode,
         current: native
           ? currentSelection?.nodeId === rawNode.nodeId
+            && currentSelection.origin === new URL(rawNode.apiOrigin || rawNode.appUrl).origin
           : rawNode.current,
       }
       const existing = byId.get(node.nodeId)
@@ -138,7 +139,7 @@ export function useNodeDiscovery() {
         const origins = await nativeBridge.discoverNodeOrigins()
         const results = await Promise.allSettled(origins.map((origin) => verifyMobileNode(origin)))
         const verified = results.flatMap((result) => result.status === 'fulfilled'
-          ? [result.value]
+          ? [{ ...result.value, source: 'MDNS' as const }]
           : [])
         discoveredNodes.value = verified
         if (origins.length > 0 && verified.length === 0) {

@@ -2,6 +2,7 @@ package com.lanchat.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.lanchat.dto.ReliableMessageResult;
+import com.lanchat.dto.MentionReadReceiptDTO;
 import com.lanchat.entity.ChatMessage;
 
 import java.util.List;
@@ -49,4 +50,29 @@ public interface ChatMessageService extends IService<ChatMessage> {
 
     /** 搜索消息 */
     List<ChatMessage> searchMessages(Long userId, String keyword, int limit);
+
+    /** Returns read state only for the administrator/owner who sent a group
+     * mention. Other senders and all receivers are deliberately denied. */
+    MentionReadReceiptDTO getMentionReadReceipt(String messageId, Long requesterId);
+
+    /** Writes an internal system card into a direct conversation without
+     * pretending that the technical account is a normal friend. */
+    ChatMessage saveSystemDirectMessage(Long senderId, Long recipientId,
+                                        String type, String content);
+
+    /**
+     * Writes an internal card with a stable domain idempotency key.  Callers
+     * should use a business key such as an overview or reminder sequence so a
+     * retry recovers a missing delivery without creating a second card.
+     */
+    default ChatMessage saveSystemDirectMessage(Long senderId, Long recipientId,
+                                                String type, String content,
+                                                String clientMsgId) {
+        return saveSystemDirectMessage(senderId, recipientId, type, content);
+    }
+
+    /** Removes persisted card content after a recipient is removed from the
+     * corresponding broadcast target snapshot. */
+    List<ChatMessage> redactSystemBroadcastCards(Long senderId, Long recipientId,
+                                                 Long broadcastId);
 }

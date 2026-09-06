@@ -3,6 +3,7 @@ package com.lanchat.controller;
 import com.lanchat.common.Result;
 import com.lanchat.entity.ChatMessage;
 import com.lanchat.dto.ConversationSummary;
+import com.lanchat.dto.MentionReadReceiptDTO;
 import com.lanchat.security.UserContextHolder;
 import com.lanchat.service.ChatMessageService;
 import com.lanchat.service.ConversationService;
@@ -100,5 +101,11 @@ public class ChatController {
             return Result.error(400, "搜索关键词至少2个字符");
         }
         return Result.success(chatMessageService.searchMessages(userId, keyword, limit));
+    }
+
+    @GetMapping("/messages/{messageId}/mention-receipts")
+    public Result<MentionReadReceiptDTO> getMentionReadReceipt(@PathVariable String messageId) {
+        Long userId = UserContextHolder.getCurrentUserId();
+        return Result.success(chatMessageService.getMentionReadReceipt(messageId, userId));
     }
 }

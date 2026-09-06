@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lanchat.common.ConversationIds;
 import com.lanchat.common.ConversationMembershipChangedEvent;
 import com.lanchat.common.ConversationReadChangedEvent;
+import com.lanchat.common.MentionReadReceiptChangedEvent;
 import com.lanchat.dto.ConversationSummary;
 import com.lanchat.entity.ConversationMember;
 import com.lanchat.entity.Conversation;
+import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.GroupMember;
 import com.lanchat.entity.TemporaryRoom;
 import com.lanchat.mapper.ConversationMapper;
@@ -342,12 +344,34 @@ public class ConversationServiceImpl implements ConversationService {
             chatMessageMapper.markPrivateMessagesRead(
                     conversationId, userId, persistedReadSequence);
         }
+        List<ChatMessage> newlyReadMentionMessages = List.of();
+        if (ConversationIds.parseGroup(conversationId).isPresent()) {
+            List<ChatMessage> candidates = chatMessageMapper
+                    .selectUnrecordedMentionedMessagesReadBy(
+                            conversationId, userId, persistedReadSequence);
+            if (candidates != null && !candidates.isEmpty()
+                    && chatMessageMapper.recordMentionReceiptsRead(
+                    conversationId, userId, persistedReadSequence) > 0) {
+                newlyReadMentionMessages = candidates;
+            }
+        }
         eventPublisher.publishEvent(new ConversationReadChangedEvent(
                 conversationId,
                 userId,
                 lockedLastSequence,
                 persistedReadSequence,
                 membership.getUnreadCount() == null ? 0 : membership.getUnreadCount()));
+        if (!newlyReadMentionMessages.isEmpty()) {
+            eventPublisher.publishEvent(new MentionReadReceiptChangedEvent(
+                    conversationId,
+                    userId,
+                    newlyReadMentionMessages.stream()
+                            .filter(message -> message.getMessageId() != null
+                                    && message.getFromUserId() != null)
+                            .map(message -> new MentionReadReceiptChangedEvent.MessageChange(
+                                    message.getMessageId(), message.getFromUserId()))
+                            .toList()));
+        }
     }
 
     @Override
@@ -372,6 +396,13 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     public void markGroupMemberLeft(Long groupId, Long userId) {
         removeConversationMember(ConversationIds.groupConversation(groupId), userId);
+    }
+
+    @Override
+    public void notifyGroupMemberChanged(Long groupId, Long userId) {
+        if (groupId == null || userId == null) return;
+        eventPublisher.publishEvent(new ConversationMembershipChangedEvent(
+                ConversationIds.groupConversation(groupId), userId, true));
     }
 
     @Override

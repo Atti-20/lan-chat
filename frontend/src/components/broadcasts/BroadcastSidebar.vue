@@ -43,10 +43,18 @@ const filters: readonly { value: PriorityFilter; label: string }[] = [
 ]
 
 const pendingIds = computed(() => new Set(props.pendingBroadcastIds))
+function displayStatus(broadcast: EmergencyBroadcast): BroadcastStatus {
+  if (broadcast.status === 'CANCELLED') return 'CANCELLED'
+  // A receiver has finished this broadcast as soon as a response is submitted;
+  // the sender may still see an ACTIVE broadcast while other recipients work.
+  if (broadcast.currentUserConfirmedAt || broadcast.currentUserCompletedAt) return 'COMPLETED'
+  return broadcast.status
+}
+
 const visibleBroadcasts = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase('zh-CN')
   return [...props.broadcasts]
-    .filter((broadcast) => statusFilter.value === 'ALL' || broadcast.status === statusFilter.value)
+    .filter((broadcast) => statusFilter.value === 'ALL' || displayStatus(broadcast) === statusFilter.value)
     .filter((broadcast) => priorityFilter.value === 'ALL' || broadcast.priority === priorityFilter.value)
     .filter((broadcast) => !needle
       || broadcast.title.toLocaleLowerCase('zh-CN').includes(needle)
@@ -146,7 +154,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
         :class="{
           'broadcast-item--active': selectedId === broadcast.id,
           'broadcast-item--pending': pendingIds.has(broadcast.id),
-          'broadcast-item--cancelled': broadcast.status === 'CANCELLED',
+          'broadcast-item--cancelled': displayStatus(broadcast) === 'CANCELLED',
         }"
         :data-priority="broadcast.priority"
         type="button"
@@ -164,8 +172,8 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
             <span>{{ scopeLabel(broadcast) }}</span>
             <span v-if="broadcast.confirmationRequired">需确认</span>
             <span v-if="pendingIds.has(broadcast.id)" class="pending-badge">待处理</span>
-            <span v-else-if="broadcast.status === 'COMPLETED'">已完成</span>
-            <span v-else-if="broadcast.status === 'CANCELLED'">已撤销</span>
+            <span v-else-if="displayStatus(broadcast) === 'COMPLETED'">{{ broadcast.currentUserConfirmedAt ? '我已完成' : '已完成' }}</span>
+            <span v-else-if="displayStatus(broadcast) === 'CANCELLED'">已撤销</span>
           </span>
         </span>
       </button>
@@ -200,14 +208,14 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
 
 .header-kicker {
   margin: 0 0 3px;
-  color: var(--coral);
-  font-size: 11px;
+  color: var(--danger);
+  font-size: var(--font-micro);
   font-weight: 650;
 }
 
 .header-title {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--font-page-title);
   font-weight: 700;
   letter-spacing: -0.04em;
 }
@@ -221,13 +229,13 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   justify-content: center;
   border: 0;
   border-radius: 50%;
-  color: var(--coral);
-  background: color-mix(in srgb, var(--coral) 10%, var(--fill));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger-bg) 10%, var(--fill));
   cursor: pointer;
   transition: background-color 160ms ease, transform 160ms var(--ease-liquid);
 }
 
-.create-button:hover { background: color-mix(in srgb, var(--coral) 17%, var(--fill)); }
+.create-button:hover { background: color-mix(in srgb, var(--danger-bg) 17%, var(--fill)); }
 .create-button:active { transform: scale(0.96); }
 
 .sidebar-search {
@@ -236,8 +244,8 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   margin: 0 12px 10px;
   padding: 0 12px;
   align-items: center;
-  gap: 8px;
-  border-radius: 11px;
+  gap: var(--space-2);
+  border-radius: var(--radius-control);
   color: var(--ink-faint);
   background: var(--fill);
 }
@@ -259,7 +267,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   margin: 0 12px 10px;
   padding: 3px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  border-radius: 11px;
+  border-radius: var(--radius-control);
   background: var(--fill);
 }
 
@@ -268,9 +276,9 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   min-height: 30px;
   padding: 0 6px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--font-micro);
   font-weight: 600;
   background: transparent;
   cursor: pointer;
@@ -301,7 +309,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
 
 .loading-row {
   height: 86px;
-  border-radius: 13px;
+  border-radius: var(--radius-control);
   background: var(--fill);
   animation: loading-pulse 1.4s ease-in-out infinite alternate;
 }
@@ -314,7 +322,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   padding: 11px 10px 11px 15px;
   align-items: stretch;
   border: 0;
-  border-radius: 13px;
+  border-radius: var(--radius-control);
   color: var(--ink);
   text-align: left;
   background: transparent;
@@ -337,7 +345,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   background: var(--blue);
 }
 
-.broadcast-item[data-priority="IMPORTANT"] .priority-rail { background: #d97706; }
+.broadcast-item[data-priority="IMPORTANT"] .priority-rail { background: var(--warning); }
 .broadcast-item[data-priority="EMERGENCY"] .priority-rail { background: var(--coral); }
 
 .item-copy {
@@ -351,14 +359,14 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .item-title {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--font-body);
   font-weight: 680;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -374,7 +382,7 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   display: -webkit-box;
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--font-caption);
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -393,19 +401,19 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
 .priority-badge,
 .pending-badge {
   padding: 2px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--ink-soft);
   background: var(--fill);
 }
 
 .broadcast-item[data-priority="EMERGENCY"] .priority-badge {
-  color: var(--coral);
+  color: var(--danger);
   background: color-mix(in srgb, var(--coral) 10%, transparent);
 }
 
 .pending-badge {
   margin-left: auto;
-  color: var(--blue);
+  color: var(--accent-text);
   background: var(--active);
 }
 
@@ -427,12 +435,12 @@ function scopeLabel(broadcast: EmergencyBroadcast): string {
   margin-bottom: 13px;
   place-items: center;
   border-radius: 50%;
-  color: var(--coral);
+  color: var(--danger);
   background: color-mix(in srgb, var(--coral) 9%, var(--fill));
 }
 
-.empty-state strong { font-size: 14px; }
-.empty-state p { max-width: 220px; margin: 7px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.55; }
+.empty-state strong { font-size: var(--font-body); }
+.empty-state p { max-width: 220px; margin: 7px 0 0; color: var(--ink-soft); font-size: var(--font-caption); line-height: 1.55; }
 
 @keyframes loading-pulse {
   from { opacity: 0.55; }

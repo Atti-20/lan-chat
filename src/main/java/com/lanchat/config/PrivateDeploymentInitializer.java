@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.lanchat.entity.DeviceLogin;
 import com.lanchat.entity.User;
+import com.lanchat.control.rbac.AuthorizationService;
 import com.lanchat.mapper.DeviceLoginMapper;
 import com.lanchat.mapper.UserMapper;
 import org.slf4j.Logger;
@@ -45,6 +46,7 @@ public class PrivateDeploymentInitializer implements ApplicationRunner {
     private final UserMapper userMapper;
     private final DeviceLoginMapper deviceLoginMapper;
     private final PasswordEncoder passwordEncoder;
+    private final AuthorizationService authorizationService;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -68,12 +70,14 @@ public class PrivateDeploymentInitializer implements ApplicationRunner {
                                         LanChatNodeProperties nodeProperties,
                                         UserMapper userMapper,
                                         DeviceLoginMapper deviceLoginMapper,
-                                        PasswordEncoder passwordEncoder) {
+                                        PasswordEncoder passwordEncoder,
+                                        AuthorizationService authorizationService) {
         this.properties = properties;
         this.nodeProperties = nodeProperties;
         this.userMapper = userMapper;
         this.deviceLoginMapper = deviceLoginMapper;
         this.passwordEncoder = passwordEncoder;
+        this.authorizationService = authorizationService;
     }
 
     @Override
@@ -118,8 +122,11 @@ public class PrivateDeploymentInitializer implements ApplicationRunner {
     private void ensureBootstrapAdministrator() {
         User existing = findAdministrator();
         if (existing != null) {
-            if (rotateHistoricalDemoPassword(existing)) return;
-            log.info("Existing administrator account retained; bootstrap password was not reapplied");
+            boolean rotated = rotateHistoricalDemoPassword(existing);
+            authorizationService.provisionOwner(existing.getId());
+            if (!rotated) {
+                log.info("Existing administrator account retained; bootstrap password was not reapplied");
+            }
             return;
         }
 
@@ -144,9 +151,11 @@ public class PrivateDeploymentInitializer implements ApplicationRunner {
             User concurrentAdministrator = findAdministrator();
             if (concurrentAdministrator == null) throw duplicate;
             validateExistingAdministratorHash(concurrentAdministrator.getPassword());
+            authorizationService.provisionOwner(concurrentAdministrator.getId());
             log.info("Administrator account was initialized concurrently by another instance");
             return;
         }
+        authorizationService.provisionOwner(admin.getId());
         log.info("Created bootstrap administrator account for a new private deployment");
     }
 

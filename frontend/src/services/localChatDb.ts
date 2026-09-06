@@ -228,6 +228,34 @@ export async function deleteCachedMessagesByClientMsgId(clientMsgId: string): Pr
   await transactionDone(transaction)
 }
 
+/**
+ * Applies a server recall to a message that is not currently open in the UI.
+ * Keeping the local record redacted prevents an out-of-order old delivery from
+ * being rendered from IndexedDB after the next app restart.
+ */
+export async function markCachedMessageRecalled(
+  conversationId: string,
+  messageId: string,
+): Promise<void> {
+  if (!conversationId || !messageId) return
+  const database = await openDatabase()
+  const transaction = database.transaction(MESSAGE_STORE, 'readwrite')
+  const store = transaction.objectStore(MESSAGE_STORE)
+  const cacheKey = `${conversationId}:${messageId}`
+  const record = await requestResult(store.get(cacheKey)) as CachedMessageRecord | undefined
+  if (record?.message) {
+    store.put(storageSnapshot({
+      ...record,
+      message: {
+        ...record.message,
+        isRecalled: 1,
+        content: '',
+      },
+    }))
+  }
+  await transactionDone(transaction)
+}
+
 export async function loadCachedMessages(
   conversationId: string,
   limit = 100,

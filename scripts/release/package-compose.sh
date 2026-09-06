@@ -13,7 +13,7 @@ trap 'rm -rf "$staging_root"' EXIT
 
 mkdir -p "$staging_directory/deploy" "$staging_directory/sql" "$output_directory"
 cp compose.yaml .env.example "$staging_directory/"
-cp deploy/nginx.conf "$staging_directory/deploy/"
+cp deploy/nginx.conf deploy/mysql-init.sh "$staging_directory/deploy/"
 cp sql/init.sql sql/migration-*.sql "$staging_directory/sql/"
 
 cat >"$staging_directory/compose.release.yaml" <<EOF
@@ -84,10 +84,16 @@ before applying SQL.
    apply_migration sql/migration-v2.4-broadcast-task-workflow.sql
    apply_migration sql/migration-v2.5-user-lifecycle.sql
    apply_migration sql/migration-v2.6-device-session-single-active.sql
+   # V2.7 must use the same organization key as the application. Replace the
+   # example below with MESHX_ORGANIZATION_ID from this installation's .env.
+   # Run both statements in ONE mysql session, and only if V2.7 is missing.
+   { echo "SET @meshx_organization_key = 'org-private';"; cat sql/migration-v2.7-control-organization-rbac.sql; } | \\
+     docker compose -f compose.yaml -f compose.release.yaml exec -T mysql sh -c \\
+       'exec mysql --user=root --password="\$MYSQL_ROOT_PASSWORD" lan_chat'
+   apply_migration sql/migration-v2.8-device-identity.sql
 
-4. Inspect the release-critical V2.4-V2.6 schema before restarting. The output
-   must show both tables, all three columns, and the non_unique value 0 for
-   uk_device_active_type:
+4. Inspect the release-critical V2.4-V2.8 schema before restarting. Check the
+   expected organization key, owner membership, device tables and unique indexes:
 
    docker compose -f compose.yaml -f compose.release.yaml exec -T mysql sh -c \\
      'exec mysql --user=root --password="\$MYSQL_ROOT_PASSWORD" --table lan_chat' <<'SQL'
@@ -96,6 +102,11 @@ before applying SQL.
    SHOW COLUMNS FROM broadcast LIKE 'require_image_proof';
    SHOW COLUMNS FROM user LIKE 'archived_at';
    SHOW COLUMNS FROM device_login LIKE 'active_device_type';
+   SELECT organization_key FROM organization;
+   SHOW TABLES LIKE 'audit_event';
+   SHOW COLUMNS FROM device_credential LIKE 'certificate_payload';
+   SHOW COLUMNS FROM device_session LIKE 'legacy_device_login_id';
+   SHOW COLUMNS FROM organization_policy LIKE 'revocation_version';
    SELECT DISTINCT index_name, non_unique
      FROM information_schema.statistics
     WHERE table_schema = 'lan_chat'

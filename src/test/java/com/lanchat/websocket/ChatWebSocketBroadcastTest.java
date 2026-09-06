@@ -3,6 +3,9 @@ package com.lanchat.websocket;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lanchat.entity.Broadcast;
+import com.lanchat.common.MentionReadReceiptChangedEvent;
+import com.lanchat.control.rbac.AuthorizationService;
+import com.lanchat.control.rbac.PermissionCode;
 import com.lanchat.entity.DeviceLogin;
 import com.lanchat.entity.User;
 import com.lanchat.security.JwtUtil;
@@ -17,7 +20,9 @@ import com.lanchat.service.UserService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -36,6 +41,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ResourceLock("chat-websocket-online-sessions")
 class ChatWebSocketBroadcastTest {
 
     private ObjectMapper objectMapper;
@@ -64,6 +70,10 @@ class ChatWebSocketBroadcastTest {
                 mock(FileTransferService.class),
                 broadcastService
         );
+        AuthorizationService authorizationService = mock(AuthorizationService.class);
+        when(authorizationService.userIdsWithPermission(PermissionCode.BROADCAST_ALL))
+                .thenReturn(List.of(1L));
+        ReflectionTestUtils.setField(handler, "authorizationService", authorizationService);
     }
 
     @AfterEach
@@ -114,6 +124,40 @@ class ChatWebSocketBroadcastTest {
         JsonNode error = onlyEvent(client, "ERROR");
         assertEquals("FORBIDDEN", error.path("payload").path("code").asText());
         assertFalse(error.path("payload").path("retryable").asBoolean(true));
+    }
+
+    @Test
+    void groupReadCursorIsDeliveredOnlyToTheReaderDevices() throws Exception {
+        ClientSession alice = authenticate(7L, "alice");
+        ClientSession bob = authenticate(8L, "bob");
+        ClientSession carol = authenticate(9L, "carol");
+        clients.forEach(client -> client.messages().clear());
+
+        handler.notifyConversationRead(new com.lanchat.common.ConversationReadChangedEvent(
+                "group:31", 8L, 15L, 12L, 3L));
+
+        assertTrue(hasEvent(bob, "CHAT_READ"));
+        assertFalse(hasEvent(alice, "CHAT_READ"));
+        assertFalse(hasEvent(carol, "CHAT_READ"));
+    }
+
+    @Test
+    void mentionReceiptInvalidationReachesOnlyTheOriginalSender() throws Exception {
+        ClientSession alice = authenticate(7L, "alice");
+        ClientSession bob = authenticate(8L, "bob");
+        ClientSession carol = authenticate(9L, "carol");
+        clients.forEach(client -> client.messages().clear());
+
+        handler.notifyMentionReadReceiptChanged(new MentionReadReceiptChangedEvent(
+                "group:31", 8L,
+                List.of(new MentionReadReceiptChangedEvent.MessageChange("mention_1", 7L))));
+
+        JsonNode messageIds = onlyEvent(alice, "MENTION_RECEIPT_CHANGED")
+                .path("payload").path("messageIds");
+        assertEquals(1, messageIds.size());
+        assertEquals("mention_1", messageIds.get(0).asText());
+        assertFalse(hasEvent(bob, "MENTION_RECEIPT_CHANGED"));
+        assertFalse(hasEvent(carol, "MENTION_RECEIPT_CHANGED"));
     }
 
     private ClientSession authenticate(Long userId, String username) throws Exception {

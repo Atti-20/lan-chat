@@ -59,6 +59,8 @@ public class SecurityConfig {
                                 "/api/v1/node/info",
                                 "/api/v1/node/health",
                                 "/api/v1/node/discoveries",
+                                "/api/v2/control/info",
+                                "/api/v2/control/health",
                                 "/api/v1/file/preview/**",
                                 "/ws/**",
                                 "/error",

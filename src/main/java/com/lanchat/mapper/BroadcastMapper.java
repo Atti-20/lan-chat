@@ -24,25 +24,30 @@ public interface BroadcastMapper extends BaseMapper<Broadcast> {
     Broadcast selectByIdForUpdate(@Param("broadcastId") Long broadcastId);
 
     @Select("""
-            SELECT b.*
+            SELECT b.*, br.confirm_status AS current_user_confirm_status,
+                   br.confirmed_at AS current_user_confirmed_at,
+                   br.completed_at AS current_user_completed_at
             FROM broadcast b
+            LEFT JOIN broadcast_receiver br
+                   ON br.broadcast_id = b.id
+                  AND br.user_id = #{userId}
+                  AND br.target_status = 'ACTIVE'
             WHERE b.sender_id = #{userId}
                OR (
-                    b.status = 'ACTIVE'
-                    AND EXISTS (
-                    SELECT 1
-                    FROM broadcast_receiver br
-                    WHERE br.broadcast_id = b.id
-                      AND br.user_id = #{userId}
-                      AND br.target_status = 'ACTIVE'
-                    )
+                    b.status IN ('ACTIVE', 'COMPLETED')
+                    AND br.id IS NOT NULL
                )
             ORDER BY b.create_time DESC, b.id DESC
             LIMIT 200
             """)
     List<Broadcast> selectVisible(@Param("userId") Long userId);
 
-    /** Active, non-expired broadcasts that still need viewing or confirmation. */
+    /**
+     * Active, non-expired broadcasts which the recipient has not finished.
+     * A submitted confirmation is complete even if a legacy client never
+     * persisted {@code viewed_at}; do not let that stale field revive it in
+     * the actionable list.
+     */
     @Select("""
             SELECT b.*
             FROM broadcast b
@@ -52,8 +57,10 @@ public interface BroadcastMapper extends BaseMapper<Broadcast> {
               AND br.target_status = 'ACTIVE'
               AND (b.deadline_at IS NULL OR b.deadline_at > NOW())
               AND (
-                    br.viewed_at IS NULL
-                    OR (b.confirmation_required = 1 AND br.confirm_status = 'PENDING')
+                    (b.confirmation_required = 1
+                     AND br.confirm_status = 'PENDING'
+                     AND br.confirmed_at IS NULL)
+                    OR (b.confirmation_required = 0 AND br.viewed_at IS NULL)
               )
             ORDER BY
                 CASE b.priority
@@ -66,4 +73,5 @@ public interface BroadcastMapper extends BaseMapper<Broadcast> {
             LIMIT 200
             """)
     List<Broadcast> selectPending(@Param("userId") Long userId);
+
 }

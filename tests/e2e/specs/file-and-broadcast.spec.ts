@@ -8,6 +8,25 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
+function uniqueAvatarPng(): Buffer {
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  )
+  // A valid tEXt chunk keeps this run independent of files retained by earlier runs.
+  const data = Buffer.from(`tEXtRun\0${uniqueId('avatar')}`)
+  let crc = 0xffffffff
+  for (const byte of data) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
+  }
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length - 4)
+  const checksum = Buffer.alloc(4)
+  checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0)
+  return Buffer.concat([png.subarray(0, -12), length, data, checksum, png.subarray(-12)])
+}
+
 test('multipart upload verifies every chunk and signed download bytes', async () => {
   test.setTimeout(120_000)
   const pair = await createFriendPair({ aliceUrl: instanceA, bobUrl: instanceA })
@@ -70,10 +89,7 @@ test('archiving the first uploader preserves another users deduplicated avatar',
   const secondApi = new ApiClient(instanceA)
   const firstUser = await createUser(firstApi, 'e2e_file_owner')
   const secondUser = await createUser(secondApi, 'e2e_file_shared')
-  const image = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    'base64',
-  )
+  const image = uniqueAvatarPng()
 
   const firstUpload = await firstApi.uploadAvatar(
     firstUser.session.token,

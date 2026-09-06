@@ -34,5 +34,13 @@ export function conversationPreview(type?: string, content?: string): string {
   if (type === 'file') return '文件'
   if (type === 'voice') return '语音'
   if (type === 'video') return '视频'
+  if (type === 'broadcast') {
+    try {
+      const parsed = JSON.parse(content || '{}') as { kind?: string; title?: string }
+      return `${parsed.kind === 'BROADCAST_REMINDER' ? '广播提醒' : '广播通知'}${parsed.title ? `：${parsed.title}` : ''}`
+    } catch {
+      return '广播通知'
+    }
+  }
   return content || '还没有消息'
 }

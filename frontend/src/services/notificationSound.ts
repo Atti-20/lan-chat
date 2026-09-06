@@ -28,12 +28,14 @@ export function installNotificationSoundUnlock(): () => void {
         }
     }
 
-    window.addEventListener('pointerdown', unlock, { once: true })
-    window.addEventListener('keydown', unlock, { once: true })
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    window.addEventListener('touchstart', unlock)
 
     return () => {
         window.removeEventListener('pointerdown', unlock)
         window.removeEventListener('keydown', unlock)
+        window.removeEventListener('touchstart', unlock)
     }
 }
 

@@ -1,10 +1,13 @@
 mod attachments;
 mod deep_link;
+mod device_identity;
 mod discovery;
 mod endpoint;
 mod lifecycle;
 mod native_auth;
 mod native_transport;
+mod node_runtime;
+mod revocation;
 mod runtime;
 mod tray;
 mod updater;
@@ -17,6 +20,7 @@ use discovery::DiscoveryService;
 use lifecycle::{show_main_window, LifecycleState};
 use native_auth::NativeAuthState;
 use native_transport::NativeTransportState;
+use node_runtime::NodeRuntimeState;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -44,12 +48,19 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(DeepLinkState::default())
         .manage(LifecycleState::default())
-        .manage(NativeAuthState::default())
         .manage(NativeTransportState::default())
         .manage(AttachmentDownloadState::default())
         .setup(|app| {
             use tauri::Manager;
 
+            let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
+            let node_runtime =
+                NodeRuntimeState::new(app_data_dir.join("node")).map_err(std::io::Error::other)?;
+            app.manage(Arc::clone(&node_runtime));
+            app.manage(NativeAuthState::new(
+                app_data_dir.join("revocations.json"),
+                node_runtime,
+            ));
             let discovery =
                 DiscoveryService::new(app.handle().clone()).map_err(std::io::Error::other)?;
             app.manage(Arc::clone(&discovery));
@@ -107,6 +118,7 @@ pub fn run() {
             native_auth::desktop_login,
             native_auth::desktop_refresh,
             native_auth::desktop_logout,
+            node_runtime::node_runtime_status,
             native_transport::node_http_request,
             native_transport::cancel_node_request,
             native_transport::open_node_socket,
@@ -116,6 +128,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build MeshX desktop client")
         .run(|_app, _event| {
+            if let tauri::RunEvent::Exit = _event {
+                if let Some(runtime) = _app.try_state::<Arc<NodeRuntimeState>>() {
+                    let _ = runtime.shutdown();
+                }
+            }
             // On macOS, clicking the Dock icon of an already-running app does
             // not start a second instance. It emits Reopen instead. Our close
             // policy hides the only window, so restore it explicitly here.

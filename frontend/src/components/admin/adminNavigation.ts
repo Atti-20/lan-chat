@@ -1,1 +1,1 @@
-export type AdminModule = 'accounts' | 'diagnostics' | 'logs'
+export type AdminModule = 'accounts' | 'diagnostics' | 'logs' | 'audit'

@@ -1,6 +1,10 @@
 package com.lanchat.controller;
 
 import com.lanchat.entity.User;
+import com.lanchat.control.rbac.AuthorizationService;
+import com.lanchat.control.rbac.PermissionCode;
+import com.lanchat.control.audit.ControlAuditService;
+import com.lanchat.control.admin.ControlAdminOperationService;
 import com.lanchat.dto.AdminPhysicalErasureDTO;
 import com.lanchat.dto.AdminResetPasswordDTO;
 import com.lanchat.dto.RegisterDTO;
@@ -27,12 +31,16 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class AdminControllerTest {
 
     private UserService userService;
     private RuntimeLogService runtimeLogService;
     private ChatWebSocketHandler webSocketHandler;
+    private AuthorizationService authorizationService;
+    private ControlAuditService controlAuditService;
+    private ControlAdminOperationService adminOperationService;
     private AdminController controller;
 
     @BeforeEach
@@ -40,10 +48,16 @@ class AdminControllerTest {
         userService = mock(UserService.class);
         runtimeLogService = mock(RuntimeLogService.class);
         webSocketHandler = mock(ChatWebSocketHandler.class);
+        authorizationService = mock(AuthorizationService.class);
+        controlAuditService = mock(ControlAuditService.class);
+        adminOperationService = mock(ControlAdminOperationService.class);
         controller = new AdminController();
         ReflectionTestUtils.setField(controller, "userService", userService);
         ReflectionTestUtils.setField(controller, "runtimeLogService", runtimeLogService);
         ReflectionTestUtils.setField(controller, "webSocketHandler", webSocketHandler);
+        ReflectionTestUtils.setField(controller, "authorizationService", authorizationService);
+        ReflectionTestUtils.setField(controller, "controlAuditService", controlAuditService);
+        ReflectionTestUtils.setField(controller, "adminOperationService", adminOperationService);
     }
 
     @AfterEach
@@ -64,6 +78,18 @@ class AdminControllerTest {
         assertEquals(200, result.getCode());
         assertEquals(List.of(user), result.getData());
         verify(userService).list();
+        verify(authorizationService).requireCurrentUserPermission(PermissionCode.USER_READ);
+    }
+
+    @Test
+    void permissionGrantDoesNotDependOnHistoricalAdministratorUsername() {
+        authenticateAuthorizedUser("operations.lead");
+        when(userService.list()).thenReturn(List.of());
+
+        var result = controller.listAllUsers();
+
+        assertEquals(200, result.getCode());
+        verify(authorizationService).requireCurrentUserPermission(PermissionCode.USER_READ);
     }
 
     @Test
@@ -80,12 +106,12 @@ class AdminControllerTest {
         request.setUsername("new.member");
         request.setNickname("新成员");
         request.setPassword("Member1234");
-        when(userService.register(request)).thenReturn(true);
+        when(adminOperationService.createUser(request)).thenReturn(true);
 
         var result = controller.createUser(request);
 
         assertEquals(200, result.getCode());
-        verify(userService).register(request);
+        verify(adminOperationService).createUser(request);
     }
 
     @Test
@@ -93,25 +119,25 @@ class AdminControllerTest {
         authenticateAs("admin");
         AdminResetPasswordDTO request = new AdminResetPasswordDTO();
         request.setNewPassword("Member5678");
-        when(userService.resetPasswordByAdmin(7L, "Member5678")).thenReturn(true);
+        when(adminOperationService.resetPassword(7L, "Member5678")).thenReturn(true);
 
         var result = controller.resetUserPassword(7L, request);
 
         assertEquals(200, result.getCode());
-        verify(userService).resetPasswordByAdmin(7L, "Member5678");
+        verify(adminOperationService).resetPassword(7L, "Member5678");
     }
 
     @Test
     void defaultDeleteArchivesWithoutCallingPhysicalErasure() {
         authenticateAs("admin");
-        when(userService.archiveUserByAdmin(7L, 1L)).thenReturn(true);
+        when(adminOperationService.archiveUser(7L, 1L)).thenReturn(true);
 
         var result = controller.deleteUser(7L);
 
         assertEquals(200, result.getCode());
         assertEquals("用户已归档，历史消息与广播回执已保留", result.getData());
-        verify(userService).archiveUserByAdmin(7L, 1L);
-        verify(userService, never()).physicallyEraseUserByAdmin(
+        verify(adminOperationService).archiveUser(7L, 1L);
+        verify(adminOperationService, never()).physicallyEraseUser(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
@@ -124,13 +150,13 @@ class AdminControllerTest {
         AdminPhysicalErasureDTO request = new AdminPhysicalErasureDTO();
         request.setConfirmationPhrase("ERASE USER 7");
         request.setReason("用户书面请求数据擦除");
-        when(userService.physicallyEraseUserByAdmin(
+        when(adminOperationService.physicallyEraseUser(
                 7L, 1L, "ERASE USER 7", "用户书面请求数据擦除")).thenReturn(true);
 
         var result = controller.physicallyEraseUser(7L, request);
 
         assertEquals(200, result.getCode());
-        verify(userService).physicallyEraseUserByAdmin(
+        verify(adminOperationService).physicallyEraseUser(
                 7L, 1L, "ERASE USER 7", "用户书面请求数据擦除");
     }
 
@@ -141,7 +167,7 @@ class AdminControllerTest {
         request.setConfirmationPhrase("ERASE USER 7");
         request.setReason("用户书面请求数据擦除");
         doThrow(new IllegalArgumentException("账号必须先归档，才能执行物理擦除"))
-                .when(userService).physicallyEraseUserByAdmin(
+                .when(adminOperationService).physicallyEraseUser(
                         7L, 1L, "ERASE USER 7", "用户书面请求数据擦除");
 
         var result = controller.physicallyEraseUser(7L, request);
@@ -164,36 +190,36 @@ class AdminControllerTest {
         target.setId(7L);
         target.setUsername("alice");
         when(userService.getById(7L)).thenReturn(target);
-        when(userService.setStatusByAdmin(7L, 0)).thenReturn(true);
+        when(adminOperationService.setStatus(7L, 0)).thenReturn(true);
 
         var result = controller.changUserStatus(7L, 0);
 
         assertEquals(200, result.getCode());
-        verify(userService).setStatusByAdmin(7L, 0);
+        verify(adminOperationService).setStatus(7L, 0);
         verify(userService, never()).updateById(org.mockito.ArgumentMatchers.any(User.class));
     }
 
     @Test
     void administratorCanGrantBroadcastPermission() {
         authenticateAs("admin");
-        when(userService.setBroadcastPermission(7L, true)).thenReturn(true);
+        when(adminOperationService.setBroadcastPermission(7L, true)).thenReturn(true);
 
         var result = controller.setBroadcastPermission(7L, true);
 
         assertEquals(200, result.getCode());
-        verify(userService).setBroadcastPermission(7L, true);
+        verify(adminOperationService).setBroadcastPermission(7L, true);
         verify(webSocketHandler).sendBroadcastPermissionUpdated(7L, true);
     }
 
     @Test
     void administratorCanRevokeBroadcastPermission() {
         authenticateAs("admin");
-        when(userService.setBroadcastPermission(7L, false)).thenReturn(true);
+        when(adminOperationService.setBroadcastPermission(7L, false)).thenReturn(true);
 
         var result = controller.setBroadcastPermission(7L, false);
 
         assertEquals(200, result.getCode());
-        verify(userService).setBroadcastPermission(7L, false);
+        verify(adminOperationService).setBroadcastPermission(7L, false);
         verify(webSocketHandler).sendBroadcastPermissionUpdated(7L, false);
     }
 
@@ -201,7 +227,7 @@ class AdminControllerTest {
     void missingBroadcastPermissionTargetReturnsNotFound() {
         authenticateAs("admin");
         doThrow(new IllegalArgumentException("用户不存在"))
-                .when(userService).setBroadcastPermission(99L, true);
+                .when(adminOperationService).setBroadcastPermission(99L, true);
 
         var result = controller.setBroadcastPermission(99L, true);
 
@@ -213,7 +239,7 @@ class AdminControllerTest {
     void rootAdministratorBroadcastPermissionReturnsBadRequest() {
         authenticateAs("admin");
         doThrow(new IllegalArgumentException("管理员默认拥有广播权限，不能修改"))
-                .when(userService).setBroadcastPermission(1L, false);
+                .when(adminOperationService).setBroadcastPermission(1L, false);
 
         var result = controller.setBroadcastPermission(1L, false);
 
@@ -271,6 +297,14 @@ class AdminControllerTest {
     }
 
     private void authenticateAs(String username) {
+        authenticateAuthorizedUser(username);
+        if (!"admin".equals(username)) {
+            doThrow(new AccessDeniedException("missing permission"))
+                    .when(authorizationService).requireCurrentUserPermission(any(PermissionCode.class));
+        }
+    }
+
+    private void authenticateAuthorizedUser(String username) {
         LoginUser loginUser = new LoginUser(1L, username, "web", "access-token");
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(loginUser, null, List.of()));

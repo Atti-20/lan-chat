@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The two paths are the shared MeshX foreground mark from
+     frontend/src/assets/meshx-foreground.svg. Keeping vector source here
+     avoids falling back to Android Studio's default robot on adaptive launchers. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.86"
+        android:scaleY="0.86">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M74,92h35l147,137L403,92h35v194l-39,34V170L285,276l-29,27l-29,-27L113,170v150l-39,-34V92Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M120,425v-71l136,-127l136,127v71L256,298L120,425Z" />
+    </group>
+</vector>

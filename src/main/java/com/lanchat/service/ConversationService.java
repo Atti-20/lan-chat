@@ -58,5 +58,8 @@ public interface ConversationService {
 
     void markGroupMemberLeft(Long groupId, Long userId);
 
+    /** Signals an active member that their group role changed. */
+    void notifyGroupMemberChanged(Long groupId, Long userId);
+
     void archiveGroupConversation(Long groupId);
 }

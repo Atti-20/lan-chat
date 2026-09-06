@@ -1,5 +1,6 @@
 import { App } from '@capacitor/app'
 import { nativeBridge } from './nativeBridge'
+import { setNativeAppActive } from './appActivity'
 
 /**
  * Capacitor does not guarantee the browser visibility event when Android
@@ -10,10 +11,21 @@ import { nativeBridge } from './nativeBridge'
 export async function installMobileLifecycle(): Promise<() => void> {
   if (nativeBridge.runtime() !== 'capacitor') return () => undefined
 
+  let stateChanged = false
   const listener = await App.addListener('appStateChange', ({ isActive }) => {
-    if (!isActive) return
-    window.dispatchEvent(new Event('online'))
+    stateChanged = true
+    setNativeAppActive(isActive)
+    if (isActive) window.dispatchEvent(new Event('online'))
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  return () => listener.remove()
+  try {
+    const { isActive } = await App.getState()
+    if (!stateChanged) setNativeAppActive(isActive)
+  } catch {
+    // Keep the document-state fallback if the native state is unavailable.
+  }
+  return () => {
+    setNativeAppActive(null)
+    void listener.remove()
+  }
 }

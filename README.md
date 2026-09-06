@@ -27,7 +27,8 @@ V2.3 的多实例能力属于同一逻辑 LanChat 节点的横向扩展：实例
 | 多实例实时路由与全局 Presence | 已实现 | 共享 MySQL、Redis、MinIO 的单逻辑节点；跨实例消息、业务通知、WebRTC 信令和在线状态 |
 | macOS 桌面端 P0 | 代码已实现，待安装回归 | Tauri 壳、托盘、通知、单实例、开机自启、受限深链、动态节点与原生 Refresh Cookie Jar |
 | Android 客户端 P1 | 工程已实现，待设备/签名回归 | Capacitor 8、共享 Vue UI、手动节点握手、前后台重连、文件选择上传、本地通知、HTTPS/WSS 默认与受控 LAN Debug HTTP 变体 |
-| CI、Release 与 E2E | 候选流水线，待外部运行证据 | 版本一致性门禁、三平台无签名 smoke build、双实例与断网测试；签名草稿 Release 只有在平台签名及产物验证全部通过后才创建 |
+| iOS 客户端 P1 | 已完成一台 iPhone 的核心链路回归 | `apps/ios` 共享 Vue + Capacitor 8；2026-09-05 在 iPhone 16 Pro Max 验证登录、群聊、TXT 预览与本机导出、任务回执、重启登录恢复和网关中断恢复；开发签名测试不代表 TestFlight / App Store 发布 |
+| CI、Release 与 E2E | 候选流水线，待外部运行证据 | 版本一致性门禁、桌面三平台与 Android、iOS 无签名构建、双实例与断网测试；签名草稿 Release 只有在平台签名及产物验证全部通过后才创建 |
 | 独立节点数据同步 | 规划中 | 尚未实现独立数据库节点间双向复制、权限传播和冲突合并 |
 | 端到端加密、本地 AI | 暂缓 | 不属于当前版本 |
 
@@ -66,6 +67,7 @@ UNIQUE (conversation_id, sequence)
 | Web 前端 | Vue 3.5、TypeScript 5.9、Vite 8、Composition API |
 | 桌面端 | Tauri 2、Rust、系统 WebView、`mdns-sd` |
 | Android 端 | Capacitor 8、Android WebView、API 24+ |
+| iOS 端 | Capacitor 8、WKWebView、Swift Package Manager、iOS 15+ |
 | 本地离线 | IndexedDB |
 | 认证 | JWT Access Token、轮换 Refresh Token、HttpOnly Cookie |
 | 部署 | 多阶段 Dockerfile、Docker Compose |
@@ -185,7 +187,9 @@ frontend/                              Vue 3 Web 客户端
 apps/desktop/
   src-tauri/src/                       生命周期、托盘、深链、原生认证与 mDNS
   src-tauri/capabilities/              Tauri 最小权限声明
-apps/mobile/                           Capacitor Android 工程、受控 LAN Debug 变体与构建脚本
+apps/android/                          复用 Vue UI 的 Capacitor Android 薄壳
+  app/                                 登录、DNS-SD、SAF 与通知原生桥接
+  scripts/sync-web.mjs                 将 frontend/dist-mobile 同步进 APK/AAB
 src/main/java/com/lanchat/
   cluster/                              Redis 跨实例实时路由、去重与全局 Presence
   websocket/ChatWebSocketHandler.java  V1 实时协议入口
@@ -213,11 +217,16 @@ sql/
   migration-v2.4-broadcast-task-workflow.sql 广播任务证据与完成状态升级脚本
   migration-v2.5-user-lifecycle.sql    用户归档与高风险擦除审计升级脚本
   migration-v2.6-device-session-single-active.sql 设备会话单活约束升级脚本
+  migration-v2.7-control-organization-rbac.sql 组织、RBAC 与审计基础迁移脚本
+  migration-v2.8-device-identity.sql 设备身份、审批与吊销目录升级脚本
+  migration-v2.9-broadcast-notice-consistency.sql 广播通知卡接收周期与补偿一致性升级脚本
+  migration-v3.0-mention-read-receipts.sql 群聊@成员不可变已读收据与快照容量升级脚本
 deploy/nginx.conf                      两个应用实例的 HTTP/WebSocket 统一网关
 compose.yaml                           MySQL、Redis、MinIO、双应用实例与网关
 compose.e2e.yaml                       隔离双实例端口与 E2E 配置覆盖
 tests/e2e/                             双实例消息和浏览器断网恢复测试
-.github/workflows/                     通用 CI、桌面构建、E2E 与草稿 Release
+docs/                                  文档索引与按主题、日期归档的报告
+.github/workflows/                     通用 CI、桌面/Android/iOS 构建、E2E 与草稿 Release
 ```
 
 ## 快速启动
@@ -306,6 +315,51 @@ npm run build:dmg --prefix apps/desktop
 
 本地 `.app` 会使用 ad-hoc Bundle 签名，确保 Info.plist、资源和 entitlements 被完整密封，但该签名不建立发布者信任，`.app`/`.dmg` 仍仅用于开发回归。正式 macOS 分发还必须配置 Developer ID 证书和 Apple 公证凭据；发布流水线会强制验证 universal 架构、签名链、Team ID、Gatekeeper、公证票据、DMG 完整性和挂载后的应用副本，任一检查失败都不会创建草稿 Release。真实 Mac 上的安装、首次启动及旧版本 Updater 升级仍需单独留存证据。仓库不会提交或生成占位私钥。
 
+### Android 客户端开发
+
+Web、Desktop 与 Android 的可见 UI 都由 `frontend/` 提供；Android 工程只承载
+Capacitor WebView 和必须访问系统能力的原生插件。构建时会先执行 Vue 类型检查和
+`build:mobile`，不需要手工复制 Web 资源：
+
+```bash
+npm ci --prefix frontend
+npm ci --prefix apps/android
+npm run build:debug --prefix apps/android
+npm run build:lan --prefix apps/android
+```
+
+`secureDebug`/`secureRelease` 只允许 HTTPS/WSS；`lanDebug` 是唯一允许管理员连接
+HTTP 局域网节点的调试包。Android 17/API 37 上，DNS-SD 扫描前会请求
+`ACCESS_LOCAL_NETWORK`。原生插件负责按节点隔离的加密 Refresh Cookie、
+`NsdManager` 自动发现、Storage Access Framework 文件保存以及系统通知。
+
+### iOS 客户端开发
+
+正式工程位于 `apps/ios`，复用 `frontend` 界面和 Keychain、Bonjour、系统文件桥接。
+
+```bash
+npm ci --prefix frontend
+npm ci --prefix apps/ios
+npm run sync:ios --prefix apps/ios
+npm run open:ios --prefix apps/ios
+```
+
+`apps/ios/ios/App/App/public`、`capacitor.config.json` 和 `config.xml` 由 `cap sync ios`
+生成，不进入版本库。无签名模拟器构建：
+
+```bash
+xcodebuild -project apps/ios/ios/App/App.xcodeproj -scheme App \
+  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath apps/ios/ios/DerivedData \
+  CODE_SIGNING_ALLOWED=NO build
+```
+
+连接真机后，在 Xcode 选择自己的 Signing Team 与设备，再运行；也可使用
+`xcodebuild -destination 'id=<UDID>' DEVELOPMENT_TEAM=<TEAM_ID> -allowProvisioningUpdates build`。
+签名证书、描述文件和个人 Team ID 不写入仓库。`ios-build.yml` 只构建无签名模拟器产物；
+真机开发签名、TestFlight 与 App Store 分发是不同的验证阶段。
+iOS 包版本和 `MARKETING_VERSION` 已接入版本一致性检查。
+
 ### 已有 V1 数据库升级
 
 执行前先备份数据库，然后运行：
@@ -331,9 +385,20 @@ mysql -u root -p lan_chat < sql/migration-v2.3-resumable-object-storage.sql
 mysql -u root -p lan_chat < sql/migration-v2.4-broadcast-task-workflow.sql
 mysql -u root -p lan_chat < sql/migration-v2.5-user-lifecycle.sql
 mysql -u root -p lan_chat < sql/migration-v2.6-device-session-single-active.sql
+mysql -u root -p lan_chat < sql/migration-v2.7-control-organization-rbac.sql
+mysql -u root -p lan_chat < sql/migration-v2.8-device-identity.sql
+mysql -u root -p lan_chat < sql/migration-v2.9-broadcast-notice-consistency.sql
+mysql -u root -p lan_chat < sql/migration-v3.0-mention-read-receipts.sql
 ```
 
-V2.0 迁移会创建统一会话、会话成员和文件授权表，回填旧消息的 `conversation_id` 与 `sequence`，并增加幂等唯一索引；V2.1/V2.2 迁移补充审计、文件传输、临时房间、广播及账号广播权限；V2.3 增加上传会话、上传分片、持久化对象清理任务以及 `file_metadata.storage_type`；V2.4 增加广播任务证据、目标状态和完成字段；V2.5 增加非破坏性用户归档字段和独立的物理擦除审计表；V2.6 在停服迁移窗口去重活跃设备会话，并增加 `userId + deviceType` 单活唯一约束。升级时应停止所有应用实例，并且只按顺序执行尚未应用的迁移；其中 V2.4 不是重复执行脚本。现有 `file_path` 同时承担本地相对路径或 MinIO 对象键。历史文件会回填为 `LOCAL`，不会因为默认存储切换为 MinIO 而改变读取位置。跨实例路由使用 Redis，无额外数据库迁移。不要对已有数据执行 `sql/init.sql`，因为初始化脚本会重建表。
+若 `MESHX_ORGANIZATION_ID` 不是默认的 `org-local`，需在同一 MySQL 会话中先设置迁移变量再加载 V2.7，例如：
+
+```sql
+SET @meshx_organization_key = 'org-acme';
+SOURCE sql/migration-v2.7-control-organization-rbac.sql;
+```
+
+V2.0 迁移会创建统一会话、会话成员和文件授权表，回填旧消息的 `conversation_id` 与 `sequence`，并增加幂等唯一索引；V2.1/V2.2 迁移补充审计、文件传输、临时房间、广播及账号广播权限；V2.3 增加上传会话、上传分片、持久化对象清理任务以及 `file_metadata.storage_type`；V2.4 增加广播任务证据、目标状态和完成字段；V2.5 增加非破坏性用户归档字段和独立的物理擦除审计表；V2.6 在停服迁移窗口去重活跃设备会话，并增加 `userId + deviceType` 单活唯一约束；V2.7 新增组织成员、RBAC、设备身份、吊销目录、组织策略和追加式审计基础表，将现有账号迁入默认组织，并只在迁移/引导阶段把历史 `admin` 账号绑定为 `ORG_OWNER`；V2.8 补齐设备申请/审批状态、签名证书、旧会话摘要绑定、审批策略和带版本签名吊销目录；V2.9 为广播接收者增加通知卡接收周期，避免移出后重新加入复用已撤回的卡片；V3.0 将群聊 @ 成员快照扩展至最多 200 个成员，并持久化每条消息的首次已读事实，使退群再加入不会改写历史收据。升级时应停止所有应用实例，并且只按顺序执行尚未应用的迁移；其中 V2.4 不是重复执行脚本。现有 `file_path` 同时承担本地相对路径或 MinIO 对象键。历史文件会回填为 `LOCAL`，不会因为默认存储切换为 MinIO 而改变读取位置。跨实例路由使用 Redis，无额外数据库迁移。不要对已有数据执行 `sql/init.sql`，因为初始化脚本会重建表。
 
 若沿用旧版 Compose 的 `mysql-data` 卷，镜像不会在已有数据库中自动创建新的 `lanchat` 应用用户。切换新版 Compose 前应使用数据库管理员账号创建/更新该用户，以 `.env` 中同一 `DB_PASSWORD` 授予 `lan_chat` 的运行时读写权限；也可以备份数据后使用全新卷初始化。旧卷的 `DB_ROOT_PASSWORD` 同样不会被环境变量自动重置。
 
@@ -405,7 +470,7 @@ git diff --check
 
 Compose 配置至少执行一次带完整强密钥的解析校验；具备 Docker 环境时，使用 `compose.e2e.yaml` 启动共享 MySQL、Redis、MinIO 和两个应用实例，再执行 `npm test --prefix tests/e2e`。当前自动 E2E 覆盖 Web 注册/登录/刷新轮换、同类设备登录失败回滚与并发单活、私聊、群聊、ACK 与 `clientMsgId` 幂等、实例重启后的 SYNC、浏览器离线发件箱恢复、分片上传与签名下载、跨用户去重文件在首个上传者归档后的可用性、跨实例投递、广播回执统计、强制下线、登录后消费 pending 通知目标的降级提示，以及原生节点切换后的缓存隔离。通知用例在浏览器中从持久化 pending target 开始，不等价于 Android 系统通知冷启动；Presence 故障恢复、WebRTC 真实 DataChannel、Redis 中断补偿、上传中途恢复和真实 mDNS 多播仍需补充自动化或实体环境证据。
 
-### 原生启动 mDNS 节点发现
+### 启动 Control Server mDNS 发现
 
 在所有参与发现的原生 JVM 节点上启用，并填写其他设备能够访问的局域网地址：
 
@@ -416,7 +481,54 @@ export LANCHAT_ADVERTISED_PORT=8080
 ./mvnw spring-boot:run
 ```
 
-防火墙需允许节点 TCP 端口，并允许 UDP 5353 多播。节点 ID 最好通过 `LANCHAT_NODE_ID` 固定，避免主机名变更后被识别为新节点。
+防火墙需允许节点 TCP 端口，并允许 UDP 5353 多播。Control Server 发布
+`_meshx-control._tcp.local.`，同时兼容监听旧 `_lanchat._tcp.local.`；控制节点 ID
+最好通过 `MESHX_CONTROL_ID` 固定，避免主机名变更后被识别为新控制节点。
+
+Control Server 的公开 V2 握手使用 `GET /api/v2/control/info` 与
+`GET /api/v2/control/health`。`MESHX_CONTROL_ID` 和
+`MESHX_ORGANIZATION_ID` 分别标识控制节点与组织；迁移期间原有
+`/api/v1/node/*` 接口继续保留。
+
+V2.7 之后，已认证的 Control 管理端使用以下服务端授权接口：
+
+- `GET /api/v2/control/rbac/roles`：读取当前组织角色及权限，要求 `ROLE_ASSIGN`。
+- `GET /api/v2/control/rbac/members/{userId}/roles`：读取成员角色和权限快照，要求 `USER_READ`。
+- `PUT /api/v2/control/rbac/members/{userId}/roles/{roleCode}`：授予或撤销非所有者角色，禁止修改自身角色；包含 `CRITICAL` 权限的角色只能由组织所有者管理。
+- `POST /api/v2/control/rbac/owner-transfer`：原子转移唯一组织所有者，确认短语为 `TRANSFER OWNER TO {targetUserId}`。
+- `GET /api/v2/control/audit`：按动作/结果读取最近 1–200 条追加式审计事件，要求 `AUDIT_READ`。
+
+管理界面现有“操作审计”入口，支持按操作代码和结果筛选最近 100 条记录，展开查看请求标识与事件详情。前端通过兼容别名 `GET /api/v1/admin/audit` 访问同一授权逻辑；普通账号不能读取审计记录。当前管理导航仍仅对历史根管理员显示，完整角色驱动的管理 UI 另行验收。
+
+广播统计中的成员明细可展开查看送达、查看、完成时间和图片回执；未执行成员使用独立“提醒”按钮。2026-09-05 的 Mac 原生窗口与浏览器演示结果见 [实机验证报告](docs/reports/实机验证/Mac与浏览器实机验证报告_2026-09-05.md)。全部分类报告与命名约定见 [文档与报告索引](docs/README.md)。
+
+`ORG_OWNER` 不能通过通用角色接口授予或撤销。所有者转移与角色变更写入
+`audit_event`；数据库触发器拒绝该表的 `UPDATE` 和 `DELETE`，因此管理 UI 或普通
+应用接口不能改写历史审计。
+
+V2.8 的设备身份功能默认关闭。启用前为 Control 生成独立 Ed25519 签名密钥；私钥只进入部署密钥管理或进程环境，不能提交到仓库，也不能下发给客户端：
+
+```bash
+openssl genpkey -algorithm Ed25519 -out control-device-signing.pem
+openssl pkey -in control-device-signing.pem -outform DER | base64 | tr -d '\n'
+openssl pkey -in control-device-signing.pem -pubout -outform DER | base64 | tr -d '\n'
+```
+
+把后两条命令输出的 PKCS#8 私钥 DER Base64 和 X.509 公钥 DER Base64 分别配置到 `MESHX_DEVICE_SIGNING_PRIVATE_KEY`、`MESHX_DEVICE_SIGNING_PUBLIC_KEY`，再设置 `MESHX_DEVICE_IDENTITY_ENABLED=true`。同一 Control 集群的所有实例必须使用同一密钥对；启动时会签名并验签探针，缺失或不匹配会拒绝启动。启用后，公开的 `/api/v2/control/info` 会返回 Control 签名公钥和 SHA-256 指纹。
+
+设备 API 均要求已有登录会话，且只接收客户端原生层生成的 Ed25519 公钥：
+
+- `POST /api/v2/control/devices/registrations`：登记设备元数据、公钥和能力，并把当前旧登录会话以 SHA-256 摘要绑定到 V2 设备会话；同一设备/公钥可幂等重试，新公钥进入换钥审批。
+- `GET /api/v2/control/devices`：设备管理员查看最近设备和凭据状态。
+- `POST /api/v2/control/devices/{deviceId}/approve`：要求 `DEVICE_APPROVE`，签发带有效期和最大离线时长的 Ed25519 设备证书。
+- `POST /api/v2/control/devices/{deviceId}/reject`：拒绝待审批设备或换钥申请；已有活动凭据不会因拒绝换钥而失效。
+- `POST /api/v2/control/devices/{deviceId}/revoke`：要求 `DEVICE_REVOKE` 和精确短语 `REVOKE DEVICE {deviceId}`，原子吊销设备、凭据、V2/旧会话并写入签名吊销事件。
+- `GET /api/v2/control/devices/revocations`：按 `afterVersion` 增量读取带 Control 签名的吊销快照。
+- `GET /api/v2/control/session`：返回当前组织成员、角色、权限、已绑定设备凭据和吊销版本。
+- `GET /api/v2/control/policy`：要求 `POLICY_UPDATE`，读取组织策略及乐观锁版本。
+- `PUT /api/v2/control/policy/device-identity`：仅更新已被服务端实际执行的设备审批模式、凭据有效期和最大离线时长；要求当前 `expectedVersion` 与精确短语 `UPDATE DEVICE POLICY TO {nextVersion}`，版本冲突返回 HTTP 409。
+
+`organization_policy.device_approval_mode` 支持 `MANUAL`（默认）和 `AUTO`；账号被停用或归档时，已登记设备会在同一管理事务中被吊销。`registrationMode` 与 `p2pEnabled` 当前只读返回，因为对应邀请注册和 Peer Runtime 尚未实现，管理 API 不会制造“已启用但运行时未执行”的假策略。原生客户端私钥生成/系统密钥链存储、Peer 握手验签和节点侧离线吊销同步仍是后续里程碑，不能仅凭这些服务端 API 视为完成。
 
 ## 配置项
 
@@ -458,6 +570,9 @@ export LANCHAT_ADVERTISED_PORT=8080
 | `LANCHAT_BOOTSTRAP_ADMIN_PASSWORD` | 空 | 新私有数据库首次创建 `admin` 的强密码 |
 | `LANCHAT_NODE_ID` / `LANCHAT_NODE_NAME` | 自动生成 / `LanChat Node` | 稳定节点标识与显示名称 |
 | `LANCHAT_ORGANIZATION_NAME` / `LANCHAT_MODE` | 本地组织 / `LAN_FIRST` | 节点组织和运行模式 |
+| `MESHX_CONTROL_ID` / `MESHX_ORGANIZATION_ID` | 自动生成 / `org-local` | V2 Control Server 与组织的稳定公开标识；同一部署的所有实例必须一致 |
+| `MESHX_DEVICE_IDENTITY_ENABLED` | `false` | 启用 V2.8 设备注册、签名凭据和吊销目录；未配置有效密钥对时保持关闭 |
+| `MESHX_DEVICE_SIGNING_PRIVATE_KEY` / `MESHX_DEVICE_SIGNING_PUBLIC_KEY` | 空 | Control 的 Ed25519 PKCS#8 私钥与 X.509 公钥 DER Base64；多实例必须一致，私钥不得提交仓库 |
 | `LANCHAT_DISCOVERY_ENABLED` | `false` | 启用服务端 mDNS 广播与发现 |
 | `LANCHAT_DISCOVERY_INTERFACE_ADDRESS` | 空 | 可选：只在指定本机 IPv4 地址对应的网卡上启用发现 |
 | `LANCHAT_ADVERTISED_HOST` / `LANCHAT_ADVERTISED_PORT` | 当前网卡 / `8080` | 对其他局域网节点公布的访问地址 |
@@ -474,7 +589,7 @@ export LANCHAT_ADVERTISED_PORT=8080
 - 当前候选发布版本为 v0.3.0，以仓库根目录的 `VERSION` 为准；尚未创建通过全部发布门禁的正式版本。V3.0 P0 的文档保留为历史能力阶段说明，其代码边界和未完成验收见 [V3.0 实施状态](PRD/v3/docs/v3/实施状态-V3.0.md)。
 - 《需求分析-LAN-first-V2.0》和《功能分析-LAN-first-V2.0》中的独立节点复制、冲突合并和性能目标不等于已经完成。
 - 仓库内 [需求分析.md](PRD/需求分析.md) 与 [功能分析.md](PRD/功能分析.md) 是 V1.0 历史稿，仅用于版本对照。
-- P1/P2 的 Server Manager、iOS、离线任务增强和完整可观测性仍未实现；Android 工程和无签名 CI 构建已接线，但真实设备安装、内网 HTTP 回归、签名 AAB 与发布仍需要 Android SDK、受保护 keystore 和发布环境，不能仅凭工程或工作流文件标记完成。
+- P1/P2 的 Server Manager、离线任务增强和完整可观测性仍未实现。2026-09-05 已完成 Mac 原生/浏览器、Windows 原生/浏览器、Android 模拟器与 iPhone 真机的核心互通验证；Windows 原生使用 GitHub 的 `93e05771` 构建基线，尚不能代表当前工作区。Android 实体机、真实局域网自动发现、Windows 当前源码构建与文件导出、签名 AAB/IPA 和商店发布仍需单独验收。Android HTTP 验证仅覆盖 `lanDebug`，正式配置继续要求 HTTPS/WSS。
 
 ## License
 

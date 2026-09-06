@@ -2,6 +2,8 @@ package com.lanchat.service;
 
 import com.lanchat.config.LanChatNodeProperties;
 import com.lanchat.config.LanChatProtocol;
+import com.lanchat.control.config.ControlServerProperties;
+import com.lanchat.control.protocol.ControlProtocol;
 import com.lanchat.dto.DiscoveredNode;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -36,7 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Advertises this node and discovers peers using mDNS/DNS-SD.
+ * Advertises the Control Server and discovers compatible controls using mDNS/DNS-SD.
  *
  * <p>Discovery failures never prevent core chat startup. This is important on
  * segmented networks, CI hosts and Docker bridge networks where multicast may
@@ -45,11 +47,16 @@ import java.util.concurrent.Executors;
 @Service
 public class LanNodeDiscoveryService implements ApplicationRunner {
 
-    public static final String SERVICE_TYPE = "_lanchat._tcp.local.";
+    public static final String CONTROL_SERVICE_TYPE = "_meshx-control._tcp.local.";
+    public static final String LEGACY_SERVICE_TYPE = "_lanchat._tcp.local.";
+    /** @deprecated use {@link #LEGACY_SERVICE_TYPE} for compatibility-only code. */
+    @Deprecated
+    public static final String SERVICE_TYPE = LEGACY_SERVICE_TYPE;
     private static final Logger log = LoggerFactory.getLogger(LanNodeDiscoveryService.class);
     private static final Duration STALE_AFTER = Duration.ofMinutes(2);
 
     private final LanChatNodeProperties nodeProperties;
+    private final ControlServerProperties controlProperties;
     private final List<JmDNS> responders = new CopyOnWriteArrayList<>();
     private final Map<String, DiscoveredNode> discovered = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
@@ -64,8 +71,10 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
     @Value("${lanchat.discovery.interface-address:}")
     private String configuredInterfaceAddress;
 
-    public LanNodeDiscoveryService(LanChatNodeProperties nodeProperties) {
+    public LanNodeDiscoveryService(LanChatNodeProperties nodeProperties,
+                                   ControlServerProperties controlProperties) {
         this.nodeProperties = nodeProperties;
+        this.controlProperties = controlProperties;
     }
 
     @Override
@@ -111,7 +120,8 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
             if (responders.isEmpty()) {
                 log.warn("mDNS 自动发现未能在任何网络接口启动");
             } else {
-                log.info("mDNS 自动发现已在 {} 个网络接口启动，服务类型 {}", responders.size(), SERVICE_TYPE);
+                log.info("mDNS 自动发现已在 {} 个网络接口启动，发布 {}，兼容监听 {}",
+                        responders.size(), CONTROL_SERVICE_TYPE, LEGACY_SERVICE_TYPE);
             }
         } catch (Exception exception) {
             log.warn("mDNS 自动发现启动失败，聊天核心功能继续可用: {}", exception.getMessage());
@@ -119,21 +129,24 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
     }
 
     private void startOnAddress(InetAddress address) throws Exception {
-        String nodeId = nodeProperties.resolvedId();
-        String serviceName = serviceName(nodeProperties.getName(), nodeId);
+        String controlId = controlProperties.resolvedId();
+        String serviceName = serviceName(nodeProperties.getName(), controlId);
         if (nodeProperties.getAdvertisedPort() < 1 || nodeProperties.getAdvertisedPort() > 65_535) {
             throw new IllegalArgumentException("公布端口必须在 1-65535 之间");
         }
         // DNS host labels cannot contain the spaces or Unicode that are valid in
         // a human-readable DNS-SD service instance name.
-        JmDNS responder = JmDNS.create(address, nodeId + ".local.");
+        JmDNS responder = JmDNS.create(address, controlId + ".local.");
         try {
-            responder.addServiceListener(SERVICE_TYPE, new NodeServiceListener(responder));
+            responder.addServiceListener(
+                    CONTROL_SERVICE_TYPE, new NodeServiceListener(responder, true));
+            responder.addServiceListener(
+                    LEGACY_SERVICE_TYPE, new NodeServiceListener(responder, false));
 
-            Map<String, Object> properties = buildTxtProperties(nodeId);
+            Map<String, Object> properties = buildControlTxtProperties(controlId);
 
             ServiceInfo serviceInfo = ServiceInfo.create(
-                    SERVICE_TYPE,
+                    CONTROL_SERVICE_TYPE,
                     serviceName,
                     nodeProperties.getAdvertisedPort(),
                     0,
@@ -142,7 +155,7 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
             );
             responder.registerService(serviceInfo);
             responders.add(responder);
-            remember(serviceInfo, address, true);
+            rememberControl(serviceInfo, address, true);
         } catch (Exception exception) {
             responder.close();
             throw exception;
@@ -214,6 +227,35 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
         discovered.put(nodeId + "@" + appUrl, node);
     }
 
+    private void rememberControl(ServiceInfo info, InetAddress fallbackAddress, boolean current) {
+        String controlId = safeNodeId(info.getPropertyString("controlId"));
+        if (controlId == null || !compatibleControlProtocol(info)) return;
+        InetAddress address = firstIpv4(info, fallbackAddress);
+        if (address == null) return;
+
+        boolean secure = Boolean.parseBoolean(info.getPropertyString("secure"));
+        String host = current && StringUtils.hasText(nodeProperties.getAdvertisedHost())
+                ? nodeProperties.getAdvertisedHost().trim()
+                : address.getHostAddress();
+        if (!safeHost(host)) host = address.getHostAddress();
+        int port = info.getPort() > 0 ? info.getPort() : nodeProperties.getAdvertisedPort();
+        String appUrl = (secure ? "https" : "http") + "://" + host + ":" + port
+                + LanChatProtocol.APP_PATH;
+
+        DiscoveredNode control = new DiscoveredNode(
+                controlId,
+                safeText(info.getPropertyString("controlName"), info.getName(), 80),
+                safeText(info.getPropertyString("organizationName"), "Local Organization", 80),
+                safeText(info.getPropertyString("version"), "unknown", 30),
+                safeMode(info.getPropertyString("mode")),
+                appUrl,
+                secure,
+                current || controlId.equals(controlProperties.resolvedId()),
+                Instant.now()
+        );
+        discovered.put(controlId + "@" + appUrl, control);
+    }
+
     Map<String, Object> buildTxtProperties(String nodeId) {
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("nodeId", nodeId);
@@ -241,6 +283,29 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
         return properties;
     }
 
+    Map<String, Object> buildControlTxtProperties(String controlId) {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("controlId", controlId);
+        properties.put("controlName", safeText(nodeProperties.getName(), "MeshX Control", 80));
+        properties.put("organizationId", controlProperties.resolvedOrganizationId());
+        properties.put("organizationName", safeText(
+                nodeProperties.getOrganizationName(), "Local Organization", 80));
+        properties.put("version", safeText(nodeProperties.getVersion(), "unknown", 30));
+        properties.put("mode", nodeProperties.normalizedMode());
+        properties.put("secure", Boolean.toString(nodeProperties.isSecure()));
+        properties.put("protocolVersion", Integer.toString(ControlProtocol.PROTOCOL_VERSION));
+        properties.put("controlApiBasePath", ControlProtocol.API_BASE_PATH);
+        properties.put("infoPath", ControlProtocol.INFO_PATH);
+        properties.put("healthPath", ControlProtocol.HEALTH_PATH);
+        properties.put("apiBasePath", LanChatProtocol.API_BASE_PATH);
+        properties.put("webSocketPath", LanChatProtocol.WEB_SOCKET_PATH);
+        properties.put("appPath", LanChatProtocol.APP_PATH);
+        properties.put("desktopAuthSupported",
+                Boolean.toString(LanChatProtocol.DESKTOP_AUTH_SUPPORTED));
+        properties.put("refreshTransport", LanChatProtocol.REFRESH_TRANSPORT);
+        return properties;
+    }
+
     private boolean compatibleProtocol(ServiceInfo info) {
         String advertised = info.getPropertyString("protocolVersion");
         if (!StringUtils.hasText(advertised)) {
@@ -249,15 +314,25 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
         return Integer.toString(LanChatProtocol.PROTOCOL_VERSION).equals(advertised);
     }
 
+    private boolean compatibleControlProtocol(ServiceInfo info) {
+        return Integer.toString(ControlProtocol.PROTOCOL_VERSION)
+                .equals(info.getPropertyString("protocolVersion"));
+    }
+
     private InetAddress firstIpv4(ServiceInfo info, InetAddress fallback) {
         for (Inet4Address address : info.getInet4Addresses()) return address;
         return fallback instanceof Inet4Address ? fallback : null;
     }
 
     private void remove(ServiceInfo info) {
-        String nodeId = safeNodeId(info.getPropertyString("nodeId"));
-        if (nodeId == null || nodeId.equals(nodeProperties.resolvedId())) return;
-        discovered.entrySet().removeIf(entry -> entry.getValue().nodeId().equals(nodeId));
+        String identity = safeNodeId(info.getPropertyString("controlId"));
+        if (identity == null) identity = safeNodeId(info.getPropertyString("nodeId"));
+        if (identity == null
+                || identity.equals(nodeProperties.resolvedId())
+                || identity.equals(controlProperties.resolvedId())) return;
+        String removedIdentity = identity;
+        discovered.entrySet().removeIf(
+                entry -> entry.getValue().nodeId().equals(removedIdentity));
     }
 
     private DiscoveredNode newest(DiscoveredNode first, DiscoveredNode second) {
@@ -312,9 +387,11 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
 
     private final class NodeServiceListener implements ServiceListener {
         private final JmDNS responder;
+        private final boolean controlProtocol;
 
-        private NodeServiceListener(JmDNS responder) {
+        private NodeServiceListener(JmDNS responder, boolean controlProtocol) {
             this.responder = responder;
+            this.controlProtocol = controlProtocol;
         }
 
         @Override
@@ -329,7 +406,11 @@ public class LanNodeDiscoveryService implements ApplicationRunner {
 
         @Override
         public void serviceResolved(ServiceEvent event) {
-            remember(event.getInfo(), null, false);
+            if (controlProtocol) {
+                rememberControl(event.getInfo(), null, false);
+            } else {
+                remember(event.getInfo(), null, false);
+            }
         }
     }
 }

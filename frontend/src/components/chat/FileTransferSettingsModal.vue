@@ -72,7 +72,7 @@ function updatePreference(enabled: boolean): void {
   z-index: 110;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(14px) saturate(125%);
@@ -86,7 +86,7 @@ function updatePreference(enabled: boolean): void {
   max-height: calc(100dvh - 40px);
   padding: 28px 24px 22px;
   gap: 2px;
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   background: var(--surface-raise);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   overflow-y: auto;
@@ -112,20 +112,20 @@ function updatePreference(enabled: boolean): void {
 .close-button:hover { background: var(--button-hover); }
 .close-button .ui-icon { width: 16px; }
 
-.file-transfer-sheet h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
-.file-transfer-list { display: grid; margin-top: 14px; gap: 4px; }
+.file-transfer-sheet h2 { margin: 0; font-size: var(--font-title); letter-spacing: -0.02em; }
+.file-transfer-list { display: grid; margin-top: 14px; gap: var(--space-1); }
 .file-transfer-option,
-.setting-row { display: flex; padding: 12px; align-items: center; gap: 12px; border-radius: 13px; background: var(--fill); }
-.file-transfer-option > .ui-icon { color: var(--blue); flex-shrink: 0; }
+.setting-row { display: flex; padding: var(--space-3); align-items: center; gap: var(--space-3); border-radius: var(--radius-control); background: var(--fill); }
+.file-transfer-option > .ui-icon { color: var(--accent-text); flex-shrink: 0; }
 .file-transfer-option > div,
 .setting-row > span { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .file-transfer-option strong,
-.setting-row strong { font-size: 11px; }
+.setting-row strong { font-size: var(--font-micro); }
 .file-transfer-option small,
 .setting-row small { color: var(--ink-faint); font-size: var(--font-micro); line-height: 1.45; }
 .setting-note { margin: 10px 4px 0; color: var(--ink-faint); font-size: var(--font-caption); line-height: 1.5; }
 
 @media (max-width: 480px) {
-  .modal-backdrop { padding: 16px; }
+  .modal-backdrop { padding: var(--space-4); }
 }
 </style>

@@ -133,39 +133,39 @@ watch(() => props.open, (open) => {
   z-index: 130;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(14px) saturate(125%);
   -webkit-backdrop-filter: blur(14px) saturate(125%);
 }
-.desktop-settings { width: min(500px, calc(100vw - 28px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid var(--glass-border); border-radius: 24px; color: var(--ink); background: var(--surface-raise); box-shadow: 0 28px 80px rgba(0, 0, 0, .22); }
+.desktop-settings { width: min(500px, calc(100vw - 28px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid var(--glass-border); border-radius: var(--radius-sheet); color: var(--ink); background: var(--surface-raise); box-shadow: 0 28px 80px rgba(0, 0, 0, .22); }
 .desktop-settings > header { display: flex; padding: 22px 24px 18px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--separator); }
-.desktop-settings header p { margin: 0 0 4px; color: var(--blue); font-size: var(--font-micro); font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
-.desktop-settings h2 { margin: 0; font-size: 20px; }
-.desktop-settings header button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 10px; background: var(--fill); cursor: pointer; }
+.desktop-settings header p { margin: 0 0 4px; color: var(--accent-text); font-size: var(--font-micro); font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+.desktop-settings h2 { margin: 0; font-size: var(--font-title); }
+.desktop-settings header button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: var(--radius-control); background: var(--fill); cursor: pointer; }
 .desktop-settings-body { display: grid; padding: 20px 24px 24px; gap: 10px; }
 .runtime-card,
 .setting-row,
-.update-card { display: flex; min-height: 64px; padding: 13px 14px; align-items: center; gap: 12px; border: 1px solid var(--separator); border-radius: 15px; background: var(--surface); }
-.runtime-card > .ui-icon { color: var(--blue); }
+.update-card { display: flex; min-height: 64px; padding: 13px 14px; align-items: center; gap: var(--space-3); border: 1px solid var(--separator); border-radius: 15px; background: var(--surface); }
+.runtime-card > .ui-icon { color: var(--accent-text); }
 .runtime-card div,
 .setting-row > span,
 .update-card > div { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .runtime-card strong,
 .setting-row strong,
-.update-card strong { font-size: 11px; }
+.update-card strong { font-size: var(--font-micro); }
 .runtime-card span,
 .runtime-card small,
 .setting-row small,
 .update-card small { overflow: hidden; color: var(--ink-faint); font-size: var(--font-micro); text-overflow: ellipsis; white-space: nowrap; }
 .setting-action { width: 100%; color: inherit; text-align: left; cursor: pointer; }
-.setting-action > .ui-icon { color: var(--blue); }
-.update-card button { padding: 7px 10px; border: 0; border-radius: 9px; color: #fff; font-size: var(--font-micro); font-weight: 700; background: var(--blue); cursor: pointer; }
+.setting-action > .ui-icon { color: var(--accent-text); }
+.update-card button { padding: 7px 10px; border: 0; border-radius: var(--radius-sm); color: #fff; font-size: var(--font-micro); font-weight: 700; background: var(--action-bg); cursor: pointer; }
 .update-card button:disabled { opacity: .5; }
-.settings-error { margin: 2px 4px 0; color: var(--coral); font-size: var(--font-micro); }
+.settings-error { margin: 2px 4px 0; color: var(--danger); font-size: var(--font-micro); }
 
 @media (max-width: 480px) {
-  .modal-backdrop { padding: 16px; }
+  .modal-backdrop { padding: var(--space-4); }
 }
 </style>

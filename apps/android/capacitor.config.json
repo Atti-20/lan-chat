@@ -1,0 +1,16 @@
+{
+  "appId": "com.meshx.android",
+  "appName": "MeshX",
+  "webDir": "../../frontend/dist-mobile",
+  "backgroundColor": "#f4f7fb",
+  "loggingBehavior": "none",
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "android": {
+    "minWebViewVersion": 60,
+    "loggingBehavior": "none"
+  }
+}

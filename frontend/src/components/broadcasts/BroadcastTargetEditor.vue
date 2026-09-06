@@ -87,24 +87,24 @@ function actionLabel(userId: number): string {
 </template>
 
 <style scoped>
-.target-editor { display: grid; margin-top: 15px; padding: 14px; gap: 7px; border: 1px solid var(--separator); border-radius: 12px; background: var(--surface); }
-.target-editor-heading { display: flex; margin-bottom: 3px; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.target-editor-title { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; }
-.target-editor-copy { margin: 4px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.45; }
-.target-count { flex: 0 0 auto; color: var(--blue); font-size: 11px; }
-.target-row { display: flex; min-height: 46px; padding: 7px 8px; align-items: center; gap: 9px; border: 0; border-radius: 10px; color: var(--ink); text-align: left; background: transparent; cursor: pointer; }
+.target-editor { display: grid; margin-top: 15px; padding: 14px; gap: 7px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--surface); }
+.target-editor-heading { display: flex; margin-bottom: 3px; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.target-editor-title { margin: 0; color: var(--ink); font-size: var(--font-body-sm); font-weight: 700; }
+.target-editor-copy { margin: 4px 0 0; color: var(--ink-soft); font-size: var(--font-micro); line-height: 1.45; }
+.target-count { flex: 0 0 auto; color: var(--accent-text); font-size: var(--font-micro); }
+.target-row { display: flex; min-height: 46px; padding: 7px 8px; align-items: center; gap: 9px; border: 0; border-radius: var(--radius-control); color: var(--ink); text-align: left; background: transparent; cursor: pointer; }
 .target-row:hover:not(:disabled) { background: var(--hover); }
 .target-row--selected { background: var(--active); }
 .target-row:disabled { cursor: not-allowed; opacity: .62; }
 .target-row :deep(.avatar) { flex: 0 0 30px; }
 .target-copy { display: grid; min-width: 0; flex: 1; gap: 1px; }
-.target-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.target-copy strong { overflow: hidden; font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
 .target-copy small { overflow: hidden; color: var(--ink-soft); font-size: var(--font-caption); text-overflow: ellipsis; white-space: nowrap; }
-.target-action { flex: 0 0 auto; color: var(--blue); font-size: 11px; font-weight: 650; }
-.target-row--selected .target-action { color: var(--coral); }
+.target-action { flex: 0 0 auto; color: var(--accent-text); font-size: var(--font-micro); font-weight: 650; }
+.target-row--selected .target-action { color: var(--danger); }
 .target-row:disabled .target-action { color: var(--ink-soft); }
-.target-empty { margin: 12px 0; color: var(--ink-soft); font-size: 12px; text-align: center; }
-.target-error { margin: 4px 0 0; color: var(--coral); font-size: 11px; line-height: 1.5; }
+.target-empty { margin: 12px 0; color: var(--ink-soft); font-size: var(--font-caption); text-align: center; }
+.target-error { margin: 4px 0 0; color: var(--danger); font-size: var(--font-micro); line-height: 1.5; }
 .target-actions { display: flex; margin-top: 5px; justify-content: flex-end; gap: 7px; }
 
 @media (max-width: 760px) {

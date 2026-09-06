@@ -26,6 +26,7 @@ export interface ChatMessage {
   conversationId: string
   sequence: number
   content: string
+  isRecalled?: number
 }
 
 export interface ChatGroup {

@@ -95,7 +95,7 @@ watch(() => props.open, (open) => {
   z-index: 100;
   inset: 0;
   display: grid;
-  padding: 20px;
+  padding: var(--space-5);
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(14px) saturate(125%);
@@ -109,7 +109,7 @@ watch(() => props.open, (open) => {
   max-height: min(680px, 90dvh);
   padding: 28px 24px 20px;
   gap: 14px;
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   background: var(--surface-raise);
   box-shadow: 0 20px 60px var(--shadow-color), inset 0 1px 0 var(--highlight-soft);
   overflow-y: auto;
@@ -136,7 +136,7 @@ watch(() => props.open, (open) => {
 .close-button:hover { background: var(--button-hover); }
 .close-button .ui-icon { width: 16px; }
 
-.search-sheet h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+.search-sheet h2 { margin: 0; font-size: var(--font-title); letter-spacing: -0.02em; }
 
 .search-field {
   display: flex;
@@ -145,20 +145,20 @@ watch(() => props.open, (open) => {
   align-items: center;
   gap: 10px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: var(--fill);
 }
 .search-field .ui-icon { width: 18px; flex-shrink: 0; color: var(--ink-faint); }
-.search-field input { width: 100%; border: 0; font-size: 14px; outline: none; background: none; }
+.search-field input { width: 100%; border: 0; font-size: var(--font-body); outline: none; background: none; }
 
 .message-field { display: grid; gap: 6px; }
-.message-field span { color: var(--ink-soft); font-size: 11px; font-weight: 600; }
+.message-field span { color: var(--ink-soft); font-size: var(--font-micro); font-weight: 600; }
 .message-field input {
   height: 40px;
   padding: 0 13px;
   border: 0;
-  border-radius: 12px;
-  font-size: 13px;
+  border-radius: var(--radius-control);
+  font-size: var(--font-body-sm);
   outline: none;
   background: var(--fill);
 }
@@ -169,8 +169,8 @@ watch(() => props.open, (open) => {
   display: flex;
   padding: 10px;
   align-items: center;
-  gap: 12px;
-  border-radius: 13px;
+  gap: var(--space-3);
+  border-radius: var(--radius-control);
   transition: background-color 150ms ease;
 }
 .result-item:hover { background: var(--hover); }
@@ -183,7 +183,7 @@ watch(() => props.open, (open) => {
 }
 .result-info strong {
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--font-body-sm);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -191,7 +191,7 @@ watch(() => props.open, (open) => {
 .result-info small {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--font-micro);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -201,11 +201,11 @@ watch(() => props.open, (open) => {
   height: 30px;
   padding: 0 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: #fff;
-  font-size: 12px;
+  font-size: var(--font-caption);
   font-weight: 600;
-  background: var(--blue);
+  background: var(--action-bg);
   cursor: pointer;
   flex-shrink: 0;
   transition: opacity 150ms ease;
@@ -221,7 +221,7 @@ watch(() => props.open, (open) => {
 .result-state {
   padding: 32px 0;
   color: var(--ink-faint);
-  font-size: 12px;
+  font-size: var(--font-caption);
   text-align: center;
 }
 </style>

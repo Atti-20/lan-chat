@@ -10,6 +10,7 @@ import { loadDirectFile } from '../../services/localChatDb'
 import type { FileAttachmentData } from '../../types'
 import { formatFileSize } from '../../utils/format'
 import UiIcon from '../base/UiIcon.vue'
+import FilePreviewModal from "./previews/FilePreviewModal.vue";
 
 interface Props {
   type: 'image' | 'file'
@@ -31,13 +32,10 @@ const previewOpen = shallowRef(false)
 const previewUrl = shallowRef('')
 const previewThumbnailUrl = shallowRef('')
 const previewLoading = shallowRef(false)
-const fileActionsOpen = shallowRef(false)
-const filePreviewLoading = shallowRef(false)
-const filePreviewUrl = shallowRef('')
 const directAvailable = shallowRef<boolean | null>(null)
+const filePreviewOpen = shallowRef(false)
 let localObjectUrl = ''
 let thumbnailObjectUrl = ''
-let filePreviewObjectUrl = ''
 let previewObjectUrl = ''
 
 const data = computed<FileAttachmentData>(() => {
@@ -259,65 +257,88 @@ async function download(): Promise<void> {
   }
 }
 
-async function openFileActions(): Promise<void> {
-  fileActionsOpen.value = true
-  filePreviewUrl.value = ''
-  if (!filePreviewable.value || data.value.transferPath === 'PEER_TO_PEER') return
-  const source = data.value.originalUrl || data.value.url
-  if (!source) return
-  filePreviewLoading.value = true
-  try {
-    const temporaryUrl = await api.files.temporaryUrl(source)
-    filePreviewUrl.value = await previewableUrl(temporaryUrl)
-    if (nativeBridge.runtime() === 'tauri') filePreviewObjectUrl = filePreviewUrl.value
-  } catch {
-    toast.push('文件预览暂时不可用', 'warning')
-  } finally {
-    filePreviewLoading.value = false
-  }
+function openFilePreview(): void {
+  filePreviewOpen.value = true
 }
 
-function closeFileActions(): void {
-  fileActionsOpen.value = false
-  filePreviewUrl.value = ''
-  filePreviewLoading.value = false
-  if (filePreviewObjectUrl) URL.revokeObjectURL(filePreviewObjectUrl)
-  filePreviewObjectUrl = ''
+function closeFilePreview(): void {
+  filePreviewOpen.value = false
 }
 
 async function openImage(): Promise<void> {
+  // WebRTC 设备直传图片直接使用 IndexedDB 生成的 Blob URL
   if (data.value.transferPath === 'PEER_TO_PEER') {
     if (!imageUrl.value) {
-      toast.push('图片只保存在完成直传的设备上，当前设备没有本地副本', 'warning')
+      toast.push(
+          '图片只保存在完成直传的设备上，当前设备没有本地副本',
+          'warning',
+      )
       return
     }
+
     previewOpen.value = true
     previewLoading.value = false
     previewThumbnailUrl.value = ''
     previewUrl.value = imageUrl.value
     return
   }
+
   const source = originalImageSource.value
+
   if (!source) {
     toast.push('没有可用的原图地址', 'warning')
     return
   }
+
   previewOpen.value = true
   previewLoading.value = true
   previewUrl.value = ''
   previewThumbnailUrl.value = imageUrl.value
+
   try {
     const temporaryUrl = await api.files.temporaryUrl(source)
-    previewUrl.value = await previewableUrl(temporaryUrl)
-    if (nativeBridge.runtime() === 'tauri') previewObjectUrl = previewUrl.value
-  } catch {
+
+    // Android WebView、Tauri 和网页统一先获取文件，
+    // 再通过 Blob URL 显示，避免跨域、CORP 和混合内容限制。
+    const response = await nodeFetch(temporaryUrl)
+
+    if (!response.ok) {
+      throw new Error(`原图请求失败：HTTP ${response.status}`)
+    }
+
+    const contentType =
+        response.headers.get('Content-Type') || ''
+
+    if (!contentType.startsWith('image/')) {
+      throw new Error(
+          `返回内容不是图片：${contentType || '未知类型'}`,
+      )
+    }
+
+    const blob = await response.blob()
+
+    if (blob.size === 0) {
+      throw new Error('服务器返回了空图片')
+    }
+
+    // 防止重复打开时残留旧 Blob URL
+    if (previewObjectUrl) {
+      URL.revokeObjectURL(previewObjectUrl)
+    }
+
+    previewObjectUrl = URL.createObjectURL(blob)
+    previewUrl.value = previewObjectUrl
+  } catch (error) {
+    console.error('打开原图失败：', error)
+
     previewOpen.value = false
     previewLoading.value = false
     previewUrl.value = ''
+    previewThumbnailUrl.value = ''
+
     toast.push('原图暂时无法打开', 'danger')
   }
 }
-
 function triggerDownload(url: string, name: string): void {
   const anchor = document.createElement('a')
   anchor.href = url
@@ -331,28 +352,19 @@ function triggerDownload(url: string, name: string): void {
 function releaseImageObjectUrls(): void {
   if (localObjectUrl) URL.revokeObjectURL(localObjectUrl)
   if (thumbnailObjectUrl) URL.revokeObjectURL(thumbnailObjectUrl)
-  if (filePreviewObjectUrl) URL.revokeObjectURL(filePreviewObjectUrl)
   if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
   localObjectUrl = ''
   thumbnailObjectUrl = ''
-  filePreviewObjectUrl = ''
   previewObjectUrl = ''
 }
 
 function closePreview(): void {
   previewOpen.value = false
+  previewLoading.value = false
+  previewThumbnailUrl.value = ''
   if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
   previewObjectUrl = ''
   previewUrl.value = ''
-}
-
-async function previewableUrl(url: string): Promise<string> {
-  if (nativeBridge.runtime() !== 'tauri') return url
-  const response = await nodeFetch(url)
-  if (!response.ok) throw new Error(`预览请求失败：HTTP ${response.status}`)
-  const blob = await response.blob()
-  if (blob.size === 0) throw new Error('预览内容为空')
-  return URL.createObjectURL(blob)
 }
 
 function notifyLayoutChange(): void {
@@ -373,8 +385,16 @@ function handlePreviewLoaded(): void {
 
 function handlePreviewError(): void {
   previewOpen.value = false
-  previewUrl.value = ''
   previewLoading.value = false
+  previewThumbnailUrl.value = ''
+
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl)
+  }
+
+  previewObjectUrl = ''
+  previewUrl.value = ''
+
   toast.push('原图暂时无法打开', 'danger')
 }
 </script>
@@ -395,7 +415,7 @@ function handlePreviewError(): void {
     type="button"
     :disabled="loading || attachmentDownload.saving.value"
     :aria-label="`查看 ${data.name || '文件'}`"
-    @click="openFileActions"
+    @click="openFilePreview"
   >
     <span class="file-icon" aria-hidden="true">
       <UiIcon name="file" :size="20" />
@@ -414,55 +434,9 @@ function handlePreviewError(): void {
   </button>
 
   <Teleport to="body">
-    <div v-if="fileActionsOpen" class="file-preview-backdrop" role="presentation" @click.self="closeFileActions">
-      <section class="file-preview" role="dialog" aria-modal="true" :aria-label="`${data.name || '文件'}操作`">
-        <header class="file-preview-header">
-          <span class="file-icon" aria-hidden="true"><UiIcon name="file" :size="20" /></span>
-          <div><strong>{{ data.name || '文件' }}</strong><small>{{ formatFileSize(data.size) }}</small></div>
-          <button type="button" aria-label="关闭" @click="closeFileActions">×</button>
-        </header>
-        <div v-if="filePreviewLoading" class="file-preview-state">正在载入预览…</div>
-        <iframe v-else-if="filePreviewUrl" class="file-preview-frame" :src="filePreviewUrl" :title="`${data.name || '文件'}预览`" />
-        <p v-else class="file-preview-state">
-          {{ data.transferPath === 'PEER_TO_PEER'
-            ? '直传文件仅保存在参与传输的设备上，请下载后查看。'
-            : filePreviewable ? '暂时无法预览该文件。' : '此文件类型暂不支持直接预览。' }}
-        </p>
-        <footer>
-          <div
-            v-if="attachmentDownload.saving.value"
-            class="download-progress"
-            :class="{ 'download-progress--indeterminate': attachmentDownload.percent.value === null }"
-            role="progressbar"
-            aria-label="文件保存进度"
-            :aria-valuenow="attachmentDownload.percent.value ?? undefined"
-            aria-valuemin="0"
-            aria-valuemax="100"
-          >
-            <span :style="{ width: `${attachmentDownload.percent.value ?? 35}%` }" />
-          </div>
-          <button
-            v-if="attachmentDownload.saving.value"
-            class="file-cancel-button"
-            type="button"
-            aria-label="取消文件保存"
-            @click="attachmentDownload.cancel"
-          >取消</button>
-          <button
-            class="file-save-button"
-            type="button"
-            :disabled="loading || attachmentDownload.saving.value"
-            @click="download"
-          ><UiIcon name="download" :size="17" />{{ loading ? '正在准备…' : attachmentDownload.saving.value ? '正在保存…' : '下载并选择保存位置' }}</button>
-        </footer>
-      </section>
-    </div>
-  </Teleport>
-
-  <Teleport to="body">
     <div v-if="previewOpen" class="image-preview-backdrop" role="presentation" @click.self="closePreview">
       <section class="image-preview" role="dialog" aria-modal="true" aria-label="原图预览">
-        <button class="preview-close" type="button" aria-label="关闭原图" @click="closePreview">×</button>
+        <button class="preview-close" type="button" aria-label="关闭原图" @click="closePreview"><UiIcon name="close" :size="20" /></button>
         <img
           v-if="previewLoading && previewThumbnailUrl"
           class="preview-thumbnail"
@@ -482,24 +456,34 @@ function handlePreviewError(): void {
       </section>
     </div>
   </Teleport>
+  <FilePreviewModal
+      :open="filePreviewOpen"
+      :attachment="data"
+      @close="closeFilePreview"
+      @download="download"
+  />
 </template>
 
 <style scoped>
-.image-attachment { position: relative; display: block; max-width: min(340px, 62vw); min-width: 160px; min-height: 120px; padding: 0; overflow: hidden; border: 0; border-radius: 18px 18px 18px 8px; color: var(--ink-soft); background: rgba(223,236,248,.72); cursor: zoom-in; }
-.image-attachment img { display: block; width: 100%; max-height: 330px; object-fit: cover; }
-.image-loading { display: grid; min-height: 150px; padding: 20px; place-items: center; font-size: 12px; }
-.image-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.35); border-radius: 9px; color: white; font-size: var(--font-micro); font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
-.path-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border-radius: 9px; color: white; font-size: var(--font-micro); font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
+.image-attachment { position: relative; display: block; max-width: min(340px, 62vw); min-width: 120px; min-height: 90px; padding: 0; overflow: hidden; border: 0; color: var(--ink-soft); cursor: zoom-in; }
+.image-attachment img { display: block; width: auto; max-width: 100%; max-height: 330px; object-fit: cover; }
+@media (max-width: 600px) {
+  .image-attachment {max-width: min(240px, 52vw); min-width: 100px; min-height: 80px; border-radius: 14px 14px 14px 8px;}
+  .image-attachment img {max-height: 220px;}
+}
+.image-loading { display: grid; min-height: 150px; padding: var(--space-5); place-items: center; font-size: var(--font-caption); }
+.image-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.35); border-radius: var(--radius-sm); color: white; font-size: var(--font-micro); font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
+.path-hint { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border-radius: var(--radius-sm); color: white; font-size: var(--font-micro); font-weight: 700; background: rgba(16,35,63,.48); backdrop-filter: blur(10px); }
 .file-attachment { display: flex; width: min(288px, 68vw); min-height: 60px; padding: 9px 10px; align-items: center; gap: 10px; border: 0; border-radius: 15px; color: inherit; text-align: left; background: transparent; cursor: pointer; transition: background-color 150ms ease, transform 150ms ease; }
 .file-attachment:hover { background: rgba(0,122,255,.045); }
 .file-attachment:active { transform: scale(.985); }
 .file-attachment:disabled { cursor: wait; opacity: .72; }
-.file-icon { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: var(--blue); background: rgba(0,122,255,.09); }
+.file-icon { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); color: var(--accent-text); background: rgba(0,122,255,.09); }
 .file-icon .ui-icon { width: 20px; }
 .file-copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
-.file-copy strong { overflow: hidden; color: currentColor; font-size: 13px; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.file-copy small { color: var(--ink-faint); font-size: 11px; line-height: 1.2; }
-.download-action { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 10px; color: var(--blue); background: rgba(0,122,255,.09); transition: background-color 150ms ease; }
+.file-copy strong { overflow: hidden; color: currentColor; font-size: var(--font-body-sm); font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.file-copy small { color: var(--ink-faint); font-size: var(--font-micro); line-height: 1.2; }
+.download-action { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); color: var(--accent-text); background: rgba(0,122,255,.09); transition: background-color 150ms ease; }
 .download-icon { width: 18px; }
 .file-attachment:hover .download-action { background: rgba(0,122,255,.14); }
 .file-attachment--outgoing:hover { background: rgba(255,255,255,.08); }
@@ -509,31 +493,30 @@ function handlePreviewError(): void {
 .file-attachment--outgoing:hover .download-action { background: rgba(255,255,255,.24); }
 .image-preview-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; padding: 28px; place-items: center; background: rgba(12,18,26,.72); backdrop-filter: blur(16px) saturate(130%); -webkit-backdrop-filter: blur(16px) saturate(130%); }
 .image-preview { position: relative; display: grid; max-width: min(94vw, 1440px); max-height: 92dvh; place-items: center; }
-.image-preview img { display: block; max-width: 100%; max-height: 92dvh; object-fit: contain; border-radius: 14px; box-shadow: 0 28px 90px rgba(0,0,0,.36); }
+.image-preview img { display: block; max-width: 100%; max-height: 92dvh; object-fit: contain; border-radius: var(--radius-md); box-shadow: 0 28px 90px rgba(0,0,0,.36); }
 .image-preview .preview-thumbnail { max-width: min(82vw, 960px); max-height: 82dvh; opacity: .72; filter: blur(0.4px) saturate(.92); }
 .preview-image--loading { position: absolute; opacity: 0; pointer-events: none; }
-.preview-close { position: absolute; z-index: 1; top: 12px; right: 12px; display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid rgba(255,255,255,.24); border-radius: 50%; color: white; font-size: 24px; background: rgba(18,24,32,.58); cursor: pointer; backdrop-filter: blur(10px); }
-.preview-loading { position: absolute; z-index: 1; bottom: 14px; left: 50%; padding: 7px 11px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: white; font-size: 11px; background: rgba(18,24,32,.62); transform: translateX(-50%); backdrop-filter: blur(10px); }
-.preview-placeholder { display: grid; min-width: min(80vw, 520px); min-height: 280px; place-items: center; border-radius: 18px; color: white; font-size: 12px; background: rgba(255,255,255,.08); }
-.file-preview-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; padding: 20px; place-items: center; background: rgba(12,18,26,.52); backdrop-filter: blur(18px) saturate(125%); -webkit-backdrop-filter: blur(18px) saturate(125%); }
-.file-preview { display: grid; width: min(100%, 760px); max-height: min(82dvh, 760px); overflow: hidden; border: 1px solid var(--separator); border-radius: 22px; color: var(--ink); background: var(--surface-raised, var(--surface)); box-shadow: 0 24px 72px rgba(0,0,0,.25), inset 0 1px 0 var(--highlight-soft); }
+.preview-close { position: absolute; z-index: 1; top: 12px; right: 12px; display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid rgba(255,255,255,.24); border-radius: 50%; color: white; font-size: var(--font-page-title); background: rgba(18,24,32,.58); cursor: pointer; backdrop-filter: blur(10px); }
+.preview-loading { position: absolute; z-index: 1; bottom: 14px; left: 50%; padding: 7px 11px; border: 1px solid rgba(255,255,255,.2); border-radius: var(--radius-pill); color: white; font-size: var(--font-micro); background: rgba(18,24,32,.62); transform: translateX(-50%); backdrop-filter: blur(10px); }
+.preview-placeholder { display: grid; min-width: min(80vw, 520px); min-height: 280px; place-items: center; border-radius: 18px; color: white; font-size: var(--font-caption); background: rgba(255,255,255,.08); }
+.file-preview-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; padding: var(--space-5); place-items: center; background: rgba(12,18,26,.52); backdrop-filter: blur(18px) saturate(125%); -webkit-backdrop-filter: blur(18px) saturate(125%); }
 .file-preview-header { display: grid; min-width: 0; padding: 16px 18px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border-bottom: 1px solid var(--separator); }
-.file-preview-header .file-icon { width: 36px; height: 36px; border-radius: 11px; }
+.file-preview-header .file-icon { width: 36px; height: 36px; border-radius: var(--radius-control); }
 .file-preview-header div { display: grid; min-width: 0; gap: 2px; }
-.file-preview-header strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.file-preview-header small { color: var(--ink-faint); font-size: 11px; }
+.file-preview-header strong { overflow: hidden; font-size: var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.file-preview-header small { color: var(--ink-faint); font-size: var(--font-micro); }
 .file-preview-header button { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: var(--ink-soft); font-size: 22px; background: var(--fill); cursor: pointer; }
 .file-preview-frame { width: 100%; min-height: min(58dvh, 540px); border: 0; background: white; }
-.file-preview-state { display: grid; min-height: 220px; max-width: 430px; padding: 32px; margin: 0 auto; place-items: center; color: var(--ink-faint); font-size: 13px; line-height: 1.6; text-align: center; }
+.file-preview-state { display: grid; min-height: 220px; max-width: 430px; padding: var(--space-8); margin: 0 auto; place-items: center; color: var(--ink-faint); font-size: var(--font-body-sm); line-height: 1.6; text-align: center; }
 .file-preview footer { display: flex; min-height: 68px; padding: 14px 18px; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--separator); }
-.download-progress { position: relative; height: 4px; min-width: 120px; flex: 1; overflow: hidden; border-radius: 999px; background: var(--fill); }
+.download-progress { position: relative; height: 4px; min-width: 120px; flex: 1; overflow: hidden; border-radius: var(--radius-pill); background: var(--fill); }
 .download-progress span { display: block; height: 100%; border-radius: inherit; background: var(--blue); transition: width 120ms linear; }
 .download-progress--indeterminate span { animation: download-indeterminate 1.2s ease-in-out infinite alternate; }
 @keyframes download-indeterminate { from { transform: translateX(-40%); } to { transform: translateX(225%); } }
-.file-cancel-button { min-height: 38px; padding: 0 12px; border: 1px solid var(--separator); border-radius: 10px; color: var(--ink-soft); font: inherit; font-size: 12px; font-weight: 650; background: var(--surface); cursor: pointer; }
-.file-save-button { display: inline-flex; min-height: 38px; padding: 0 14px; align-items: center; gap: 7px; border: 0; border-radius: 10px; color: white; font-size: 12px; font-weight: 700; background: var(--blue); cursor: pointer; }
+.file-cancel-button { min-height: 38px; padding: 0 12px; border: 1px solid var(--separator); border-radius: var(--radius-control); color: var(--ink-soft); font: inherit; font-size: var(--font-caption); font-weight: 650; background: var(--surface); cursor: pointer; }
+.file-save-button { display: inline-flex; min-height: 38px; padding: 0 14px; align-items: center; gap: 7px; border: 0; border-radius: var(--radius-control); color: white; font-size: var(--font-caption); font-weight: 700; background: var(--action-bg); cursor: pointer; }
 .file-save-button:disabled { cursor: wait; opacity: .7; }
 
 .image-attachment { border-radius: 15px 15px 15px 5px; background: var(--fill); }
-@media (max-width: 760px) { .file-preview-backdrop { padding: 12px; align-items: end; } .file-preview { width: 100%; max-height: 88dvh; border-radius: 20px; } .file-preview-frame { min-height: 50dvh; } }
+@media (max-width: 760px) { .file-preview-backdrop { padding: var(--space-3); align-items: end; } .file-preview { width: 100%; max-height: 88dvh; border-radius: var(--radius-lg); } .file-preview-frame { min-height: 50dvh; } }
 </style>

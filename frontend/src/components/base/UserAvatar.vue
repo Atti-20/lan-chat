@@ -18,24 +18,16 @@ const props = withDefaults(defineProps<Props>(), {
   online: false,
 })
 
-const legacyEmoji = ['🫧', '🐼', '🐰', '🐸', '🦉', '🐥', '🦊', '🐻', '🐧', '🦩', '🐨', '🦁']
 const hue = computed(() => {
   let hash = 0
   for (const char of props.name || '?') hash = (hash * 31 + char.charCodeAt(0)) % 360
   return hash
 })
 
-const emoji = computed(() => {
-  if (props.avatar?.startsWith('emoji:')) return props.avatar.split(':')[1]
-  if (props.avatar?.startsWith('svg:')) {
-    const index = Number(props.avatar.split(':')[1] || 0)
-    return legacyEmoji[index % legacyEmoji.length]
-  }
-  return ''
-})
-
 // `text` is an explicit choice, while an empty avatar remains compatible with
-// older accounts. Both render the same deterministic nickname initial.
+// older accounts. Both render the same deterministic nickname initial. Legacy
+// emoji/svg values deliberately fall through to text so every current client
+// uses one avatar language.
 const textInitial = computed(() => {
   if (props.avatar?.startsWith('letter:')) {
     return props.avatar.slice('letter:'.length).slice(0, 1).toUpperCase() || '?'
@@ -44,9 +36,9 @@ const textInitial = computed(() => {
 })
 
 const customColor = computed(() => {
-  if (props.avatar?.startsWith('emoji:')) {
+  if (props.avatar?.startsWith('letter:')) {
     const parts = props.avatar.split(':')
-    if (parts.length >= 3 && parts[2]) return parts[2]
+    if (parts.length >= 3 && /^#[0-9a-f]{6}$/i.test(parts[2])) return parts[2]
   }
   return ''
 })
@@ -126,7 +118,6 @@ function adjustColor(hex: string, amount: number): string {
   <span class="avatar" :style="avatarStyle" :aria-label="`${name}的头像`">
     <img v-if="resolvedImageUrl" class="avatar-image" :src="resolvedImageUrl" alt="" @error="handleAvatarImageError"/>
     <span v-else-if="resolvingImage" class="avatar-loading" aria-hidden="true" />
-    <span v-else-if="emoji" aria-hidden="true">{{ emoji }}</span>
     <span v-else class="avatar-letter" aria-hidden="true">{{ textInitial }}</span>
     <span v-if="online" class="online-dot" aria-label="在线" />
   </span>
@@ -140,10 +131,8 @@ function adjustColor(hex: string, amount: number): string {
   overflow: visible;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: 36%;
   color: #fff;
   font-weight: 750;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 7px 18px rgba(41, 74, 108, 0.16);
 }
 
 .avatar-image {
@@ -184,8 +173,6 @@ function adjustColor(hex: string, amount: number): string {
   aspect-ratio: 1;
   border: 2px solid rgba(245, 251, 255, 0.96);
   border-radius: 50%;
-  background: #30d158;
-  box-shadow: 0 2px 7px rgba(48, 209, 88, 0.4);
 }
 
 .avatar {

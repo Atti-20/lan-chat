@@ -2,7 +2,9 @@ package com.lanchat.service;
 
 import com.lanchat.common.ConversationMembershipChangedEvent;
 import com.lanchat.common.ConversationReadChangedEvent;
+import com.lanchat.common.MentionReadReceiptChangedEvent;
 import com.lanchat.dto.ConversationSummary;
+import com.lanchat.entity.ChatMessage;
 import com.lanchat.entity.ConversationMember;
 import com.lanchat.entity.GroupMember;
 import com.lanchat.mapper.ChatMessageMapper;
@@ -19,9 +21,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -110,5 +114,43 @@ class ConversationServiceImplTest {
         assertEquals("group:3", resolved);
         verify(conversationMapper).insertIfAbsent("group:3", "GROUP", 3L);
         verify(groupMemberMapper, never()).selectList(any());
+    }
+
+    @Test
+    void groupReadPersistsNewMentionReceiptAndPublishesOnlyAnOpaqueInvalidation() {
+        GroupMember groupMembership = new GroupMember();
+        groupMembership.setUserId(7L);
+        when(groupMemberMapper.selectCount(any())).thenReturn(1L);
+        when(groupMemberMapper.selectList(any())).thenReturn(List.of(groupMembership));
+        when(conversationMapper.selectLastSequenceForUpdate("group:3")).thenReturn(15L);
+
+        ConversationMember persisted = new ConversationMember();
+        persisted.setLastReadSequence(12L);
+        persisted.setUnreadCount(3);
+        when(memberMapper.selectActiveMember("group:3", 7L)).thenReturn(persisted);
+
+        ChatMessage mentioned = new ChatMessage();
+        mentioned.setMessageId("mention_42");
+        mentioned.setFromUserId(9L);
+        when(messageMapper.selectUnrecordedMentionedMessagesReadBy("group:3", 7L, 12L))
+                .thenReturn(List.of(mentioned));
+        when(messageMapper.recordMentionReceiptsRead("group:3", 7L, 12L)).thenReturn(1);
+
+        service.markRead("group:3", 7L, 12L);
+
+        verify(messageMapper).recordMentionReceiptsRead("group:3", 7L, 12L);
+        ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher, times(2)).publishEvent(events.capture());
+        MentionReadReceiptChangedEvent receiptEvent = events.getAllValues().stream()
+                .filter(MentionReadReceiptChangedEvent.class::isInstance)
+                .map(MentionReadReceiptChangedEvent.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("group:3", receiptEvent.conversationId());
+        assertEquals(7L, receiptEvent.readerId());
+        assertEquals(List.of("mention_42"), receiptEvent.changes().stream()
+                .map(MentionReadReceiptChangedEvent.MessageChange::messageId)
+                .toList());
+        assertTrue(receiptEvent.changes().stream().noneMatch(change -> change.messageId() == null));
     }
 }

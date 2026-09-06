@@ -51,6 +51,10 @@ export class WsClient {
     return this.socket?.readyState === WebSocket.OPEN
   }
 
+  countWhere(predicate: (envelope: WsEnvelope) => boolean): number {
+    return this.received.filter(predicate).length
+  }
+
   async connect(): Promise<void> {
     if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
       throw new Error('WebSocket is already connected or connecting')
@@ -83,6 +87,19 @@ export class WsClient {
     )
     this.send('AUTH', { token: this.token }, { requestId: this.id('auth') })
     await authenticated
+  }
+
+  /** Requests the authoritative committed message snapshot for every accessible conversation. */
+  async syncAll(timeoutMs = 15_000): Promise<WsEnvelope> {
+    const requestId = this.id('sync')
+    const cursor = this.messageCount
+    const response = this.waitFor(
+      (envelope) => envelope.event === 'SYNC_RESPONSE' && envelope.requestId === requestId,
+      timeoutMs,
+      cursor,
+    )
+    this.send('SYNC_REQUEST', { positions: {}, limit: 200 }, { requestId })
+    return response
   }
 
   send(

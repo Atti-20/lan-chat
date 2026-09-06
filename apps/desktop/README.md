@@ -7,11 +7,27 @@ LANChat Desktop 是基于 Tauri 2 的 macOS、Windows、Linux 桌面客户端。
 
 ## 已实现能力
 
-- Rust 原生 `_lanchat._tcp.local.` mDNS-SD 发现、手动节点和服务端 fallback 节点；
-- `/api/v1/node/info` 与健康端点握手，强制校验 V1 协议、Desktop Auth 和路径契约；
+- Rust 原生 `_meshx-control._tcp.local.` mDNS-SD 发现，并在迁移期兼容 `_lanchat._tcp.local.`、手动地址和服务端 fallback；
+- `/api/v2/control/info` Control 握手优先，旧节点回退 `/api/v1/node/info`，两种路径都强制校验协议、Desktop Auth 和路径契约；
 - 节点去重、RTT、健康状态、连续失败降级，以及最多 32 条的本地 JSON 缓存；
 - Rust 原生登录、刷新和退出；Refresh Cookie 仅存在于按节点 Origin 隔离的
   `reqwest` Cookie Jar，JavaScript 只接收 Access Token；
+- Control 启用设备身份时，Rust 原生层按稳定 `controlId` 在系统凭据库中生成并保存
+  Ed25519 私钥（macOS Keychain、Windows Credential Manager、Linux Secret Service），
+  只向 Control 提交 X.509 公钥和 SHA-256 指纹；私钥不会进入 Vue 或 Web Storage；
+- 登录和 Refresh 都会绑定同一个设备身份并验证 Control 签名的 ACTIVE 设备证书；
+  人工审批尚未通过、证书被篡改或已缓存的 Control 签名指纹发生变化时，新会话会在
+  本地被丢弃并尽力主动注销，不会回退到未绑定设备的旧会话；
+- 设备会话建立前按单调版本增量同步 Control 的签名撤销快照，逐条验签并持久化到应用
+  数据目录的 `revocations.json`；当前设备已撤销、版本回退、分页断层或缓存签名损坏时
+  登录失败关闭。普通 Peer Runtime 尚未实现，因此离线 Peer 拒收仍是后续任务；
+- ACTIVE 设备会话验签与撤销同步通过后，独立 `meshx-node-runtime` 工作线程激活对应的
+  SQLite 数据库；数据库路径按 Control、组织、账号和稳定设备键分别哈希隔离，原始身份
+  标识不会出现在目录名中。Refresh 更新证书快照，Logout 只关闭完全匹配的旧上下文，
+  旧 Logout 不会误停同一 Origin 上已建立的新会话；
+- SQLite 使用 bundled `rusqlite`、WAL、外键、`synchronous=FULL`、启动完整性检查和
+  事务化 V1 迁移。窗口隐藏后工作线程继续运行；应用退出时执行 WAL checkpoint 并关闭
+  Connection。损坏数据库会失败关闭并原样保留，不会自动删除；恢复 UI 仍未实现；
 - 原生受控 REST/WebSocket 通道、分片上传取消，以及临时文件下载、进度、长度/哈希
   校验和原子替换；
 - 托盘打开/重新扫描/检查更新/退出、关闭窗口时隐藏、显式退出和 `--hidden`
@@ -23,6 +39,16 @@ LANChat Desktop 是基于 Tauri 2 的 macOS、Windows、Linux 桌面客户端。
 Refresh Cookie 只保存在桌面进程内存中，不会写入 Web Storage 或磁盘。完全退出
 LANChat 后 Cookie Jar 会销毁，下次启动需要重新登录；仅关闭主窗口会隐藏到托盘，
 不会丢失当前原生会话。
+
+当前 Node Runtime 是本地运行时和存储骨架：已创建 `node_identity`、Peer、消息、发件箱、
+回执、文件索引、传输会话、同步游标和 Control/撤销快照表，但 Peer Listener、
+`_meshx-node` 发布/握手、消息改由 SQLite 权威落库以及 Relay 自动降级尚未实现。因此它
+还不能被称为已经完成的 Desktop Full Node。
+
+设备身份由 Control 的 `deviceIdentityEnabled` 开关控制。关闭时保留现有兼容登录；
+开启时首次登录可能返回“等待管理员审批”，管理员批准后再次登录即可取得并本地验签
+设备证书。Control 公钥采用首次可信握手后固定指纹的策略；组织或签名键变化必须由
+后续显式“重新信任 Control”流程处理，客户端不会静默接受。
 
 ## 安装与开发
 
@@ -93,8 +119,13 @@ Gradle 与根 README 是否一致。
 ## Rust 验证
 
 ```bash
-cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
-cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
-cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+cargo fmt --all --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+# macOS/Linux/Windows 本机凭据库往返测试：使用一次性条目并断言删除成功
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml \
+  operating_system_credential_store_round_trip_is_stable -- --ignored --test-threads=1
 git diff --check -- apps/desktop
 ```

@@ -28,6 +28,10 @@ def read_text(relative_path: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def path_exists(relative_path: str) -> bool:
+    return (ROOT / relative_path).is_file()
+
+
 def read_json(relative_path: str) -> dict:
     try:
         return json.loads(read_text(relative_path))
@@ -162,7 +166,7 @@ def read_gradle_version_name(relative_path: str) -> str:
     text = read_text(relative_path)
 
     match = re.search(
-        r'(?m)^\s*versionName\s+["\']([^"\']+)["\']\s*$',
+        r'(?m)^\s*versionName\s*(?:=\s*)?["\']([^"\']+)["\']\s*$',
         text,
     )
 
@@ -317,34 +321,73 @@ def main() -> int:
             ),
         ),
         (
-            "Mobile package.json",
-            lambda: read_json_version(
-                "apps/mobile/package.json"
-            ),
-        ),
-        (
-            "Mobile package-lock.json",
-            lambda: read_json_version(
-                "apps/mobile/package-lock.json"
-            ),
-        ),
-        (
-            "Mobile package-lock root",
-            lambda: read_package_lock_root_version(
-                "apps/mobile/package-lock.json"
-            ),
-        ),
-        (
-            "Android versionName",
-            lambda: read_gradle_version_name(
-                "apps/mobile/android/app/build.gradle"
-            ),
-        ),
-        (
             "README current version",
             lambda: read_readme_version("README.md"),
         ),
     ]
+
+    native_android_build = "apps/android/app/build.gradle.kts"
+    capacitor_mobile_package = "apps/mobile/package.json"
+    capacitor_android_build = "apps/mobile/android/app/build.gradle"
+
+    if path_exists(native_android_build):
+        checks.insert(
+            -1,
+            (
+                "Native Android versionName",
+                lambda: read_gradle_version_name(native_android_build),
+            ),
+        )
+
+    if path_exists("apps/ios/package.json"):
+        checks[-1:-1] = [
+            ("iOS package.json", lambda: read_json_version("apps/ios/package.json")),
+            ("iOS package-lock.json", lambda: read_json_version("apps/ios/package-lock.json")),
+            ("iOS package-lock root", lambda: read_package_lock_root_version("apps/ios/package-lock.json")),
+            ("iOS marketing version", lambda: read_regex_version(
+                "apps/ios/ios/App/App.xcodeproj/project.pbxproj",
+                r"MARKETING_VERSION\s*=\s*([0-9]+\.[0-9]+\.[0-9]+);",
+                "MARKETING_VERSION",
+            )),
+        ]
+
+    if path_exists(capacitor_mobile_package):
+        checks[-1:-1] = [
+            (
+                "Mobile package.json",
+                lambda: read_json_version(capacitor_mobile_package),
+            ),
+            (
+                "Mobile package-lock.json",
+                lambda: read_json_version("apps/mobile/package-lock.json"),
+            ),
+            (
+                "Mobile package-lock root",
+                lambda: read_package_lock_root_version(
+                    "apps/mobile/package-lock.json"
+                ),
+            ),
+        ]
+
+    if path_exists(capacitor_android_build):
+        checks.insert(
+            -1,
+            (
+                "Capacitor Android versionName",
+                lambda: read_gradle_version_name(capacitor_android_build),
+            ),
+        )
+
+    if not path_exists(native_android_build) and not path_exists(
+        capacitor_android_build
+    ):
+        checks.insert(
+            -1,
+            (
+                "Android versionName",
+                lambda: read_gradle_version_name(native_android_build),
+            ),
+        )
 
     print(f"MeshX expected version: {expected_version}")
     print()
