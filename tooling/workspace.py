@@ -23,7 +23,7 @@ import contract_compatibility
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "tooling/workspace.json"
 SKIP = {"node_modules", "target", "build", "dist", "dist-mobile", "dist-desktop",
-        ".git", ".gradle", ".swiftpm", ".dart_tool", "Pods", "DerivedData", "__pycache__", "gen", "public"}
+        ".git", ".gradle", ".swiftpm", ".dart_tool", "ephemeral", "Pods", "DerivedData", "__pycache__", "gen", "public"}
 CONTEXT_SUMMARY_MAX_BYTES = 4096
 ROOT_AGENTS_MAX_BYTES = 4096
 

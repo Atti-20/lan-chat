@@ -10,6 +10,19 @@ from test_workspace import workspace
 
 
 class ContextNavigationTests(unittest.TestCase):
+    def test_flutter_build_artifacts_do_not_change_source_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "ios/Runner/AppDelegate.swift"
+            source.parent.mkdir(parents=True)
+            source.write_text("// app", encoding="utf-8")
+            before = workspace.source_files(root, {".swift"})
+            generated = root / "ios/Flutter/ephemeral/Packages/Generated/Package.swift"
+            generated.parent.mkdir(parents=True)
+            generated.write_text("// generated", encoding="utf-8")
+            self.assertEqual(workspace.source_files(root, {".swift"}), before)
+            self.assertEqual(before, [source])
+
     def test_task_routes_use_real_entries_deduplicate_root_and_fit_budget(self):
         config = workspace.manifest()
         modules = {item["id"]: item for item in config["modules"]}
