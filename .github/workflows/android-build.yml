@@ -70,7 +70,7 @@ jobs:
       - name: Install Android API 37 build prerequisites
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-37" "build-tools;36.0.0"
+          sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: Verify Android toolchain
         working-directory: apps/android

@@ -110,3 +110,11 @@ iPhone 人工发送文字已在 Web 与实际 macOS DMG 应用收到。用户随
 iOS Profile 构建安装启动 PASS；用户重试后 Web 实际图片已加载（缩略图 960×960），macOS 实际聊天同样出现图片。用户反馈选完文件到显示发送中等待较长，已新增 Flutter 准备状态及不定进度提示/取消，Vue 增加 PREPARING 阶段；最新 iPhone 已重新安装启动，尚未取得用户对等待体验的第二次确认，不能记为性能验收 PASS。Apple ImageIO 实际测试 4800 万像素 JPEG 降至 4096×3072、普通 JPEG 字节不变 PASS；Edge 实际浏览器处理同尺寸生成测试图 1785ms、输出 4096×3072 PASS，该数值不是 iPhone 性能。Android 原生 debug 编译 PASS，Android 图片实际操作与 HEIC 真机矩阵尚未完成。Flutter 251 测试及 6 组验证 PASS；Web 验证与 desktop/mobile 构建 PASS。当前运行的旧 macOS 包仅证明接收成功，未把共享源码构建视为桌面新安装包验收。证据在 output/mx-four-client-loop-2026-09-20/ 的 image/feedback 日志。
 
 最新 GitHub hygiene 与常规 CI 已成功，Flutter Android 仍在安装 platforms;android-37 阶段失败（仓库包未找到），不标记所有云端构建完成；后续继续检查 SDK 分发与 Windows/Linux 云端结果。
+
+### GitHub 构建环境复验（2026-09-20）
+
+当前 Android SDK 的官方 repository2-3.xml 与本机 package.xml 均列出 platforms;android-37.0，而不是 platforms;android-37。两个 Android 工作流改用实际包名，compileSdk/targetSdk 仍保持 37，不降低平台目标。Windows run 35463400977 的三项 SQLite 测试仍无法打开超长路径：bundled SQLite 源码显示 win32-longpath 只增加内部路径容量，不自动为 CreateFileW 增加扩展长度前缀。调用端改为 canonicalize 已创建的父目录后拼接数据库文件名（允许数据库尚不存在），保留原路径层次、隔离、WAL 与事务语义。增加超过 350 字符路径的双连接/WAL/关闭重开回归；首次生成超过 512 字符路径也触发 macOS SQLite 自身路径上限，调整夹具为覆盖 Windows MAX_PATH 的 350–512 字符范围，不修改产品限制。Windows 最终结论以新云端复验为准。
+
+本机统一 desktop 验证 PASS（53项及1项既有ignored）；新增长路径用例后定向复验与云端结果另记。图标校验再次 PASS：50份raster及Android adaptive层一致。Android图片反馈新版已构建并覆盖安装模拟器，未将安装结果计作图片功能验收。正在重建包含图片处理的macOS应用包。
+
+长路径定向复验最终 5 PASS（含新增 WAL/双连接/重开），严格 clippy PASS。GitHub 3065385 的 Flutter iOS unsigned job 与 macOS smoke 已 PASS；Android 包名修复和 Windows 扩展路径修复将由后续提交验证，不能将旧 run 的结果迁移到新提交。最新 macOS app 构建已完成，更新安装包与启动验证继续进行。

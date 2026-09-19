@@ -556,7 +556,18 @@ fn deactivate_context(
 fn open_sqlite(path: &Path, flags: OpenFlags) -> rusqlite::Result<Connection> {
     #[cfg(target_os = "windows")]
     {
-        Connection::open_with_flags_and_vfs(path, flags, "win32-longpath")
+        // The VFS increases SQLite's path buffer but does not add the Win32
+        // extended-length prefix. Canonicalize the existing parent (the DB
+        // itself may not exist yet) so CreateFileW receives that prefix too.
+        let parent = path
+            .parent()
+            .ok_or_else(|| rusqlite::Error::InvalidPath(path.into()))?;
+        let name = path
+            .file_name()
+            .ok_or_else(|| rusqlite::Error::InvalidPath(path.into()))?;
+        let parent =
+            fs::canonicalize(parent).map_err(|_| rusqlite::Error::InvalidPath(path.into()))?;
+        Connection::open_with_flags_and_vfs(parent.join(name), flags, "win32-longpath")
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -901,6 +912,36 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn long_database_path_supports_wal_and_reopen() {
+        let directory = TestDir::new();
+        let mut parent = directory.path().to_path_buf();
+        for index in 0..6 {
+            parent = parent.join(format!("scope-{index}-{}", "x".repeat(48)));
+        }
+        fs::create_dir_all(&parent).unwrap();
+        let path = parent.join("meshx-node.db");
+        assert!(path.to_string_lossy().len() > 350);
+        let first = open_sqlite(&path, OpenFlags::default()).unwrap();
+        first.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE proof(value INTEGER); INSERT INTO proof VALUES(7);").unwrap();
+        let second = open_sqlite(&path, OpenFlags::default()).unwrap();
+        assert_eq!(
+            second
+                .query_row("SELECT value FROM proof", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            7
+        );
+        drop(first);
+        drop(second);
+        let reopened = open_sqlite(&path, OpenFlags::default()).unwrap();
+        assert_eq!(
+            reopened
+                .query_row("SELECT value FROM proof", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            7
+        );
     }
 
     #[test]
