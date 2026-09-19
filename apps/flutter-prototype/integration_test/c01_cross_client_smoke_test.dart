@@ -94,6 +94,7 @@ void main() {
         final credentials = NativeCredentialStore();
         await credentials.clear();
         final controller = ChatController(
+          allowLocalHttp: true,
           discovery: NativeNodeDiscovery(),
           store: FileChatStore(),
           credentials: credentials,

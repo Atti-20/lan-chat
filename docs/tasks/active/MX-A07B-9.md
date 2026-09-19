@@ -95,3 +95,10 @@ GitHub 已同步：c1d0b8b 上传完整当前源码，03d35c3 修复 Flutter eph
 四端基础闭环使用新独立 Spring/MySQL/Redis fixture，当前服务端 package 328 测试零失败零跳过。Web 实际页面发送群聊消息；macOS 实际 DMG 内应用原生登录、接收与回复，Web 页面回显通过。Android 第一轮因系统局域网权限弹窗未处理而 FAIL；配置模拟器本地网络测试权限后，群聊双向/ACK、联系人私聊、返回、群成员、资料与退出 PASS（android-retry/android-integration.json），Web 与 macOS 均看到 Android 回复。证据目录 output/mx-four-client-loop-2026-09-20。iPhone Profile 集成包已构建安装启动，正在等待真机结果；未把 RUNNING 视为 PASS。附件、广播、网络故障及恢复全矩阵没有由这次基础闭环自动关闭。
 
 真机首轮结果 ios-result-current.json 为 FAIL：AUTH/SYNC 等待超时，用户随后反馈已允许系统本地网络权限并愿意协助。已提供仅用于该隔离空间的账号与测试步骤，切回正常 Profile 体验版进行人工闭环；不把自动测试安装成功记为功能通过。Windows long-path 改动在 macOS 的 53 项 Rust 测试与 strict clippy PASS，Windows 结果仍待新的 GitHub run。
+
+
+### iPhone 人工验收连接策略纠正与云端环境修复
+
+用户反馈正常 Profile 体验版显示“该节点需要 HTTPS”。源码确认 ChatController 默认 allowLocalHttp=kDebugMode，因此先前提供 HTTP fixture 地址给 Profile 包不适用；自动 Profile C01 同样未显式允许本地 HTTP。已保留正式 main 的原默认策略，提取共享 runMeshX 引导，新增 tool/lan_manual_preview.dart 专用 Profile 验收入口（其他模式运行即拒绝），仅显式启用 parseNodeOrigin 已有限制的私网/loopback HTTP，未跳过 HTTPS 证书验证。C01 集成入口显式启用相同测试配置。iPhone 已安装启动该局域网验收包，等待用户手动结果；普通 lib/main.dart 候选包不混用此入口。Flutter 6 组检查及 251 测试 PASS。
+
+GitHub Flutter quality 已 PASS，Android 安装 SDK 阶段失败于 setup-android@v3 默认请求已停用 tools 包；旧 Android 与 Flutter 两个工作流显式指定 packages: platform-tools，保留后续 API37/build-tools 安装和全部检查。全历史 Gitleaks finding 已核对为历史 notificationDeliveryDeduper.ts 第12行的公开 localStorage 名称 meshx_notification_delivery_v1，无凭据语义；仅对历史精确文件路径、generic-api-key 规则和精确常量组合加入 allowlist。反例中同路径替换其他随机密钥仍 FAIL，公开常量 PASS，全历史扫描零 finding；未删除历史、未放宽其他规则或加入全文件豁免。相关证据在 output/mx-delivery-2026-09-20/gitleaks-namespace-regression.json 与 history-after-namespace-fix.log。

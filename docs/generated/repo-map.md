@@ -10,7 +10,7 @@
 | `apps/desktop` | Tauri 原生适配与桌面打包 | 17 | [AGENTS.md](../../apps/desktop/AGENTS.md) |
 | `apps/android` | 迁移期间保留的 Capacitor Android 客户端 | 13 | [AGENTS.md](../../apps/android/AGENTS.md) |
 | `apps/ios` | 迁移期间保留的 Capacitor iOS 客户端 | 11 | [AGENTS.md](../../apps/ios/AGENTS.md) |
-| `apps/flutter-prototype` | 目标移动端路线的 Flutter 切片原型；完整迁移未完成 | 119 | [AGENTS.md](../../apps/flutter-prototype/AGENTS.md) |
+| `apps/flutter-prototype` | 目标移动端路线的 Flutter 切片原型；完整迁移未完成 | 120 | [AGENTS.md](../../apps/flutter-prototype/AGENTS.md) |
 | `packages/protocol` | REST TS / WS TS 和 Dart 的机器契约生成边界 | 5 | [AGENTS.md](../../packages/protocol/AGENTS.md) |
 | `packages/domain-ts` | 平台无关的聊天模型、消息合并/排序、outbox 恢复、重连与序列规则 | 12 | [AGENTS.md](../../packages/domain-ts/AGENTS.md) |
 | `packages/platform-ports` | 现有宿主接口与小型 Outbox/Realtime Ports；无平台实现 | 4 | [AGENTS.md](../../packages/platform-ports/AGENTS.md) |

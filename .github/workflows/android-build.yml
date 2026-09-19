@@ -64,6 +64,8 @@ jobs:
           npm ci --prefix apps/android
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android API 37 build prerequisites
         run: |
