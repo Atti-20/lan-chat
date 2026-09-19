@@ -508,6 +508,7 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
     if (ws.connected.value) void refreshAndSynchronize().catch(() => undefined)
   }, 60_000)
   const fileTransferLabel = computed(() => {
+    if (resumableFiles.phase.value === 'PREPARING') return '正在准备文件；大尺寸图片会自动缩小…'
     if (resumableFiles.phase.value === 'HASHING') return '正在校验中转文件完整性…'
     if (resumableFiles.phase.value === 'UPLOADING') {
       return `节点断点续传 ${resumableFiles.progress.value}%`

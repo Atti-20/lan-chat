@@ -12,6 +12,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.database.MatrixCursor
 import android.net.ConnectivityManager
 import android.net.LinkProperties
@@ -325,7 +330,7 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
                 if (knownSize > limit) throw TooLarge()
                 name = name.replace(Regex("[\\\\/\\p{Cntrl}]"), "_").take(120).trim('.').ifEmpty { "selected-file" }
                 if (name == "mime") name = "selected-mime"
-                val mime = activity.contentResolver.getType(uri)?.takeIf { it.matches(Regex("^[a-zA-Z0-9.+-]+/[a-zA-Z0-9.+-]+$")) } ?: "application/octet-stream"
+                var mime = activity.contentResolver.getType(uri)?.takeIf { it.matches(Regex("^[a-zA-Z0-9.+-]+/[a-zA-Z0-9.+-]+$")) } ?: "application/octet-stream"
                 check(dir.mkdirs())
                 var size = 0L; val deadline = System.nanoTime() + 30_000_000_000L
                 activity.contentResolver.openInputStream(uri)?.use { input ->
@@ -342,6 +347,14 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
                     }
                 } ?: throw FileNotFoundException()
                 File(dir, "mime").writeText(mime)
+                prepareImage(File(dir, name), limit)?.let { prepared ->
+                    name = prepared.name
+                    mime = if (prepared.extension == "png") "image/png" else "image/jpeg"
+                    size = prepared.length()
+                    File(dir, "mime").writeText(mime)
+                }
+                if (disposed || expected != epoch) throw InterruptedException()
+                if (System.nanoTime() > deadline) throw java.util.concurrent.TimeoutException()
                 response = mapOf("status" to "SUCCESS", "handle" to id, "name" to name, "mime" to mime, "size" to size)
             } catch (_: TooLarge) { response = mapOf("status" to "FAILED", "reason" to "fileTooLarge") }
             catch (_: SecurityException) { response = mapOf("status" to "PERMISSION_DENIED", "reason" to "fileAccessDenied") }
@@ -356,6 +369,50 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
                 result.success(response)
             }
         }
+    }
+    private fun prepareImage(file: File, limit: Long): File? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        val mime = bounds.outMimeType ?: return null
+        if (mime !in setOf("image/jpeg", "image/png", "image/heic", "image/heif")) return null
+        val width = bounds.outWidth; val height = bounds.outHeight
+        if (width <= 0 || height <= 0) return null
+        val heif = mime == "image/heic" || mime == "image/heif"
+        if (!heif && width.toLong() * height <= 40_000_000L) return null
+        val decoded: Bitmap = if (Build.VERSION.SDK_INT >= 28) {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+                val ratio = minOf(1.0, 4096.0 / maxOf(info.size.width, info.size.height))
+                decoder.setTargetSize(maxOf(1, (info.size.width * ratio).toInt()), maxOf(1, (info.size.height * ratio).toInt()))
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        } else {
+            var sample = 1
+            while (maxOf(width, height) / sample > 4096) sample *= 2
+            val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: throw IOException("Invalid image")
+            val transform = Matrix()
+            when (ExifInterface(file.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> transform.setScale(-1f, 1f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> transform.setRotate(180f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> transform.setScale(1f, -1f)
+                ExifInterface.ORIENTATION_TRANSPOSE -> { transform.setRotate(90f); transform.postScale(-1f, 1f) }
+                ExifInterface.ORIENTATION_ROTATE_90 -> transform.setRotate(90f)
+                ExifInterface.ORIENTATION_TRANSVERSE -> { transform.setRotate(270f); transform.postScale(-1f, 1f) }
+                ExifInterface.ORIENTATION_ROTATE_270 -> transform.setRotate(270f)
+            }
+            val oriented = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, transform, true)
+            if (oriented !== bitmap) bitmap.recycle()
+            oriented
+        }
+        val png = mime == "image/png"
+        val target = File(file.parentFile, file.nameWithoutExtension.take(100) + "-meshx." + if (png) "png" else "jpg")
+        try {
+            target.outputStream().use { out ->
+                if (!decoded.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 90, out)) throw IOException("Image encoding failed")
+            }
+        } finally { decoded.recycle() }
+        if (target.length() <= 0 || target.length() > limit) throw TooLarge()
+        if (!file.delete()) throw IOException("Image staging cleanup failed")
+        return target
     }
     private class TooLarge: IOException()
     fun dispose() {

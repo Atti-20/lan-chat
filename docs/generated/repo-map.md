@@ -6,7 +6,7 @@
 | 模块 | 职责 | 源文件数 | 指令 |
 |---|---|---:|---|
 | `services/server` | Spring Boot 控制面、业务 API、WebSocket 与 Relay | 334 | [AGENTS.md](../../services/server/AGENTS.md) |
-| `apps/web` | Web / Tauri 共享 Vue 应用；迁移期间仍服务 Capacitor | 129 | [AGENTS.md](../../apps/web/AGENTS.md) |
+| `apps/web` | Web / Tauri 共享 Vue 应用；迁移期间仍服务 Capacitor | 130 | [AGENTS.md](../../apps/web/AGENTS.md) |
 | `apps/desktop` | Tauri 原生适配与桌面打包 | 17 | [AGENTS.md](../../apps/desktop/AGENTS.md) |
 | `apps/android` | 迁移期间保留的 Capacitor Android 客户端 | 13 | [AGENTS.md](../../apps/android/AGENTS.md) |
 | `apps/ios` | 迁移期间保留的 Capacitor iOS 客户端 | 11 | [AGENTS.md](../../apps/ios/AGENTS.md) |

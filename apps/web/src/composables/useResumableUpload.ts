@@ -2,12 +2,13 @@ import { computed, onBeforeUnmount, readonly, shallowRef } from 'vue'
 import { api } from '../services/api'
 import type { FileUpload, ResumableUploadSession } from '../types'
 import { sha256Blob } from '../utils/sha256'
+import { prepareUploadImage } from '../utils/prepareUploadImage'
 
 const FALLBACK_CHUNK_SIZE = 5 * 1024 * 1024
 const MAX_PARALLEL_PARTS = 3
 const MAX_PART_ATTEMPTS = 3
 
-type UploadPhase = 'IDLE' | 'HASHING' | 'UPLOADING' | 'COMPLETING'
+type UploadPhase = 'IDLE' | 'PREPARING' | 'HASHING' | 'UPLOADING' | 'COMPLETING'
 
 export function useResumableUpload() {
   const phase = shallowRef<UploadPhase>('IDLE')
@@ -26,10 +27,12 @@ export function useResumableUpload() {
 
     const controller = new AbortController()
     abortController = controller
-    phase.value = 'HASHING'
+    phase.value = 'PREPARING'
     progress.value = 0
 
     try {
+      file = await prepareUploadImage(file, controller.signal)
+      phase.value = 'HASHING'
       const fileHash = await sha256Blob(file, controller.signal)
       const clientUploadId = await stableUploadId(
         file,

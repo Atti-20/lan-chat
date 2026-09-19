@@ -102,3 +102,11 @@ GitHub 已同步：c1d0b8b 上传完整当前源码，03d35c3 修复 Flutter eph
 用户反馈正常 Profile 体验版显示“该节点需要 HTTPS”。源码确认 ChatController 默认 allowLocalHttp=kDebugMode，因此先前提供 HTTP fixture 地址给 Profile 包不适用；自动 Profile C01 同样未显式允许本地 HTTP。已保留正式 main 的原默认策略，提取共享 runMeshX 引导，新增 tool/lan_manual_preview.dart 专用 Profile 验收入口（其他模式运行即拒绝），仅显式启用 parseNodeOrigin 已有限制的私网/loopback HTTP，未跳过 HTTPS 证书验证。C01 集成入口显式启用相同测试配置。iPhone 已安装启动该局域网验收包，等待用户手动结果；普通 lib/main.dart 候选包不混用此入口。Flutter 6 组检查及 251 测试 PASS。
 
 GitHub Flutter quality 已 PASS，Android 安装 SDK 阶段失败于 setup-android@v3 默认请求已停用 tools 包；旧 Android 与 Flutter 两个工作流显式指定 packages: platform-tools，保留后续 API37/build-tools 安装和全部检查。全历史 Gitleaks finding 已核对为历史 notificationDeliveryDeduper.ts 第12行的公开 localStorage 名称 meshx_notification_delivery_v1，无凭据语义；仅对历史精确文件路径、generic-api-key 规则和精确常量组合加入 allowlist。反例中同路径替换其他随机密钥仍 FAIL，公开常量 PASS，全历史扫描零 finding；未删除历史、未放宽其他规则或加入全文件豁免。相关证据在 output/mx-delivery-2026-09-20/gitleaks-namespace-regression.json 与 history-after-namespace-fix.log。
+
+### 四端图片安全上限修复与准备阶段反馈
+
+iPhone 人工发送文字已在 Web 与实际 macOS DMG 应用收到。用户随后反馈图片超过安全像素上限及 HEIC 不支持：保持服务端 4000 万像素限制，Flutter Swift/ImageIO、Kotlin/ImageDecoder 与共享 Vue 上传入口在上传前处理超大 JPEG/PNG，最长边降至 4096，PNG 保留格式；原始文件不修改，普通 JPEG/PNG 不重新编码。HEIC/HEIF 在可解码平台转换 JPEG；浏览器不支持 HEIC 时明确提示改选 JPEG/PNG，不承诺所有浏览器支持。Vue 断点上传在转换后计算哈希和上传身份，头像/广播/普通上传复用处理。原生仍保留字节上限、取消/超时和临时文件清理。
+
+iOS Profile 构建安装启动 PASS；用户重试后 Web 实际图片已加载（缩略图 960×960），macOS 实际聊天同样出现图片。用户反馈选完文件到显示发送中等待较长，已新增 Flutter 准备状态及不定进度提示/取消，Vue 增加 PREPARING 阶段；最新 iPhone 已重新安装启动，尚未取得用户对等待体验的第二次确认，不能记为性能验收 PASS。Apple ImageIO 实际测试 4800 万像素 JPEG 降至 4096×3072、普通 JPEG 字节不变 PASS；Edge 实际浏览器处理同尺寸生成测试图 1785ms、输出 4096×3072 PASS，该数值不是 iPhone 性能。Android 原生 debug 编译 PASS，Android 图片实际操作与 HEIC 真机矩阵尚未完成。Flutter 251 测试及 6 组验证 PASS；Web 验证与 desktop/mobile 构建 PASS。当前运行的旧 macOS 包仅证明接收成功，未把共享源码构建视为桌面新安装包验收。证据在 output/mx-four-client-loop-2026-09-20/ 的 image/feedback 日志。
+
+最新 GitHub hygiene 与常规 CI 已成功，Flutter Android 仍在安装 platforms;android-37 阶段失败（仓库包未找到），不标记所有云端构建完成；后续继续检查 SDK 分发与 Windows/Linux 云端结果。

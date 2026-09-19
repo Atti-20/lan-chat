@@ -535,9 +535,14 @@ void main() {
       final platform = attachmentPlatform(chat, system)..start();
       final controller = AttachmentController(chat: chat, platform: platform);
       try {
-        system.pickGate = Completer<CapabilityResult<SelectedFile>>()
-          ..complete(const CapabilityResult(CapabilityStatus.cancelled));
-        expect(await controller.pickAndSend(), isFalse);
+        system.pickGate = Completer<CapabilityResult<SelectedFile>>();
+        final pending = controller.pickAndSend();
+        expect(controller.preparing, isTrue);
+        expect(controller.progress, isNull);
+        expect(api.uploads, 0);
+        system.pickGate!.complete(const CapabilityResult(CapabilityStatus.cancelled));
+        expect(await pending, isFalse);
+        expect(controller.preparing, isFalse);
         expect(controller.error, isNull);
         expect(api.uploads, 0);
         system.pickGate = Completer<CapabilityResult<SelectedFile>>()

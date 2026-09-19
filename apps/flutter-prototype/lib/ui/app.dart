@@ -1143,6 +1143,11 @@ class _MessagePaneState extends State<MessagePane> with RouteAware {
               children: [
                 if (_attachments!.busy)
                   LinearProgressIndicator(value: _attachments!.progress),
+                if (_attachments!.preparing)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                    child: Text('正在准备文件；大尺寸图片会自动缩小，可点击取消'),
+                  ),
                 if (_attachments!.error != null)
                   MaterialBanner(
                     content: Text(_attachments!.error!),

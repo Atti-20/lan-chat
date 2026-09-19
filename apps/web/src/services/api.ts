@@ -1,3 +1,4 @@
+import { prepareUploadImage } from '../utils/prepareUploadImage'
 import type { components as ApiComponents } from '../../../../packages/protocol/src/rest'
 import { REST_OPERATIONS, type ApiResult } from '../../../../packages/protocol/src/rest-contract'
 import type {
@@ -383,7 +384,8 @@ export const api = {
     ),
   },
   files: {
-    upload: (file: File, conversationId: string) => {
+    upload: async (file: File, conversationId: string) => {
+      file = await prepareUploadImage(file)
       const form = new FormData()
       form.append('file', file)
       return request<FileUpload>(
@@ -391,12 +393,14 @@ export const api = {
         { method: 'POST', body: form },
       )
     },
-    uploadAvatar: (file: File) => {
+    uploadAvatar: async (file: File) => {
+      file = await prepareUploadImage(file)
       const form = new FormData()
       form.append('file', file)
       return request<FileUpload>('/file/avatar', { method: 'POST', body: form })
     },
-    uploadBroadcastImage: (file: File) => {
+    uploadBroadcastImage: async (file: File) => {
+      file = await prepareUploadImage(file)
       const form = new FormData()
       form.append('file', file)
       return request<FileUpload>('/file/broadcast-image', { method: 'POST', body: form })

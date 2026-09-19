@@ -14,6 +14,7 @@ class AttachmentController extends ChangeNotifier {
   final ChatController chat;
   final PlatformCoordinator platform;
   bool busy = false;
+  bool preparing = false;
   int completedBytes = 0, totalBytes = 0;
   String? error;
   int _operation = 0;
@@ -42,6 +43,7 @@ class AttachmentController extends ChangeNotifier {
     if (!busy) return;
     ++_operation;
     busy = false;
+    preparing = false;
     completedBytes = 0;
     totalBytes = 0;
     error = null;
@@ -73,9 +75,10 @@ class AttachmentController extends ChangeNotifier {
       return false;
     }
     busy = true;
+    preparing = true;
     error = null;
     completedBytes = 0;
-    totalBytes = attachmentByteLimit;
+    totalBytes = 0;
     final operation = ++_operation;
     var ownsSelection = false;
     notifyListeners();
@@ -92,7 +95,9 @@ class AttachmentController extends ChangeNotifier {
         return false;
       }
       ownsSelection = true;
+      preparing = false;
       totalBytes = selected.size;
+      notifyListeners();
       final uploaded = await api.uploadAttachmentStream(
         conversationId: conversation.id,
         name: selected.name,
@@ -132,6 +137,7 @@ class AttachmentController extends ChangeNotifier {
     } finally {
       if (operation == _operation) {
         busy = false;
+        preparing = false;
         completedBytes = 0;
         totalBytes = 0;
         if (ownsSelection) await platform.clearFile();

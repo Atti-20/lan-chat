@@ -3,6 +3,7 @@ import UIKit
 import UserNotifications
 import Network
 import MobileCoreServices
+import ImageIO
 
 final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, UNUserNotificationCenterDelegate, UIDocumentPickerDelegate {
     private var sink: FlutterEventSink?
@@ -307,6 +308,12 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
                         var mime = "application/octet-stream"
                         if let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, coordinated.pathExtension as CFString, nil)?.takeRetainedValue(),
                            let value = UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType)?.takeRetainedValue() { mime = value as String }
+                        input.close(); output.close()
+                        if let prepared = try self.prepareImage(destination, maxBytes: maxBytes) {
+                            name = prepared.name; mime = prepared.mime; size = prepared.size
+                        }
+                        if self.currentEpoch() != expected { throw SelectedError.cancelled }
+                        if Date() > deadline { throw SelectedError.timeout }
                         try mime.write(to: directory.appendingPathComponent("mime"), atomically: true, encoding: .utf8)
                         outcome = ["status": "SUCCESS", "handle": token, "name": name, "mime": mime, "size": size]
                     } catch SelectedError.tooLarge { outcome = ["status": "FAILED", "reason": "fileTooLarge"] }
@@ -325,6 +332,37 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
                 pending(outcome)
             }
         }
+    }
+    // Leave ordinary files and supported, in-limit images byte-for-byte intact.
+    // ImageIO downsamples before decoding the full camera image into memory.
+    private func prepareImage(_ file: URL, maxBytes: Int) throws -> (name: String, mime: String, size: Int)? {
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let type = CGImageSourceGetType(source) as String?,
+              ["public.jpeg", "public.png", "public.heic", "public.heif"].contains(type),
+              CGImageSourceGetCount(source) == 1,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0 else { return nil }
+        let heif = type == "public.heic" || type == "public.heif"
+        guard heif || Double(width) * Double(height) > 40_000_000 else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 4096,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { throw SelectedError.unreadable }
+        let png = type == "public.png"
+        let name = String(file.deletingPathExtension().lastPathComponent.prefix(100)) + "-meshx." + (png ? "png" : "jpg")
+        let target = file.deletingLastPathComponent().appendingPathComponent(name)
+        guard let destination = CGImageDestinationCreateWithURL(target as CFURL, png ? kUTTypePNG : kUTTypeJPEG, 1, nil) else { throw SelectedError.unreadable }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { throw SelectedError.unreadable }
+        let size = try target.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size > 0, size <= maxBytes else { throw SelectedError.tooLarge }
+        try FileManager.default.removeItem(at: file)
+        return (name, png ? "image/png" : "image/jpeg", size)
     }
     private enum SelectedError: Error { case tooLarge, unreadable, cancelled, timeout }
     deinit { monitor.cancel(); advanceEpoch(); pickerTimer?.cancel() }
