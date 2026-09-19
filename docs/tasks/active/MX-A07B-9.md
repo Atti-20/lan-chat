@@ -88,3 +88,10 @@ Windows重新探测有进展：VM从原suspended恢复成功，--current-user可
 停止指令前 Linux ARM64 本地测试 53 PASS/1 既有 ignored，Debian 包和 AppImage 已生成（output/mx-delivery-2026-09-20/linux）。首轮漏拷贝 contracts/fixtures/core-v1.json，补齐后测试通过；AppImage 首轮缺 xdg-utils，补齐后打包通过。未执行 Linux GUI 安装启动验收。用户要求后不再追加本地 Linux 构建。
 
 现有 Desktop Build 工作流新增 Windows NSIS/MSI、Linux deb/AppImage 的未签名体验安装包上传，保留原 Rust tests/clippy 与版本检查；Linux 安装依赖补 xdg-utils/patchelf。通知模块仅在 macOS/Windows 编译其专用回调，消除 Linux 无调用代码的严格 lint 失败，未改变 Linux 的不支持返回语义。macOS all-targets strict clippy PASS。同步前 staged Gitleaks PASS；暂存全部源码后发现四处历史末尾空行，修复原文件和 API 文档生成器，不跳过 hygiene。GitHub 上传与四端真实闭环结果待后续证据，不把本地构建视作通过。
+
+
+GitHub 已同步：c1d0b8b 上传完整当前源码，03d35c3 修复 Flutter ephemeral 文件进入源文件计数的干净检出差异（新回归后工具测试 60 PASS）。03d35c3 的常规 CI 成功；全历史 Gitleaks 保持既有 1 finding 失败，没有修改 allowlist 或改写历史。Desktop Build 的 macOS job 已通过，Windows 首轮 50 PASS/3 FAIL/1 ignored，三项均由带账号/设备隔离层次的 SQLite 路径超过 MAX_PATH 导致，正在改用 SQLite 已提供的 win32-longpath VFS，目录与 WAL/事务不变；Windows 后续仅云端复验。
+
+四端基础闭环使用新独立 Spring/MySQL/Redis fixture，当前服务端 package 328 测试零失败零跳过。Web 实际页面发送群聊消息；macOS 实际 DMG 内应用原生登录、接收与回复，Web 页面回显通过。Android 第一轮因系统局域网权限弹窗未处理而 FAIL；配置模拟器本地网络测试权限后，群聊双向/ACK、联系人私聊、返回、群成员、资料与退出 PASS（android-retry/android-integration.json），Web 与 macOS 均看到 Android 回复。证据目录 output/mx-four-client-loop-2026-09-20。iPhone Profile 集成包已构建安装启动，正在等待真机结果；未把 RUNNING 视为 PASS。附件、广播、网络故障及恢复全矩阵没有由这次基础闭环自动关闭。
+
+真机首轮结果 ios-result-current.json 为 FAIL：AUTH/SYNC 等待超时，用户随后反馈已允许系统本地网络权限并愿意协助。已提供仅用于该隔离空间的账号与测试步骤，切回正常 Profile 体验版进行人工闭环；不把自动测试安装成功记为功能通过。Windows long-path 改动在 macOS 的 53 项 Rust 测试与 strict clippy PASS，Windows 结果仍待新的 GitHub run。

@@ -551,6 +551,19 @@ fn deactivate_context(
     Ok(())
 }
 
+// Scoped identity directories can exceed MAX_PATH on Windows. SQLite's
+// long-path VFS preserves the same database layout, locking and WAL semantics.
+fn open_sqlite(path: &Path, flags: OpenFlags) -> rusqlite::Result<Connection> {
+    #[cfg(target_os = "windows")]
+    {
+        Connection::open_with_flags_and_vfs(path, flags, "win32-longpath")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Connection::open_with_flags(path, flags)
+    }
+}
+
 fn open_context_database(
     base_dir: &Path,
     context: NodeRuntimeContext,
@@ -561,7 +574,7 @@ fn open_context_database(
         .ok_or_else(|| "Node Runtime database path was invalid".to_string())?;
     fs::create_dir_all(parent)
         .map_err(|_| "failed to create the scoped Node Runtime directory".to_string())?;
-    let mut connection = Connection::open_with_flags(
+    let mut connection = open_sqlite(
         &path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
@@ -854,11 +867,11 @@ fn set_runtime_error(status: &Arc<Mutex<NodeRuntimeStatus>>, error: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        context_database_path, NodeRuntimeContext, NodeRuntimeIdentityKey, NodeRuntimeState,
-        CURRENT_SCHEMA_VERSION,
+        context_database_path, open_sqlite, NodeRuntimeContext, NodeRuntimeIdentityKey,
+        NodeRuntimeState, CURRENT_SCHEMA_VERSION,
     };
     use crate::device_identity::{ControlTrustAnchor, DeviceIdentity};
-    use rusqlite::{Connection, OptionalExtension};
+    use rusqlite::{OpenFlags, OptionalExtension};
     use serde_json::json;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -963,7 +976,7 @@ mod tests {
         assert_eq!(status.schema_version, Some(CURRENT_SCHEMA_VERSION));
         assert_eq!(status.organization_id.as_deref(), Some("org-a"));
 
-        let connection = Connection::open(&database_path).unwrap();
+        let connection = open_sqlite(&database_path, OpenFlags::default()).unwrap();
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
@@ -1011,7 +1024,7 @@ mod tests {
 
         let restarted = NodeRuntimeState::new(directory.path().to_path_buf()).unwrap();
         restarted.activate(context).await.unwrap();
-        let connection = Connection::open(&database_path).unwrap();
+        let connection = open_sqlite(&database_path, OpenFlags::default()).unwrap();
         let conversation_count: u32 = connection
             .query_row("SELECT COUNT(*) FROM local_conversation", [], |row| {
                 row.get(0)
