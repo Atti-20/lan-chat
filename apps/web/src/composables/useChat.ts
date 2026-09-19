@@ -1,0 +1,2149 @@
+import { recoveredConversationSummaries, type RecoveredSummaryRow } from '../../../../packages/domain-ts/src/recoveredConversationSummary'
+import {RecoveryNotificationDispatcher} from '../services/recoveryNotifications'
+import {RecoveryNotificationJournal} from '../../../../packages/domain-ts/src/notificationRecovery'
+import { VisibleReadTracker } from '../../../../packages/domain-ts/src/visibleRead'
+import { RecoveryChatSession } from '../services/recoveryChatSession'
+import type { RecoveryState } from '../../../../packages/domain-ts/src/recovery'
+import type { RecoveredChatImage } from '../services/recoveryChatSink'
+import { browserOutboxStore } from '../platform/web/outboxStore'
+import { normalizeMessage as normalizeChatMessage, mergeMessages as mergeChatMessages, sortMessages } from '../../../../packages/domain-ts/src/messages'
+import { computed, nextTick, onBeforeUnmount, onMounted, readonly, ref, shallowRef, watch } from 'vue'
+import { navigateToApp } from '../platform/appNavigation'
+import { nativeBridge } from '../platform/nativeBridge'
+import { isAppForeground } from '../platform/appActivity'
+import { selectedNode } from '../platform/nodeContext'
+import { api } from '../services/api'
+import {
+  applyConversationMessage,
+  applyConversationRead,
+  conversationReadRequiresSnapshot,
+  indexConversationSummaries,
+  removeConversationSummary,
+} from '../services/conversationSummaryState'
+import type {
+  ConversationMessageDelta,
+  ConversationReadDelta,
+  ConversationSummaryMap,
+} from '../services/conversationSummaryState'
+import { ConversationSelectionGeneration } from '../services/conversationSelectionState'
+import { playNotificationSound } from '../services/notificationSound'
+import { publishRealtimeEvent } from '../services/realtimeEvents'
+import {
+  loadRecoverySnapshot,
+  cacheMessages,
+  clearLocalChatDatabase,
+  deleteCachedMessagesByClientMsgId,
+  loadConversationDirectory,
+  loadCachedMessages,
+  loadPositions,
+  markCachedMessageRecalled,
+  saveConversationDirectory,
+  savePosition,
+} from '../services/localChatDb'
+import type {
+  ChatGroup,
+  ChatMessage,
+  ChatSendPayload,
+  Conversation,
+  ConversationSummary,
+  FileAttachmentData,
+  Friend,
+  FriendRequest,
+  GroupMember,
+  MessageDeliveryState,
+  OutboxEntry,
+  TemporaryRoom,
+  User,
+  WsEnvelope,
+} from '../types'
+import { resolveConversationId, groupConversationId, privateConversationId } from '../utils/conversation'
+import { conversationPreview } from '../utils/format'
+import { createClientMessageId } from '../utils/id'
+import { advanceContiguousSequence } from '../utils/sequence'
+import { clearCacheOwner, clearSession } from '../utils/storage'
+import { useAuth } from './useAuth'
+import { useFileTransferSettings } from './useFileTransferSettings'
+import { useOutbox } from './useOutbox'
+import { usePeerFileTransfer } from './usePeerFileTransfer'
+import { useResumableUpload } from './useResumableUpload'
+import { useToast } from './useToast'
+import { useWebSocket } from './useWebSocket'
+
+export type ChatSection = 'messages' | 'contacts' | 'groups' | 'broadcasts' | 'admin'
+
+type AckOutcome = 'ACK' | 'ERROR'
+
+interface AckWaiter {
+  resolve: (outcome: AckOutcome | 'TIMEOUT') => void
+  timer: number
+}
+
+type ConversationSummaryDelta =
+  | { kind: 'message'; value: ConversationMessageDelta }
+  | { kind: 'read'; value: ConversationReadDelta }
+  | { kind: 'remove'; conversationId: string }
+
+interface VersionedConversationSummaryDelta {
+  revision: number
+  delta: ConversationSummaryDelta
+}
+
+export function useChat(options: { isConversationVisible?: () => boolean; enableRecovery?: boolean } = {}) {
+  const auth = useAuth()
+  const { currentUser } = auth
+  const toast = useToast()
+  const fileTransferSettings = useFileTransferSettings()
+  const recoveryEnabled = shallowRef(options.enableRecovery === true)
+  const recoveryState = shallowRef<RecoveryState | null>(null)
+  const recoveryReason = shallowRef<string | undefined>()
+  const recoveredImage = shallowRef<RecoveredChatImage | null>(null)
+  let recoverySession: RecoveryChatSession | null = null
+  let recoveryDisposed = false, recoveryPending = false
+  let recoveryWork: Promise<void> | null = null
+  let recoveryTimer: number | null = null
+  let notificationDispatcher:RecoveryNotificationDispatcher|null=null
+  let notificationRetry:number|null=null
+  let notificationDraining=false
+  let notificationFailure=''
+  function drainRecoveryNotifications():void {
+    if(notificationDraining || !notificationDispatcher || !recoverySession?.safe || recoveryDisposed) return
+    if(notificationRetry!==null) window.clearTimeout(notificationRetry)
+    notificationDraining=true
+    void notificationDispatcher.drain().then(()=>{notificationFailure=''}).catch(error=>{
+      const reason=error instanceof Error ? error.message : 'NOTIFICATION_FAILED'
+      if(reason!==notificationFailure) toast.push('系统通知暂不可用，恢复后会自动重试','warning')
+      notificationFailure=reason
+    }).finally(()=>{
+      notificationDraining=false
+      if(!recoveryDisposed && recoverySession?.safe && recoverySession.image?.notificationRecovery.effects.length)
+        notificationRetry=window.setTimeout(drainRecoveryNotifications,5000)
+    })
+  }
+  function recoveryNotificationRouteAllowed(messageId:string|undefined,cid:string):boolean {
+    return !recoveryEnabled.value || Boolean(messageId && recoverySession?.safe && recoverySession.state && recoverySession.image
+      && recoverySession.state.messages.get(messageId)?.conversationId===cid
+      && new RecoveryNotificationJournal(recoverySession.image.notificationRecovery).allows(recoverySession.state,messageId))
+  }
+
+  const outbox = useOutbox({
+    load: () => recoveryEnabled.value ? Promise.resolve(recoverySession?.image?.outbox ?? []) : browserOutboxStore.load(),
+    save: entry => recoveryEnabled.value
+      ? recoverySession ? recoverySession.saveOutbox(entry) : Promise.reject(new Error('恢复尚未就绪'))
+      : browserOutboxStore.save(entry),
+    delete: id => recoveryEnabled.value
+      ? recoverySession ? recoverySession.deleteOutbox(id) : Promise.reject(new Error('恢复尚未就绪'))
+      : browserOutboxStore.delete(id),
+  }, {strictPersistence: () => recoveryEnabled.value})
+  const friends = ref<Friend[]>([])
+  const systemNotificationAccounts = ref<Friend[]>([])
+  const groups = ref<ChatGroup[]>([])
+  const rooms = ref<TemporaryRoom[]>([])
+  const requests = ref<FriendRequest[]>([])
+  const members = ref<GroupMember[]>([])
+  const messages = ref<ChatMessage[]>([])
+  const messageSearchResults = ref<ChatMessage[]>([])
+  const messageSearchLoading = shallowRef(false)
+  const messageSearchError = shallowRef('')
+  const selected = shallowRef<Conversation | null>(null)
+  const section = shallowRef<ChatSection>('messages')
+  const query = shallowRef('')
+  const loading = shallowRef(true)
+  const loadingMessages = shallowRef(false)
+  const typingLabel = shallowRef('')
+  const mentionReceiptRefreshRevision = shallowRef(0)
+  const onlineIds = ref<Set<number>>(new Set())
+  const relayTransferLabel = shallowRef('')
+  const conversationSummaries = shallowRef<ConversationSummaryMap>({})
+
+  const ackWaiters = new Map<string, AckWaiter>()
+  const burnTimers = new Map<string, number>()
+  const burnConversationIds = new Map<string, string>()
+  const runtimePositions = new Map<string, number>()
+  const pendingReadPositions = new Map<string, number>()
+  const recoveryReadBaselines = shallowRef(new Map<string, number>())
+  let recoveryReadTracker: VisibleReadTracker | undefined
+  let recoveryReadSent = 0
+  const recoveryReadScope = computed(()=>{
+    const c=recoveryState.value?.context
+    return c && recoveryState.value?.phase==='ONLINE_SAFE' && selected.value?.conversationId
+      ? JSON.stringify([c.origin,c.userId,c.streamEpoch,c.generation,recoveryState.value.cursor,selected.value.conversationId]) : ''
+  })
+  onMounted(()=>{watch(()=>options.isConversationVisible?.() ?? true,()=>recoveryReadTracker?.cancel(),{flush:'sync'})})
+  function observeRecoveryRead(scope: string, sequences: readonly number[]): void {
+    const cid=selected.value?.conversationId,state=recoveryState.value,image=recoveredImage.value
+    const eligible=Boolean(scope && scope===recoveryReadScope.value && cid && state?.phase==='ONLINE_SAFE' && image
+      && recoverySession?.safe && state.access.get(cid)?.readAllowed && isAppForeground() && (options.isConversationVisible?.() ?? true))
+    if(!eligible || !cid || !state || !image || !recoveryReadBaselines.value.has(cid)) {recoveryReadTracker?.cancel();return}
+    if(recoveryReadTracker?.scope!==scope) {
+      const rows=[...image.messages.filter(m=>m.conversationId===cid && (m.sequence || 0)>0).map(m=>({sequence:m.sequence!,own:String(m.fromUserId)===state.context.userId})),
+        ...image.tombstones.filter(m=>m.conversationId===cid && m.messageSequence).map(m=>({sequence:Number(m.messageSequence),own:false}))]
+      recoveryReadTracker=new VisibleReadTracker(scope,recoveryReadBaselines.value.get(cid)!,rows,image.positions[cid] || 0)
+      recoveryReadSent=recoveryReadBaselines.value.get(cid)!
+    }
+    const position=recoveryReadTracker.sample(scope,performance.now(),new Set(sequences),true)
+    if(position>recoveryReadSent && ws.connected.value && ws.sendEvent('CHAT_READ',{lastReadSequence:position},{requestId:createRequestId(),conversationId:cid})) recoveryReadSent=position
+  }
+
+  const inaccessibleConversationIds = new Set<string>()
+  // This is protocol state rather than UI state. A recall can arrive before a
+  // delayed cluster frame, so retain a bounded tombstone set without creating
+  // an unnecessary reactive render dependency.
+  const recalledMessageIds = new Set<string>()
+  const recalledMessageOrder: string[] = []
+  const summaryDeltaLog: VersionedConversationSummaryDelta[] = []
+  const conversationSelection = new ConversationSelectionGeneration()
+  let flushPromise: Promise<void> | null = null
+  let conversationSummaryRefreshPromise: Promise<void> | null = null
+  let summaryRevision = 0
+  let warnedAboutVolatileOutbox = false
+  let syncResolver: ((hasMore: boolean) => void) | null = null
+  let syncRejecter: ((cause: Error) => void) | null = null
+  let syncRequestId: string | null = null
+  let syncTimer: number | null = null
+  let messageSearchTimer: number | null = null
+  let messageSearchSequence = 0
+  let backgroundSyncTimer: number | null = null
+  let synchronizationPromise: Promise<void> | null = null
+
+  function canReadSelectedConversation(conversationId = selected.value?.conversationId): boolean {
+    if (recoveryEnabled.value) return false // Recovery viewport eligibility is wired separately; downloads never imply READ.
+    return Boolean(conversationId && selected.value?.conversationId === conversationId)
+      && !loadingMessages.value
+      && isAppForeground()
+      && (options.isConversationVisible?.() ?? true)
+  }
+
+  function acknowledgeVisibleConversation(): void {
+    if (!canReadSelectedConversation() || loadingMessages.value) return
+    const conversationId = selected.value?.conversationId
+    if (!conversationId) return
+    sendReadPosition(conversationId, messages.value)
+    scheduleBurnCountdowns(messages.value)
+  }
+
+  function recoveryVisibilityChanged(): void {
+    if(!recoveryEnabled.value) return
+    if(document.visibilityState!=='visible') {
+      recoverySession?.quarantine('BACKGROUND')
+      if(recoveryTimer!==null) window.clearTimeout(recoveryTimer)
+    } else if(ws.connected.value) void runRecovery().catch(()=>undefined)
+  }
+  onMounted(() => {
+    document.addEventListener('visibilitychange', recoveryVisibilityChanged)
+    window.addEventListener('focus', acknowledgeVisibleConversation)
+    document.addEventListener('visibilitychange', acknowledgeVisibleConversation)
+    // Register after the host view's computed layout has been initialized.
+    watch(() => options.isConversationVisible?.() ?? true, acknowledgeVisibleConversation, { flush: 'post' })
+  })
+
+  onBeforeUnmount(() => {
+    document.removeEventListener('visibilitychange',recoveryVisibilityChanged)
+    recoveryDisposed=true
+    if(notificationRetry!==null) window.clearTimeout(notificationRetry);recoverySession?.quarantine('DISPOSED')
+    if(recoveryTimer!==null) window.clearTimeout(recoveryTimer)
+    window.removeEventListener('focus', acknowledgeVisibleConversation)
+    document.removeEventListener('visibilitychange', acknowledgeVisibleConversation)
+    burnTimers.forEach((timer) => window.clearTimeout(timer))
+    burnTimers.clear()
+    burnConversationIds.clear()
+    conversationSelection.invalidate()
+    if (messageSearchTimer !== null) window.clearTimeout(messageSearchTimer)
+    if (backgroundSyncTimer !== null) window.clearInterval(backgroundSyncTimer)
+  })
+
+  watch(
+    () => [section.value, query.value] as const,
+    ([currentSection, rawQuery], _previous, onCleanup) => {
+      const sequence = ++messageSearchSequence
+      if (messageSearchTimer !== null) {
+        window.clearTimeout(messageSearchTimer)
+        messageSearchTimer = null
+      }
+      messageSearchResults.value = []
+      messageSearchLoading.value = false
+      messageSearchError.value = ''
+
+      const keyword = rawQuery.trim()
+      if (currentSection !== 'messages' || keyword.length < 2) return
+      if(recoveryEnabled.value) {
+        messageSearchResults.value=recoveryState.value?.phase==='ONLINE_SAFE' ? (recoveredImage.value?.messages ?? []).filter(m=>(m.content || '').includes(keyword)).slice(0,50) : []
+        return
+      }
+
+      const timer = window.setTimeout(async () => {
+        messageSearchLoading.value = true
+        try {
+          const found = await api.chat.search(keyword, 50)
+          if (sequence === messageSearchSequence && !recoveryEnabled.value) messageSearchResults.value = found || []
+        } catch (cause) {
+          if (sequence === messageSearchSequence) {
+            messageSearchError.value = cause instanceof Error ? cause.message : '搜索消息失败，请稍后重试'
+          }
+        } finally {
+          if (sequence === messageSearchSequence) messageSearchLoading.value = false
+          if (messageSearchTimer === timer) messageSearchTimer = null
+        }
+      }, 260)
+      messageSearchTimer = timer
+      onCleanup(() => window.clearTimeout(timer))
+    },
+  )
+
+  function getConversationSummary(conversationId: string): ConversationSummary | undefined {
+    return conversationSummaries.value[conversationId]
+  }
+
+  function applySummaryDelta(
+    source: ConversationSummaryMap,
+    delta: ConversationSummaryDelta,
+  ): ConversationSummaryMap {
+    if (delta.kind === 'message') return applyConversationMessage(source, delta.value)
+    if (delta.kind === 'read') return applyConversationRead(source, delta.value)
+    return removeConversationSummary(source, delta.conversationId)
+  }
+
+  function recordSummaryDelta(delta: ConversationSummaryDelta): void {
+    summaryRevision += 1
+    if (conversationSummaryRefreshPromise) {
+      summaryDeltaLog.push({ revision: summaryRevision, delta })
+    }
+    conversationSummaries.value = applySummaryDelta(conversationSummaries.value, delta)
+    void persistConversationDirectory()
+  }
+
+  function forgetConversation(conversationId: string): void {
+    if (!conversationId) return
+    inaccessibleConversationIds.add(conversationId)
+    pendingReadPositions.delete(conversationId)
+    runtimePositions.delete(conversationId)
+    recordSummaryDelta({ kind: 'remove', conversationId })
+  }
+
+  const conversations = computed<Conversation[]>(() => {
+    const me = currentUser.value?.id
+
+    const privateChats = [...friends.value, ...systemNotificationAccounts.value].map((friend): Conversation => {
+      const conversationId = me ? privateConversationId(me, friend.friendId) : ''
+      const summary = getConversationSummary(conversationId)
+
+      const lastMessage = summary?.lastMessage !== undefined
+          ? summary.lastMessage
+          : friend.lastMessage
+
+      const lastMessageType = summary?.lastMessageType !== undefined
+          ? summary.lastMessageType
+          : friend.lastMessageType
+
+      return {
+        id: friend.friendId,
+        conversationId,
+        kind: 'private',
+        name: friend.remark || friend.nickname,
+        avatar: friend.avatar,
+        subtitle: friend.signature,
+        lastMessage: conversationPreview(lastMessageType, lastMessage),
+        lastMessageType,
+        lastMessageTime: summary?.lastMessageAt || friend.lastMessageTime,
+        online: onlineIds.value.has(friend.friendId) || friend.online === 1,
+        pinned: summary?.pinned ?? friend.isPinned === 1,
+        muted: summary?.muted ?? friend.isMuted === 1,
+        unreadCount: summary?.unreadCount || 0,
+        lastSequence: summary?.lastSequence || 0,
+        lastReadSequence: summary?.lastReadSequence || 0,
+        pendingCount: outbox.entries.value.filter(
+            (entry) => entry.conversationId === conversationId,
+        ).length,
+        source: friend,
+      }
+    })
+
+    const groupChats = groups.value.map((group): Conversation => {
+      const conversationId = groupConversationId(group.id)
+      const summary = getConversationSummary(conversationId)
+
+      const lastMessage = summary?.lastMessage !== undefined
+          ? summary.lastMessage
+          : group.lastMessage
+
+      const lastMessageType = summary?.lastMessageType !== undefined
+          ? summary.lastMessageType
+          : group.lastMessageType
+
+      return {
+        id: group.id,
+        conversationId,
+        kind: 'group',
+        name: group.groupName,
+        avatar: group.avatar,
+        subtitle: group.announcement,
+        lastMessage: conversationPreview(lastMessageType, lastMessage),
+        lastMessageType,
+        lastMessageTime: summary?.lastMessageAt || group.lastMessageTime,
+        pinned: summary?.pinned || false,
+        muted: summary?.muted || false,
+        unreadCount: summary?.unreadCount || 0,
+        lastSequence: summary?.lastSequence || 0,
+        lastReadSequence: summary?.lastReadSequence || 0,
+        pendingCount: outbox.entries.value.filter(
+            (entry) => entry.conversationId === conversationId,
+        ).length,
+        source: group,
+      }
+    })
+
+    const temporaryChats = rooms.value.map((room): Conversation => {
+      const summary = getConversationSummary(room.conversationId)
+      const hasSummaryMessage = summary?.lastMessage !== undefined
+
+      return {
+        id: room.id,
+        conversationId: room.conversationId,
+        kind: 'temporary',
+        name: room.roomName,
+        subtitle: room.purpose || temporaryRoomStatusLabel(room.status),
+        lastMessage: hasSummaryMessage
+            ? conversationPreview(summary.lastMessageType, summary.lastMessage)
+            : temporaryRoomStatusLabel(room.status),
+        lastMessageType: summary?.lastMessageType,
+        lastMessageTime: summary?.lastMessageAt || room.updateTime || room.createTime,
+        pinned: summary?.pinned || false,
+        muted: summary?.muted || false,
+        unreadCount: summary?.unreadCount || 0,
+        lastSequence: summary?.lastSequence || 0,
+        lastReadSequence: summary?.lastReadSequence || 0,
+        pendingCount: outbox.entries.value.filter(
+            (entry) => entry.conversationId === room.conversationId,
+        ).length,
+        source: room,
+      }
+    })
+
+    return [...privateChats, ...groupChats, ...temporaryChats]
+        .filter(c=>!recoveryEnabled.value || recoveryState.value?.access.get(c.conversationId || '')?.readAllowed)
+        .map(c => {
+          if (!recoveryEnabled.value) return c
+          const summary = recoveredSummaries.value.get(c.conversationId || '')
+          return {...c, lastMessage: summary?.preview || '', lastMessageType: undefined,
+            lastMessageTime: summary?.timestamp, unreadCount: summary?.unreadCount || 0,
+            lastSequence: summary?.lastSequence || 0, lastReadSequence: recoveryReadBaselines.value.get(c.conversationId || '') || 0}
+        })
+        .sort((first, second) => {
+          if (first.pinned !== second.pinned) {
+            return first.pinned ? -1 : 1
+          }
+
+          return new Date(second.lastMessageTime || 0).getTime()
+              - new Date(first.lastMessageTime || 0).getTime()
+        })
+  })
+
+  const totalUnreadCount = computed(() =>
+      conversations.value.reduce(
+          (total, conversation) => total + (conversation.unreadCount || 0),
+          0,
+      ),
+  )
+
+  const visibleConversations = computed(() => {
+    const base = section.value === 'contacts'
+      ? conversations.value.filter((item) => item.kind === 'private')
+      : section.value === 'groups'
+        ? conversations.value.filter((item) => item.kind === 'group' || item.kind === 'temporary')
+        : section.value === 'admin' || section.value === 'broadcasts'
+          ? []
+          : conversations.value
+    const needle = query.value.trim().toLocaleLowerCase('zh-CN')
+    return needle
+      ? base.filter((item) => item.name.toLocaleLowerCase('zh-CN').includes(needle))
+      : base
+  })
+
+  const ws = useWebSocket({
+    onMessage: handleSocketMessage,
+    onReady: async () => {
+      if(recoveryEnabled.value) { await refreshLists({includeSummaries:false});await runRecovery();return }
+      await refreshConversationSummaries()
+      await synchronizeAfterReconnect()
+      try {
+        await Promise.all([
+          refreshLists({ includeSummaries: false }),
+          auth.hydrate(),
+        ])
+      } catch {
+        toast.push('好友或账号状态刷新失败，请稍后重试', 'warning')
+      }
+    },
+    // synchronizeAfterReconnect finishes while the socket still reports
+    // SYNCING, so its defensive flush is intentionally skipped. Retry once the
+    // connection has actually transitioned to ONLINE.
+    onOnline: () => {
+      flushPendingReadPositions()
+      return flushOutbox()
+    },
+    onError: (message) => toast.push(message, 'warning'),
+    refreshAuth: api.auth.refreshSession,
+    onAuthFailed: (reason) => {
+      if(recoveryEnabled.value) void nativeBridge.notificationRecovery({owner:'',kind:'OWNER'}).catch(()=>undefined)
+      if(recoveryTimer !== null) window.clearTimeout(recoveryTimer)
+      recoverySession?.quarantine('SIGNED_OUT')
+      clearSession()
+      if (reason === 'FORCE_LOGOUT') {
+        void clearLocalChatDatabase()
+          .then(() => clearCacheOwner())
+          .catch(() => undefined)
+          .finally(() => navigateToApp('/', true))
+        return
+      }
+      // Refresh 过期不应销毁离线发件箱；同一用户重新登录后继续补发，
+      // 若改用其他账号，prepareLocalCache 会按 owner 清理隔离数据。
+      navigateToApp('/', true)
+    },
+  })
+  watch(ws.connected, connected => { if(!connected && recoveryEnabled.value) recoverySession?.quarantine('DISCONNECTED') })
+  const peerFiles = usePeerFileTransfer({
+    sendEvent: (event, payload, metadata) => ws.sendEvent(event, payload, metadata),
+  })
+  const resumableFiles = useResumableUpload()
+  backgroundSyncTimer = window.setInterval(() => {
+    if (ws.connected.value) void refreshAndSynchronize().catch(() => undefined)
+  }, 60_000)
+  const fileTransferLabel = computed(() => {
+    if (resumableFiles.phase.value === 'HASHING') return '正在校验中转文件完整性…'
+    if (resumableFiles.phase.value === 'UPLOADING') {
+      return `节点断点续传 ${resumableFiles.progress.value}%`
+    }
+    if (resumableFiles.phase.value === 'COMPLETING') return '节点正在合并并复核文件…'
+    if (relayTransferLabel.value) return relayTransferLabel.value
+    if (peerFiles.phase.value === 'HASHING') return '正在校验文件完整性…'
+    if (peerFiles.phase.value === 'NEGOTIATING') return '正在协商局域网设备直传…'
+    if (peerFiles.phase.value === 'TRANSFERRING') return `设备直传 ${peerFiles.progress.value}%`
+    if (peerFiles.phase.value === 'VERIFYING') return '对端正在校验文件…'
+    return ''
+  })
+
+  async function load(): Promise<void> {
+    loading.value = true
+    try {
+      const origin=selectedNode()?.origin || window.location.origin, userId=String(currentUser.value?.id || '')
+      const migrated=await loadRecoverySnapshot(`${origin}|${userId}`)
+      recoveryEnabled.value=options.enableRecovery===true || migrated!==null
+      if(recoveryEnabled.value) {
+        const legacy=migrated ? [] : await browserOutboxStore.load()
+        recoverySession=new RecoveryChatSession(api.recovery,{origin,userId,generation:1},
+          ()=>!recoveryDisposed && String(currentUser.value?.id || '')===userId && (selectedNode()?.origin || window.location.origin)===origin,
+          ()=>legacy, publishRecovery)
+        const notificationOwner=`${origin}|${userId}`
+        let ownerReady:Promise<void>|null=null
+        const prepare=()=>ownerReady ??= nativeBridge.notificationRecovery({owner:notificationOwner,kind:'OWNER'}).catch(error=>{ownerReady=null;throw error})
+        const apply=async(kind:'SHOW'|'CANCEL'|'CANCEL_ALL',id?:string,conversationId?:string)=>{
+          await prepare()
+          await nativeBridge.notificationRecovery({owner:notificationOwner,kind,id:id ? JSON.stringify([notificationOwner,id]) : undefined,
+            ...(conversationId && id ? {target:{kind:'conversation',value:conversationId,nodeOrigin:origin,messageId:id,notification:true,notificationOwner}} : {})})
+        }
+        notificationDispatcher=new RecoveryNotificationDispatcher(recoverySession,{
+          cancelAll:()=>apply('CANCEL_ALL'),cancel:id=>apply('CANCEL',id),show:(id,route)=>apply('SHOW',id,route.conversationId)
+        },route=>!(isAppForeground() && selected.value?.conversationId===route.conversationId && (options.isConversationVisible?.() ?? true)))
+        await refreshLists({includeSummaries:false})
+        ws.connect();return
+      }
+      try {
+        await outbox.hydrate()
+      } catch {
+        toast.push('本地离线队列暂不可用，本次会话仍可在线使用', 'warning')
+      }
+      const cachedDirectory = await loadConversationDirectory().catch(() => null)
+      if (cachedDirectory) {
+        friends.value = cachedDirectory.friends || []
+        groups.value = cachedDirectory.groups || []
+        rooms.value = cachedDirectory.rooms || []
+        conversationSummaries.value =
+          indexConversationSummaries(cachedDirectory.summaries || [])
+      }
+      try {
+        const [friendList, groupList, roomList, requestList, summaryList] = await Promise.all([
+          api.friends.list(),
+          api.groups.list(),
+          api.rooms.list(),
+          api.friends.requests(),
+          api.chat.conversations(),
+        ])
+        friends.value = friendList || []
+        groups.value = groupList || []
+        rooms.value = roomList || []
+        requests.value = await enrichRequests(requestList || [])
+        conversationSummaries.value = indexConversationSummaries(summaryList || [])
+        systemNotificationAccounts.value = await loadSystemNotificationAccounts(summaryList || [], friendList || [])
+        await persistConversationDirectory()
+      } catch (cause) {
+        if (!cachedDirectory) throw cause
+        requests.value = []
+        toast.push('节点暂不可达，已载入本机会话目录', 'warning', 2600)
+      }
+      restoreOptimisticMessages()
+      ws.connect()
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const recoveredSummaries = computed(() => {
+    if (recoveryState.value?.phase !== 'ONLINE_SAFE' || !recoveredImage.value) return new Map()
+    const image = recoveredImage.value
+    function* rows(): Generator<RecoveredSummaryRow> {
+      for (const message of image.messages) yield {
+        conversationId: message.conversationId!, messageId: message.messageId, sequence: message.sequence || 0,
+        state: 'NORMAL', fromUserId: message.fromUserId, content: message.content,
+        contentType: message.type || message.contentType, isBurn: message.isBurn === 1, timestamp: message.createTime,
+      }
+      for (const item of image.tombstones) yield {
+        conversationId: item.conversationId, messageId: item.messageId!, sequence: Number(item.messageSequence),
+        state: item.state!,
+      }
+    }
+    return recoveredConversationSummaries(rows(), currentUser.value?.id || 0, recoveryReadBaselines.value)
+  })
+
+  function publishRecovery(): void {
+    const session=recoverySession
+    recoveryState.value=session?.state ?? null
+    recoveryReason.value=session?.reason
+    if(!session?.safe || recoveryPending) {
+      recoveryReadTracker?.cancel();recoveryReadTracker=undefined
+      messages.value=[];messageSearchResults.value=[];pendingReadPositions.clear()
+      burnTimers.forEach(timer=>window.clearTimeout(timer));burnTimers.clear()
+      return
+    }
+    recoveredImage.value=session.image
+    outbox.adoptRecovered(session.image?.outbox ?? [])
+    runtimePositions.clear()
+    for(const [cid,position] of Object.entries(session.image?.positions ?? {})) runtimePositions.set(cid,position)
+    const cid=selected.value?.conversationId
+    if(cid && !session.state?.access.get(cid)?.readAllowed) selected.value=null
+    showRecoveredMessages()
+    drainRecoveryNotifications()
+  }
+  function showRecoveredMessages(): void {
+    const cid=selected.value?.conversationId,user=currentUser.value
+    messages.value=recoverySession?.safe && cid && user
+      ? [...(recoverySession.image?.messages ?? []).filter(m=>m.conversationId===cid),
+        ...(recoverySession.image?.outbox ?? []).filter(e=>e.conversationId===cid && !(recoverySession!.image?.messages ?? []).some(m=>m.conversationId===cid && String(m.fromUserId)===String(user.id) && m.clientMsgId===e.clientMsgId)).map(e=>optimisticMessage(e,user))]
+      : []
+  }
+  function runRecovery(): Promise<void> {
+    if(recoveryWork) {recoveryPending=true;return recoveryWork}
+    if(!recoverySession || recoveryDisposed || document.visibilityState!=='visible') return Promise.resolve()
+    if(recoveryTimer!==null) window.clearTimeout(recoveryTimer)
+    recoveryWork=(async()=>{
+      for(let round=0;round<8;round++) {
+        recoveryPending=false
+        try {
+          recoveryReadBaselines.value = new Map()
+          const session: RecoveryChatSession=recoverySession!
+          await session.rebuild(createRequestId(),round===0)
+          const summaries=await api.chat.conversations().catch(()=>null)
+          if(session===recoverySession && session.safe && summaries) for(const item of summaries) {
+            if(Number.isSafeInteger(item.lastReadSequence) && item.lastReadSequence>=0 && session.state?.access.get(item.conversationId)?.readAllowed)
+              recoveryReadBaselines.value.set(item.conversationId,item.lastReadSequence)
+          }
+          recoveryReadBaselines.value = new Map(recoveryReadBaselines.value)
+        }
+        catch(error) {if(recoveryPending || ['REBUILD_REQUIRED','CURSOR_EXPIRED','STREAM_RESET','CURSOR_AHEAD'].includes(recoverySession!.reason || '')) continue;throw error}
+        if(recoveryPending) continue
+        recoveryTimer=window.setTimeout(()=>void runRecovery().catch(()=>undefined),5000)
+        return
+      }
+      throw new Error('消息恢复繁忙，请重新连接')
+    })().finally(()=>{recoveryWork=null})
+    return recoveryWork
+  }
+
+  function restoreOptimisticMessages(): void {
+    const user = currentUser.value
+    if (!user) return
+    const currentConversationId = selected.value?.conversationId
+    if (!currentConversationId) return
+    const pending = outbox.entries.value
+      .filter((entry) => entry.conversationId === currentConversationId)
+      .map((entry) => optimisticMessage(entry, user))
+    mergeCurrentMessages(pending)
+  }
+
+  async function enrichRequests(items: FriendRequest[]): Promise<FriendRequest[]> {
+    return Promise.all(items.map(async (request) => {
+      try {
+        const sender = await api.user.byId(request.fromUserId)
+        return { ...request, sender }
+      } catch {
+        return request
+      }
+    }))
+  }
+
+  async function refreshLists(
+    options: { includeSummaries?: boolean } = {},
+  ): Promise<void> {
+    const includeSummaries = !recoveryEnabled.value && options.includeSummaries !== false
+    const [friendList, groupList, roomList, requestList] = await Promise.all([
+      api.friends.list(),
+      api.groups.list(),
+      api.rooms.list(),
+      api.friends.requests(),
+    ])
+    friends.value = friendList || []
+    groups.value = groupList || []
+    rooms.value = roomList || []
+    requests.value = await enrichRequests(requestList || [])
+    if (includeSummaries) await refreshConversationSummaries()
+    await persistConversationDirectory()
+  }
+
+  function refreshConversationSummaries(): Promise<void> {
+    if(recoveryEnabled.value) return Promise.resolve()
+    if (conversationSummaryRefreshPromise) return conversationSummaryRefreshPromise
+    const startedAtRevision = summaryRevision
+    conversationSummaryRefreshPromise = (async () => {
+      const snapshot = await api.chat.conversations()
+      let next = indexConversationSummaries(snapshot || [])
+      summaryDeltaLog
+        .filter((entry) => entry.revision > startedAtRevision)
+        .forEach((entry) => {
+          next = applySummaryDelta(next, entry.delta)
+        })
+      conversationSummaries.value = next
+      systemNotificationAccounts.value = await loadSystemNotificationAccounts(snapshot || [], friends.value)
+      Object.keys(next).forEach((conversationId) => {
+        inaccessibleConversationIds.delete(conversationId)
+      })
+    })().finally(() => {
+      summaryDeltaLog.splice(0, summaryDeltaLog.length)
+      conversationSummaryRefreshPromise = null
+    })
+    return conversationSummaryRefreshPromise
+  }
+
+  async function refreshConversationSummariesAfterCurrent(): Promise<void> {
+    const activeRefresh = conversationSummaryRefreshPromise
+    if (activeRefresh) await activeRefresh.catch(() => undefined)
+    await refreshConversationSummaries()
+  }
+
+  async function selectConversation(conversation: Conversation): Promise<void> {
+    const user = currentUser.value
+    if (!user) throw new Error('登录状态已失效')
+    const conversationId = conversation.conversationId || resolveConversationId(conversation, user.id)
+    const selectionToken = conversationSelection.begin(conversationId)
+    const isCurrentSelection = () => conversationSelection.isCurrent(
+      selectionToken,
+      selected.value?.conversationId,
+    )
+    selected.value = { ...conversation, conversationId, unreadCount: 0 }
+    loadingMessages.value = true
+    typingLabel.value = ''
+    messages.value = []
+    members.value = []
+    if(recoveryEnabled.value) {showRecoveredMessages();loadingMessages.value=false;return}
+
+    try {
+      const cached = await loadCachedMessages(conversationId)
+        .then((items) => items.map(normalizeMessage))
+        .catch(() => [] as ChatMessage[])
+      const optimistic = outbox.entries.value
+        .filter((entry) => entry.conversationId === conversationId)
+        .map((entry) => optimisticMessage(entry, user))
+      if (!isCurrentSelection()) return
+      messages.value = mergeMessages(cached, optimistic)
+      scheduleBurnCountdowns(messages.value)
+      await recordReceivedPositions(cached)
+      if (!isCurrentSelection()) return
+
+      const history = await api.chat.history(conversationId)
+      const normalized = (history || []).map(normalizeMessage)
+      const nextMessages = mergeMessages(normalized, optimistic)
+      await cacheMessages(nextMessages).catch(() => undefined)
+      await recordReceivedPositions(normalized)
+      const nextMembers = conversation.kind === 'group'
+        ? await api.groups.members(conversation.id)
+        : []
+      if (!isCurrentSelection()) return
+      messages.value = mergeMessages(messages.value, nextMessages)
+      scheduleBurnCountdowns(messages.value)
+      members.value = nextMembers
+      sendReadPosition(conversationId, normalized)
+    } catch {
+      if (!isCurrentSelection()) return
+      const nextMembers = conversation.kind === 'group'
+        ? await api.groups.members(conversation.id).catch(() => [])
+        : []
+      if (!isCurrentSelection()) return
+      members.value = nextMembers
+      toast.push('当前使用本地缓存，连接恢复后会自动同步', 'warning', 2600)
+    } finally {
+      if (conversationSelection.owns(selectionToken)) {
+        loadingMessages.value = false
+        void nextTick(acknowledgeVisibleConversation)
+      }
+    }
+  }
+
+  function normalizeMessage(message: ChatMessage): ChatMessage {
+    return normalizeChatMessage(message, currentUser.value?.id)
+  }
+
+  function rememberRecalledMessage(messageId: string): void {
+    if (!messageId || recalledMessageIds.has(messageId)) return
+    recalledMessageIds.add(messageId)
+    recalledMessageOrder.push(messageId)
+    while (recalledMessageOrder.length > 2_000) {
+      const oldest = recalledMessageOrder.shift()
+      if (oldest) recalledMessageIds.delete(oldest)
+    }
+  }
+
+  function belongsToSelected(message: ChatMessage): boolean {
+    return Boolean(selected.value?.conversationId
+      && message.conversationId === selected.value.conversationId)
+  }
+
+  function scheduleIncomingNotification(
+    message: ChatMessage,
+    conversation?: Conversation,
+  ): void {
+    if (message.fromUserId === currentUser.value?.id
+      || conversation?.muted
+      || isAppForeground()) return
+
+    const copy = notificationCopy(message, conversation)
+    void nativeBridge.notify({
+      ...copy,
+      target: {
+        kind: 'conversation',
+        value: message.conversationId || '',
+        nodeOrigin: selectedNode()?.origin,
+      },
+      dedupeKey: messageNotificationDedupeKey(message),
+    }).catch(() => undefined)
+  }
+
+  function notificationCopy(
+    message: ChatMessage,
+    conversation?: Conversation,
+  ): { title: string; body: string } {
+    const fallbackTitle = conversation?.name || message.fromNickname || 'MeshX 新消息'
+    const preview = conversationPreview(message.type || message.contentType, message.content)
+    if ((message.type || message.contentType) !== 'broadcast') {
+      return {
+        title: fallbackTitle,
+        body: conciseNotificationText(preview || '发来一条新消息'),
+      }
+    }
+
+    try {
+      const card = JSON.parse(message.content || '{}') as Record<string, unknown>
+      const title = stringValue(card.title)
+      const summary = stringValue(card.reminder) || stringValue(card.summary)
+      const priority = stringValue(card.priority)
+      const kind = stringValue(card.kind)
+      const label = priority === 'EMERGENCY'
+        ? '紧急广播'
+        : kind === 'BROADCAST_REMINDER' ? '广播提醒' : '广播通知'
+      return {
+        title: title ? `${label}：${title}` : label,
+        body: conciseNotificationText(summary || preview || '收到一条广播通知'),
+      }
+    } catch {
+      return {
+        title: fallbackTitle,
+        body: conciseNotificationText(preview || '收到一条广播通知'),
+      }
+    }
+  }
+
+  function messageNotificationDedupeKey(message: ChatMessage): string {
+    const identity = message.messageId
+      || message.clientMsgId
+      || `${message.conversationId || 'unknown'}:${message.sequence || 0}:${message.fromUserId}`
+    return [
+      'message',
+      selectedNode()?.origin || 'unknown-node',
+      currentUser.value?.id || 'anonymous',
+      identity,
+    ].join(':')
+  }
+
+  function conciseNotificationText(value: string): string {
+    return value.replace(/\s+/g, ' ').trim().slice(0, 160)
+  }
+
+  function stringValue(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : ''
+  }
+
+  async function handleSocketMessage(envelope: WsEnvelope): Promise<void> {
+    if(recoveryEnabled.value && envelope.event==='CHAT_DELIVER' && typeof envelope.payload.messageId==='string') recoverySession?.noteLiveCandidate(envelope.payload.messageId)
+    if(recoveryEnabled.value && ['CHAT_ACK','CHAT_DELIVER','CHAT_RECALL','CHAT_BURN','SYNC_RESPONSE','SYNC_REQUIRED','MUTATION_AVAILABLE','CONVERSATION_CHANGED','CONVERSATION_REMOVED','FRIEND_CHANGED','ROOM_STATUS_CHANGED'].includes(envelope.event)) {
+      if(envelope.clientMsgId) { const waiter=ackWaiters.get(envelope.clientMsgId);if(waiter){window.clearTimeout(waiter.timer);ackWaiters.delete(envelope.clientMsgId);waiter.resolve('ACK')} }
+      recoveryPending=true;recoverySession?.quarantine('RECOVERY_REQUIRED')
+      void runRecovery().catch(()=>undefined)
+      return
+    }
+    if (envelope.event.startsWith('FILE_TRANSFER_')) {
+      await publishRealtimeEvent(envelope)
+      return
+    }
+    switch (envelope.event) {
+      case 'ERROR':
+        handleProtocolError(envelope)
+        return
+      case 'ONLINE_LIST':
+        handleOnlineList(envelope)
+        return
+      case 'PRESENCE_CHANGED':
+        handlePresence(envelope)
+        return
+      case 'FRIEND_CHANGED':
+        toast.push(String(envelope.payload.message || '好友状态有更新'), 'success')
+        await refreshLists()
+        return
+      case 'PROFILE_UPDATED':
+        handleProfileUpdated(envelope)
+        return
+      case 'BROADCAST_PERMISSION_UPDATED':
+        auth.applyBroadcastPermission(envelope.payload.enabled === true)
+        toast.push(
+          envelope.payload.enabled === true
+            ? '管理员已授予你广播发布权限'
+            : '管理员已撤销你的广播发布权限',
+          'success',
+        )
+        return
+      case 'TYPING_START':
+        handleTypingEvent(envelope)
+        return
+      case 'TYPING_STOP':
+        typingLabel.value = ''
+        return
+      case 'CHAT_ACK':
+        await handleAck(envelope)
+        return
+      case 'CHAT_DELIVER':
+        await handleDelivery(envelope)
+        return
+      case 'SYNC_RESPONSE':
+        await handleSyncResponse(envelope)
+        return
+      case 'SYNC_REQUIRED':
+        // This handler itself runs inside the serialized inbound queue. Do not
+        // await a task whose SYNC_RESPONSE must be processed by that same queue.
+        void refreshAndSynchronize().catch(() => undefined)
+        return
+      case 'CHAT_RECALL':
+      case 'CHAT_BURN':
+        await handleMessageMutation(envelope)
+        return
+      case 'CHAT_READ':
+        handleReadEvent(envelope)
+        return
+      case 'MENTION_RECEIPT_CHANGED':
+        handleMentionReceiptChanged(envelope)
+        return
+      case 'CONVERSATION_REMOVED':
+        handleConversationRemoved(envelope)
+        return
+      case 'CONVERSATION_CHANGED':
+        await handleConversationChanged(envelope)
+        return
+      case 'BROADCAST':
+      case 'BROADCAST_UPDATED':
+      case 'ROOM_STATUS_CHANGED':
+        await publishRealtimeEvent(envelope)
+        if (envelope.event === 'ROOM_STATUS_CHANGED') await refreshLists()
+        return
+      default:
+        // V1 客户端必须忽略未知但非致命事件，以便服务端向前兼容。
+    }
+  }
+
+  function handleProfileUpdated(envelope: WsEnvelope): void {
+    const userId = Number(envelope.payload.userId)
+    const nickname = String(envelope.payload.nickname || '')
+    const avatar = String(envelope.payload.avatar || '')
+    if (!Number.isFinite(userId)) return
+
+    // 更新好友列表中的头像和昵称
+    friends.value = friends.value.map((friend) => {
+      if (friend.friendId !== userId) return friend
+      return {
+        ...friend,
+        nickname: nickname || friend.nickname,
+        avatar,
+      }
+    })
+
+    // 当前正在和这个用户聊天时，同步更新聊天标题头像
+    if (selected.value?.kind === 'private' && selected.value.id === userId) {
+      const friend = friends.value.find((item) => item.friendId === userId,)
+      selected.value = {
+        ...selected.value,
+        name: friend?.remark || nickname || selected.value.name,
+        avatar,
+        source: friend || selected.value.source,
+      }
+    }
+
+    // 更新群成员列表头像
+    members.value = members.value.map((member) => {
+      if (member.userId !== userId) return member
+      return {
+        ...member,
+        nickname: nickname || member.nickname,
+        avatar,
+      }
+    })
+  }
+
+  function handleProtocolError(envelope: WsEnvelope): void {
+    const message = String(envelope.payload.message || '实时操作失败')
+    const clientMsgId = envelope.clientMsgId
+    if (clientMsgId) {
+      settleAck(clientMsgId, 'ERROR')
+      void outbox.update(clientMsgId, { state: 'FAILED', lastError: message })
+      updateDeliveryState(clientMsgId, 'FAILED', message)
+    }
+    toast.push(message, 'danger')
+  }
+
+  function handleOnlineList(envelope: WsEnvelope): void {
+    const users = Array.isArray(envelope.payload.users) ? envelope.payload.users as User[] : []
+    onlineIds.value = new Set(users.map((user) => user.id))
+  }
+
+  function handlePresence(envelope: WsEnvelope): void {
+    const userId = Number(envelope.payload.userId)
+    const online = envelope.payload.status === 'online'
+    const next = new Set(onlineIds.value)
+    if (online) next.add(userId)
+    else next.delete(userId)
+    onlineIds.value = next
+  }
+
+  function handleTypingEvent(envelope: WsEnvelope): void {
+    if (envelope.conversationId !== selected.value?.conversationId) return
+    if (Number(envelope.payload.userId) === currentUser.value?.id) return
+    typingLabel.value = `${String(envelope.payload.nickname || '对方')}正在输入…`
+    window.setTimeout(() => { typingLabel.value = '' }, 2_600)
+  }
+
+  async function handleAck(envelope: WsEnvelope): Promise<void> {
+    const clientMsgId = envelope.clientMsgId || String(envelope.payload.clientMsgId || '')
+    if (!clientMsgId) return
+    const messageId = String(envelope.payload.messageId || '')
+    const conversationId = envelope.conversationId || String(envelope.payload.conversationId || '')
+    const sequence = Number(envelope.payload.sequence)
+    const serverTime = Number(envelope.payload.serverTime)
+    const canonicalMentionUserIds = typeof envelope.payload.mentionUserIds === 'string'
+      ? envelope.payload.mentionUserIds
+      : undefined
+    const previousSequence = conversationId
+      ? runtimePositions.get(conversationId) || 0
+      : 0
+    const hasSequenceGap = Boolean(conversationId)
+      && Number.isFinite(sequence)
+      && sequence > previousSequence + 1
+
+    messages.value = messages.value.map((message) => message.clientMsgId === clientMsgId
+      ? normalizeMessage({
+          ...message,
+          messageId: messageId || message.messageId,
+          conversationId: conversationId || message.conversationId,
+          sequence: Number.isFinite(sequence) ? sequence : message.sequence,
+          createTime: Number.isFinite(serverTime) ? new Date(serverTime).toISOString() : message.createTime,
+          mentionUserIds: canonicalMentionUserIds ?? message.mentionUserIds,
+          deliveryState: 'SENT',
+          errorMessage: undefined,
+        })
+      : message)
+    messages.value = sortMessages(messages.value)
+    settleAck(clientMsgId, 'ACK')
+    await deleteCachedMessagesByClientMsgId(clientMsgId).catch(() => undefined)
+    const acknowledged = messages.value.find((message) => message.clientMsgId === clientMsgId)
+    if (acknowledged) {
+      updateConversationPreview(acknowledged, belongsToSelected(acknowledged))
+      await cacheMessages([acknowledged]).catch(() => undefined)
+    }
+    if (conversationId && Number.isFinite(sequence) && !hasSequenceGap) {
+      await recordPosition(conversationId, sequence)
+    }
+    await outbox.remove(clientMsgId)
+    if (hasSequenceGap) void refreshAndSynchronize().catch(() => undefined)
+  }
+
+  async function handleDelivery(envelope: WsEnvelope): Promise<void> {
+    const delivered = normalizeMessage(envelope.payload as unknown as ChatMessage)
+    if (!delivered.messageId || !delivered.conversationId) return
+    if (delivered.isRecalled === 1) {
+      rememberRecalledMessage(delivered.messageId)
+      delivered.content = ''
+    } else if (recalledMessageIds.has(delivered.messageId)) {
+      // A durable CHAT_RECALL has already won. Ignore a late pre-revocation
+      // frame instead of temporarily re-exposing its card body.
+      return
+    }
+    const conversationId = delivered.conversationId
+    if (inaccessibleConversationIds.has(conversationId)) return
+    const isIncomingMessage = delivered.fromUserId !== currentUser.value?.id
+    if (isIncomingMessage && (delivered.type || delivered.contentType) === 'broadcast') {
+      registerSystemNotificationAccount(delivered)
+    }
+    const conversation =  conversations.value.find((item) => item.conversationId === conversationId)
+    const previousSequence = runtimePositions.get(delivered.conversationId) || 0
+    const isDuplicateDelivery = delivered.sequence != null
+      && delivered.sequence <= previousSequence
+    const hasSequenceGap = delivered.sequence != null
+      && delivered.sequence > previousSequence + 1
+    await cacheMessages([delivered]).catch(() => undefined)
+    // A high sequence is not a contiguous receive position. Advancing it before
+    // SYNC_REQUEST would make the server skip the missing range permanently.
+    if (delivered.sequence != null && !hasSequenceGap) {
+      await recordPosition(conversationId, delivered.sequence)
+    }
+    // Selection can change while IndexedDB is writing. Never carry the old
+    // selection decision across an await into another conversation's UI.
+    if (inaccessibleConversationIds.has(conversationId)) return
+    const isCurrentConversation = belongsToSelected(delivered)
+    updateConversationPreview(delivered, isCurrentConversation && canReadSelectedConversation(conversationId))
+    if (isCurrentConversation) {
+      mergeCurrentMessages([delivered])
+      if (isIncomingMessage && canReadSelectedConversation(conversationId)) {
+        startBurnCountdown(delivered)
+        if (!hasSequenceGap) {
+          sendReadPosition(conversationId, [delivered])
+        }
+      }
+    } else if (isIncomingMessage && !isDuplicateDelivery) {
+      if (!conversation?.muted) {
+        const title = conversation?.name || delivered.fromNickname || '收到新消息'
+        const preview = conversationPreview(delivered.type || delivered.contentType, delivered.content)
+        toast.push(
+            preview ? `${title}: ${preview}` : `${title}发来一条新消息`,
+            'default',
+            2800,
+        )
+        playNotificationSound()
+      }
+    }
+    if (!isDuplicateDelivery) {
+      scheduleIncomingNotification(delivered, conversation)
+    }
+    ws.sendEvent('CHAT_DELIVER', {
+      messageId: delivered.messageId,
+      sequence: delivered.sequence,
+    }, {
+      requestId: createRequestId(),
+      clientMsgId: delivered.clientMsgId,
+      conversationId: delivered.conversationId,
+    })
+    if (hasSequenceGap) void refreshAndSynchronize().catch(() => undefined)
+  }
+
+  async function handleSyncResponse(envelope: WsEnvelope): Promise<void> {
+    const synced = (Array.isArray(envelope.payload.messages)
+      ? (envelope.payload.messages as unknown as ChatMessage[]).map(normalizeMessage)
+      : []).flatMap((message) => {
+        if (message.isRecalled === 1) {
+          rememberRecalledMessage(message.messageId)
+          return [{ ...message, content: '' }]
+        }
+        return recalledMessageIds.has(message.messageId) ? [] : [message]
+      })
+    await cacheMessages(synced).catch(() => undefined)
+    // SYNC_RESPONSE is an authoritative ascending query from the cursor sent
+    // to the server. Its maximum returned sequence is safe even when physical
+    // message deletion has left a permanent sequence gap. When a deleted tail
+    // produces no rows, latestPositions is the authoritative cursor. Cache and
+    // history pages do not have either guarantee and stay contiguous below.
+    await recordSynchronizedPositions(synced, envelope.payload.latestPositions)
+    let synchronizedUnreadCount = 0
+    const syncNotificationCandidates = new Map<string, ChatMessage>()
+    synced.forEach((message) => {
+      if (!message.conversationId
+        || inaccessibleConversationIds.has(message.conversationId)) return
+      const isCurrentConversation = belongsToSelected(message)
+      const isIncomingMessage = message.fromUserId !== currentUser.value?.id
+      if (isIncomingMessage && (message.type || message.contentType) === 'broadcast') {
+        registerSystemNotificationAccount(message)
+      }
+      const before = getConversationSummary(message.conversationId)?.unreadCount || 0
+      updateConversationPreview(message, isCurrentConversation && canReadSelectedConversation(message.conversationId))
+      const after = getConversationSummary(message.conversationId)?.unreadCount || 0
+      const unreadDelta = Math.max(0, after - before)
+      synchronizedUnreadCount += unreadDelta
+      if (unreadDelta > 0 && isIncomingMessage) {
+        // One recovered notification per conversation prevents a long offline
+        // period from turning into a burst of local alerts.
+        syncNotificationCandidates.set(message.conversationId, message)
+      }
+    })
+    syncNotificationCandidates.forEach((message, conversationId) => {
+      scheduleIncomingNotification(
+        message,
+        conversations.value.find((item) => item.conversationId === conversationId),
+      )
+    })
+    const selectedItems = synced.filter((message) => belongsToSelected(message))
+    if (selectedItems.length > 0) {
+      mergeCurrentMessages(selectedItems)
+      scheduleBurnCountdowns(selectedItems)
+      const selectedConversationId = selected.value?.conversationId
+      if (selectedConversationId
+        && selectedItems.some((message) => message.fromUserId !== currentUser.value?.id)) {
+        sendReadPosition(selectedConversationId, selectedItems)
+      }
+    }
+    if (synchronizedUnreadCount > 0) {
+      toast.push(
+          `连接恢复，已同步 ${synchronizedUnreadCount} 条未读消息`,
+          'default',
+          3000,
+      )
+    }
+
+    const denied = Array.isArray(envelope.payload.deniedConversationIds)
+      ? envelope.payload.deniedConversationIds.map(String)
+      : []
+    denied.forEach((conversationId) => {
+      inaccessibleConversationIds.add(conversationId)
+      recordSummaryDelta({ kind: 'remove', conversationId })
+    })
+    if (selected.value && denied.includes(selected.value.conversationId)) {
+      toast.push('你已不在该会话，未发送消息将保留供处理', 'danger')
+    }
+
+    if (syncRequestId && envelope.requestId === syncRequestId) {
+      finishSync(envelope.payload.hasMore === true)
+    }
+    if (selected.value?.kind === 'group') {
+      // A reconnect can miss an invalidation event.  Re-querying the guarded
+      // per-message endpoint makes the compact receipt numbers authoritative.
+      mentionReceiptRefreshRevision.value += 1
+    }
+  }
+
+  async function handleMessageMutation(envelope: WsEnvelope): Promise<void> {
+    const messageId = String(envelope.payload.messageId || '')
+    if (envelope.event === 'CHAT_BURN') clearBurnCountdown(messageId)
+    if (envelope.event === 'CHAT_RECALL') {
+      rememberRecalledMessage(messageId)
+      if (envelope.conversationId) {
+        await markCachedMessageRecalled(envelope.conversationId, messageId).catch(() => undefined)
+      }
+    }
+    const target = messages.value.find((message) => message.messageId === messageId)
+    if (!target) {
+      if (envelope.event === 'CHAT_RECALL') {
+        await refreshConversationSummaries().catch(() => undefined)
+      }
+      return
+    }
+    if (envelope.event === 'CHAT_RECALL') {
+      target.isRecalled = 1
+      target.content = ''
+      updateConversationPreview(target, belongsToSelected(target), true)
+    }
+    if (envelope.event === 'CHAT_BURN') {
+      target.status = 2
+      target.content = ''
+      updateConversationPreview(target, belongsToSelected(target), true)
+    }
+    await cacheMessages([target]).catch(() => undefined)
+  }
+
+  function handleReadEvent(envelope: WsEnvelope): void {
+    const conversationId = envelope.conversationId
+    if (!conversationId) return
+    const readerId = Number(envelope.payload.userId)
+    const lastReadSequence = Number(envelope.payload.lastReadSequence)
+    const currentUserId = currentUser.value?.id
+    if (!Number.isSafeInteger(lastReadSequence)
+      || !Number.isSafeInteger(readerId)
+      || !currentUserId) return
+    if (readerId === currentUserId) {
+      const lastSequence = Number(envelope.payload.lastSequence)
+      const unreadCount = Number(envelope.payload.unreadCount)
+      if (!Number.isSafeInteger(lastSequence)
+        || lastSequence < 0
+        || !Number.isSafeInteger(unreadCount)
+        || unreadCount < 0) {
+        void refreshConversationSummariesAfterCurrent().catch(() => undefined)
+        return
+      }
+      const readDelta: ConversationReadDelta = {
+        conversationId,
+        readerId,
+        currentUserId,
+        lastSequence,
+        lastReadSequence,
+        unreadCount,
+      }
+      if (conversationReadRequiresSnapshot(conversationSummaries.value, readDelta)) {
+        void refreshConversationSummariesAfterCurrent().catch(() => undefined)
+        return
+      }
+      recordSummaryDelta({ kind: 'read', value: readDelta })
+      if (selected.value?.conversationId === conversationId) {
+        selected.value = {
+          ...selected.value,
+          unreadCount: getConversationSummary(conversationId)?.unreadCount || 0,
+          lastReadSequence,
+        }
+      }
+      return
+    }
+    // Peer read positions are intentionally never rendered. Group mention
+    // receipts use the separately authorized endpoint, and ordinary private
+    // or group messages stay free of per-message read indicators.
+  }
+
+  function handleMentionReceiptChanged(envelope: WsEnvelope): void {
+    const conversationId = envelope.conversationId
+    const messageIds = Array.isArray(envelope.payload.messageIds)
+      ? envelope.payload.messageIds.filter((messageId): messageId is string => typeof messageId === 'string')
+      : []
+    if (!conversationId || messageIds.length === 0
+      || selected.value?.conversationId !== conversationId) return
+    mentionReceiptRefreshRevision.value += 1
+  }
+
+  async function handleConversationChanged(envelope: WsEnvelope): Promise<void> {
+    await refreshConversationSummaries()
+    const conversation = selected.value
+    if (!conversation || conversation.kind !== 'group'
+      || conversation.conversationId !== envelope.conversationId) return
+    const selectionConversationId = conversation.conversationId
+    const refreshedMembers = await api.groups.members(conversation.id).catch(() => null)
+    if (!refreshedMembers || selected.value?.conversationId !== selectionConversationId) return
+    members.value = refreshedMembers
+    mentionReceiptRefreshRevision.value += 1
+  }
+
+  function handleConversationRemoved(envelope: WsEnvelope): void {
+    const conversationId = envelope.conversationId
+    if (!conversationId) return
+    forgetConversation(conversationId)
+    if (selected.value?.conversationId !== conversationId) return
+    selected.value = null
+    messages.value = []
+    members.value = []
+    toast.push('你已不在该会话，未读状态已清除', 'warning')
+  }
+
+  function synchronizeAfterReconnect(): Promise<void> {
+    if (synchronizationPromise) return synchronizationPromise
+    synchronizationPromise = (async () => {
+      let hasMore = false
+      for (let page = 0; page < 50; page += 1) {
+        const positions = await loadPositions().catch(() => ({} as Record<string, number>))
+        Object.entries(positions).forEach(([conversationId, sequence]) => {
+          if (!Number.isSafeInteger(sequence) || sequence < 0) return
+          runtimePositions.set(conversationId, Math.max(
+            runtimePositions.get(conversationId) || 0,
+            sequence,
+          ))
+        })
+        runtimePositions.forEach((sequence, conversationId) => {
+          positions[conversationId] = Math.max(positions[conversationId] || 0, sequence)
+        })
+        conversations.value.forEach((conversation) => {
+          if (conversation.conversationId && positions[conversation.conversationId] == null) {
+            positions[conversation.conversationId] = 0
+          }
+        })
+        hasMore = await requestSync(positions)
+        if (!hasMore) break
+      }
+      if (hasMore) throw new Error('待同步消息较多，将在下次同步时继续补拉')
+      await flushOutbox()
+    })().finally(() => { synchronizationPromise = null })
+    return synchronizationPromise
+  }
+
+  async function refreshAndSynchronize(): Promise<void> {
+    if(recoveryEnabled.value) {await runRecovery();return}
+    await refreshConversationSummaries()
+    await synchronizeAfterReconnect()
+    // onOnline 只在 SYNCING→ONLINE 转换时触发；若会话停留在 DEGRADED
+    // （onReady 失败），挂起的已读位点与离线发件箱也要借周期同步补发。
+    flushPendingReadPositions()
+    void flushOutbox().catch(() => undefined)
+  }
+
+  function requestSync(positions: Record<string, number>): Promise<boolean> {
+    clearSyncWaiter()
+    syncRequestId = createRequestId()
+    return new Promise((resolve, reject) => {
+      syncResolver = resolve
+      syncRejecter = reject
+      syncTimer = window.setTimeout(() => {
+        syncRejecter?.(new Error('同步响应超时，消息仍保留在本地'))
+        clearSyncWaiter()
+      }, 12_000)
+      if (!ws.sendEvent('SYNC_REQUEST', { positions, limit: 100 }, { requestId: syncRequestId! })) {
+        reject(new Error('连接尚未完成认证'))
+        clearSyncWaiter()
+      }
+    })
+  }
+
+  function finishSync(hasMore: boolean): void {
+    const resolve = syncResolver
+    clearSyncWaiter()
+    resolve?.(hasMore)
+  }
+
+  function clearSyncWaiter(): void {
+    if (syncTimer !== null) window.clearTimeout(syncTimer)
+    syncTimer = null
+    syncResolver = null
+    syncRejecter = null
+    syncRequestId = null
+  }
+
+  async function sendText(
+    content: string,
+    options: { burn?: boolean; replyToId?: string; mentionUserIds?: string } = {},
+  ): Promise<boolean> {
+    const conversation = selected.value
+    if (!conversation || !content.trim()) return false
+    const payload: ChatSendPayload = {
+      contentType: 'text',
+      content: content.trim(),
+      isBurn: Boolean(options.burn),
+      replyToId: options.replyToId || null,
+      mentionUserIds: options.mentionUserIds || null,
+      ...conversationTarget(conversation),
+    }
+    await queueMessage(conversation, payload)
+    return true
+  }
+
+  async function sendFile(file: File): Promise<void> {
+    const conversation = selected.value
+    if (!conversation) return
+    if(recoveryEnabled.value && !recoverySession?.canSend(conversation.conversationId || '')) throw new Error('消息校验或发送权限尚未就绪')
+    if (!ws.connected.value) throw new Error('文件需要连接节点后上传；文本消息仍可离线发送')
+    const image = file.type.startsWith('image/')
+    let attachment: FileAttachmentData
+    if (conversation.kind === 'private'
+      && peerFiles.supported.value
+      && fileTransferSettings.preferDirectFileTransfer.value) {
+      try {
+        attachment = await peerFiles.sendDirect(file, conversation.conversationId, conversation.id)
+      } catch {
+        relayTransferLabel.value = '直传不可用，正在切换节点中转…'
+        toast.push('设备直传不可用，已自动切换节点中转', 'warning', 2600)
+        attachment = await uploadThroughNode(
+          file,
+          conversation.conversationId,
+          image,
+          peerFiles.lastFailedTransferId.value || undefined,
+        )
+      } finally {
+        relayTransferLabel.value = ''
+      }
+    } else {
+      relayTransferLabel.value = conversation.kind === 'private'
+        ? '正在通过节点中转…'
+        : '群组或房间文件正在通过节点中转…'
+      try {
+        attachment = await uploadThroughNode(file, conversation.conversationId, image)
+      } finally {
+        relayTransferLabel.value = ''
+      }
+    }
+    const payload: ChatSendPayload = {
+      contentType: image ? 'image' : 'file',
+      content: JSON.stringify(attachment),
+      isBurn: false,
+      ...conversationTarget(conversation),
+    }
+    await queueMessage(conversation, payload)
+  }
+
+  async function uploadThroughNode(
+    file: File,
+    conversationId: string,
+    image: boolean,
+    transferId?: string,
+  ): Promise<FileAttachmentData> {
+    const uploaded = await resumableFiles.upload(file, conversationId)
+    if (transferId) {
+      ws.sendEvent('FILE_TRANSFER_RELAY_COMPLETE', {
+        transferId,
+        storedFileName: uploaded.fileName,
+      }, { requestId: createRequestId(), conversationId })
+    }
+    return image
+      ? {
+          url: uploaded.url,
+          thumbnailUrl: uploaded.thumbnailUrl,
+          originalUrl: uploaded.url,
+          name: uploaded.originalName || file.name,
+          size: uploaded.fileSize,
+          mime: uploaded.fileType || file.type,
+          fileHash: uploaded.fileHash,
+          transferId,
+          transferPath: 'NODE_RELAY',
+        }
+      : {
+          name: uploaded.originalName || file.name,
+          size: uploaded.fileSize,
+          url: uploaded.url,
+          mime: uploaded.fileType || file.type,
+          fileHash: uploaded.fileHash,
+          transferId,
+          transferPath: 'NODE_RELAY',
+        }
+  }
+
+  function conversationTarget(conversation: Conversation): Pick<ChatSendPayload, 'toUserId' | 'groupId'> {
+    if (conversation.kind === 'private') return { toUserId: conversation.id }
+    if (conversation.kind === 'group') return { groupId: conversation.id }
+    return {}
+  }
+
+  async function queueMessage(conversation: Conversation, payload: ChatSendPayload): Promise<void> {
+    const user = currentUser.value
+    if (!user) throw new Error('登录状态已失效')
+    const conversationId = conversation.conversationId || resolveConversationId(conversation, user.id)
+    if(recoveryEnabled.value && !recoverySession?.canSend(conversationId)) throw new Error('消息校验或发送权限尚未就绪')
+    const clientMsgId = createClientMessageId()
+    const entry: OutboxEntry = {
+      clientMsgId,
+      requestId: createRequestId(),
+      conversationId,
+      payload,
+      createdAt: new Date().toISOString(),
+      retryCount: 0,
+      state: 'WAITING_NETWORK',
+    }
+    await outbox.enqueue(entry)
+    if (!outbox.durable.value && !warnedAboutVolatileOutbox) {
+      warnedAboutVolatileOutbox = true
+      toast.push('本地持久化暂不可用；请保持页面开启，消息仍会在连接恢复后发送', 'warning', 4200)
+    }
+    const optimistic = optimisticMessage(entry, user)
+    if (selected.value?.conversationId === conversationId) mergeCurrentMessages([optimistic])
+    if(!recoveryEnabled.value) await cacheMessages([optimistic]).catch(() => undefined)
+    updateConversationPreview(optimistic)
+    void flushOutbox().catch(cause=>toast.push(cause instanceof Error ? cause.message : '消息保存失败','warning'))
+  }
+
+  function optimisticMessage(entry: OutboxEntry, user: User): ChatMessage {
+    return normalizeMessage({
+      messageId: `local:${entry.clientMsgId}`,
+      clientMsgId: entry.clientMsgId,
+      conversationId: entry.conversationId,
+      fromUserId: user.id,
+      fromNickname: user.nickname,
+      fromAvatar: user.avatar,
+      toUserId: typeof entry.payload.toUserId === 'number' ? entry.payload.toUserId : undefined,
+      groupId: typeof entry.payload.groupId === 'number' ? entry.payload.groupId : undefined,
+      type: entry.payload.contentType,
+      contentType: entry.payload.contentType,
+      content: entry.payload.content,
+      replyToId: typeof entry.payload.replyToId === 'string' ? entry.payload.replyToId : undefined,
+      mentionUserIds: typeof entry.payload.mentionUserIds === 'string'
+        ? entry.payload.mentionUserIds
+        : undefined,
+      isBurn: entry.payload.isBurn ? 1 : 0,
+      status: 0,
+      clientCreatedAt: entry.createdAt,
+      createTime: entry.createdAt,
+      deliveryState: entry.state,
+      errorMessage: entry.lastError,
+    })
+  }
+
+  async function flushOutbox(): Promise<void> {
+    if(recoveryEnabled.value && !recoverySession?.safe) return
+    if (flushPromise) return flushPromise
+    flushPromise = (async () => {
+      while (ws.connected.value) {
+        const entry = outbox.readyEntries()[0]
+        if (!entry || (recoveryEnabled.value && !recoverySession?.canSend(entry.conversationId))) break
+        const retryCount = entry.retryCount + 1
+        await outbox.update(entry.clientMsgId, {
+          state: 'SENDING',
+          retryCount,
+          lastError: undefined,
+        })
+        updateDeliveryState(entry.clientMsgId, 'SENDING')
+
+        if(recoveryEnabled.value && !recoverySession?.canSend(entry.conversationId)) break
+        const sent = ws.sendEvent('CHAT_SEND', entry.payload, {
+          requestId: entry.requestId,
+          clientMsgId: entry.clientMsgId,
+          conversationId: entry.conversationId,
+        })
+        if (!sent) {
+          await outbox.update(entry.clientMsgId, { state: 'WAITING_NETWORK' })
+          updateDeliveryState(entry.clientMsgId, 'WAITING_NETWORK')
+          break
+        }
+
+        const outcome = await waitForAck(entry.clientMsgId, 10_000)
+        if(recoveryEnabled.value && !recoverySession?.safe) break
+        if (outcome === 'ERROR') continue
+        if (outcome === 'ACK') continue
+
+        if (retryCount >= 3) {
+          const message = '多次未收到服务端确认，可手动重试'
+          await outbox.update(entry.clientMsgId, { state: 'FAILED', lastError: message })
+          updateDeliveryState(entry.clientMsgId, 'FAILED', message)
+          continue
+        }
+        await outbox.update(entry.clientMsgId, { state: 'WAITING_NETWORK', lastError: 'ACK 超时，正在重试' })
+        updateDeliveryState(entry.clientMsgId, 'WAITING_NETWORK')
+      }
+    })().finally(() => { flushPromise = null })
+    return flushPromise
+  }
+
+  function waitForAck(clientMsgId: string, timeout: number): Promise<AckOutcome | 'TIMEOUT'> {
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(() => {
+        ackWaiters.delete(clientMsgId)
+        resolve('TIMEOUT')
+      }, timeout)
+      ackWaiters.set(clientMsgId, { resolve, timer })
+    })
+  }
+
+  function settleAck(clientMsgId: string, outcome: AckOutcome): void {
+    const waiter = ackWaiters.get(clientMsgId)
+    if (!waiter) return
+    window.clearTimeout(waiter.timer)
+    ackWaiters.delete(clientMsgId)
+    waiter.resolve(outcome)
+  }
+
+  function updateDeliveryState(
+    clientMsgId: string,
+    deliveryState: MessageDeliveryState,
+    errorMessage?: string,
+  ): void {
+    messages.value = messages.value.map((message) => message.clientMsgId === clientMsgId
+      ? { ...message, deliveryState, errorMessage }
+      : message)
+  }
+
+  async function retryOutbox(): Promise<void> {
+    await outbox.retryFailed()
+    messages.value = messages.value.map((message) => message.deliveryState === 'FAILED'
+      ? { ...message, deliveryState: 'WAITING_NETWORK', errorMessage: undefined }
+      : message)
+    if (!ws.connected.value) ws.reconnect()
+    void flushOutbox()
+  }
+
+  async function retryMessage(clientMsgId: string): Promise<void> {
+    await outbox.update(clientMsgId, { state: 'WAITING_NETWORK', lastError: undefined })
+    updateDeliveryState(clientMsgId, 'WAITING_NETWORK')
+    if (!ws.connected.value) ws.reconnect()
+    void flushOutbox()
+  }
+
+  async function cancelPendingMessage(clientMsgId: string): Promise<void> {
+    const entry = outbox.entries.value.find((item) => item.clientMsgId === clientMsgId)
+    if (!entry) return
+    if (entry.state === 'SENDING') {
+      toast.push('消息结果仍在确认中，暂不能取消', 'warning')
+      return
+    }
+    await outbox.remove(clientMsgId)
+    await deleteCachedMessagesByClientMsgId(clientMsgId).catch(() => undefined)
+    messages.value = messages.value.filter((message) => message.clientMsgId !== clientMsgId)
+  }
+
+  function sendTyping(): void {
+    const conversation = selected.value
+    if (!conversation || !ws.connected.value) return
+    ws.sendEvent('TYPING_START', {}, {
+      requestId: createRequestId(),
+      conversationId: conversation.conversationId,
+    })
+  }
+
+  function recall(messageId: string): void {
+    const conversationId = selected.value?.conversationId
+    if (!conversationId || !ws.sendEvent('CHAT_RECALL', { messageId }, {
+      requestId: createRequestId(),
+      conversationId,
+    })) toast.push('连接已断开，暂时无法撤回', 'warning')
+  }
+
+  function burn(messageId: string): void {
+    requestBurn(messageId, true)
+  }
+
+  function scheduleBurnCountdowns(source: readonly ChatMessage[]): void {
+    if (!canReadSelectedConversation()) return
+    source.forEach(startBurnCountdown)
+  }
+
+  function startBurnCountdown(message: ChatMessage): void {
+    if (message.fromUserId === currentUser.value?.id
+      || Number(message.isBurn) !== 1
+      || message.isRecalled === 1
+      || message.status === 2
+      || !message.messageId
+      || message.messageId.startsWith('local:')) return
+    if (burnTimers.has(message.messageId)) return
+
+    const conversationId = message.conversationId || selected.value?.conversationId
+    if (!conversationId) return
+    burnConversationIds.set(message.messageId, conversationId)
+    const seconds = Math.min(60, Math.max(1, Number(message.burnDuration) || 5))
+    burnTimers.set(message.messageId, window.setTimeout(() => {
+      burnTimers.delete(message.messageId)
+      if (!shouldContinueBurn(message.messageId)) return
+      if (!requestBurn(message.messageId, false)) scheduleBurnRetry(message.messageId)
+    }, seconds * 1000))
+  }
+
+  function scheduleBurnRetry(messageId: string): void {
+    if (!burnConversationIds.has(messageId) || burnTimers.has(messageId)) return
+    burnTimers.set(messageId, window.setTimeout(() => {
+      burnTimers.delete(messageId)
+      if (!shouldContinueBurn(messageId)) return
+      if (!requestBurn(messageId, false)) scheduleBurnRetry(messageId)
+    }, 1_500))
+  }
+
+  function shouldContinueBurn(messageId: string): boolean {
+    if (!burnConversationIds.has(messageId)) return false
+    const target = messages.value.find((message) => message.messageId === messageId)
+    if (target && (target.status === 2 || target.isRecalled === 1)) {
+      clearBurnCountdown(messageId)
+      return false
+    }
+    return true
+  }
+
+  function clearBurnCountdown(messageId: string): void {
+    const timer = burnTimers.get(messageId)
+    if (timer !== undefined) window.clearTimeout(timer)
+    burnTimers.delete(messageId)
+    burnConversationIds.delete(messageId)
+  }
+
+  function requestBurn(messageId: string, notifyOnFailure: boolean): boolean {
+    const target = messages.value.find((message) => message.messageId === messageId)
+    const conversationId = target?.conversationId
+      || burnConversationIds.get(messageId)
+      || selected.value?.conversationId
+    if (!conversationId || !ws.sendEvent('CHAT_BURN', { messageId }, {
+      requestId: createRequestId(),
+      conversationId,
+    })) {
+      if (notifyOnFailure) toast.push('连接已断开，暂时无法焚毁', 'warning')
+      return false
+    }
+
+    clearBurnCountdown(messageId)
+    if (target) {
+      target.status = 2
+      target.content = ''
+      updateConversationPreview(target, belongsToSelected(target), true)
+      void cacheMessages([target]).catch(() => undefined)
+    }
+    return true
+  }
+
+  function transmitReadPosition(conversationId: string, lastReadSequence: number): boolean {
+    if (recoveryEnabled.value || !ws.connected.value) return false
+    return ws.sendEvent('CHAT_READ', { lastReadSequence }, {
+      requestId: createRequestId(),
+      conversationId,
+    })
+  }
+
+  function flushPendingReadPositions(): void {
+    pendingReadPositions.forEach((lastReadSequence, conversationId) => {
+      // 排队期间被移出/拒绝访问的会话不再上报，避免重连后弹无权访问错误。
+      if (inaccessibleConversationIds.has(conversationId)) {
+        pendingReadPositions.delete(conversationId)
+        return
+      }
+      if (transmitReadPosition(conversationId, lastReadSequence)) {
+        pendingReadPositions.delete(conversationId)
+      }
+    })
+  }
+
+  function sendReadPosition(conversationId: string, source: readonly ChatMessage[]): void {
+    if (!canReadSelectedConversation(conversationId)) return
+    const lastReadSequence = source.reduce(
+      (maximum, message) => Math.max(maximum, message.sequence || 0),
+      0,
+    )
+    if (lastReadSequence <= 0) return
+    const sent = transmitReadPosition(conversationId, lastReadSequence)
+    if (!sent) {
+      // 重连 SYNC 阶段 connected 仍为 false；挂起读位点，转为 ONLINE 后统一补发，
+      // 否则服务端和其他设备会残留幻影未读。
+      pendingReadPositions.set(
+        conversationId,
+        Math.max(pendingReadPositions.get(conversationId) || 0, lastReadSequence),
+      )
+    } else if ((pendingReadPositions.get(conversationId) || 0) <= lastReadSequence) {
+      pendingReadPositions.delete(conversationId)
+    }
+    const currentUserId = currentUser.value?.id
+    const current = getConversationSummary(conversationId)
+    if (!currentUserId || !current) return
+    recordSummaryDelta({
+      kind: 'read',
+      value: {
+        conversationId,
+        readerId: currentUserId,
+        currentUserId,
+        lastSequence: Math.max(current.lastSequence, lastReadSequence),
+        lastReadSequence,
+        unreadCount: lastReadSequence >= current.lastSequence ? 0 : current.unreadCount,
+      },
+    })
+  }
+
+  async function recordReceivedPositions(source: readonly ChatMessage[]): Promise<void> {
+    const candidates = new Map<string, number[]>()
+    source.forEach((message) => {
+      if (!message.conversationId
+        || !Number.isSafeInteger(message.sequence)
+        || (message.sequence || 0) <= 0) return
+      const sequences = candidates.get(message.conversationId) || []
+      sequences.push(message.sequence!)
+      candidates.set(message.conversationId, sequences)
+    })
+    const persisted = await loadPositions().catch(() => ({} as Record<string, number>))
+    await Promise.all([...candidates].map(async ([conversationId, sequences]) => {
+      const current = Math.max(
+        runtimePositions.get(conversationId) || 0,
+        persisted[conversationId] || 0,
+      )
+      runtimePositions.set(conversationId, current)
+      const contiguous = advanceContiguousSequence(current, sequences)
+      if (contiguous > current) await recordPosition(conversationId, contiguous)
+    }))
+  }
+
+  async function recordSynchronizedPositions(
+    source: readonly ChatMessage[],
+    rawLatestPositions: unknown,
+  ): Promise<void> {
+    const maximums = new Map<string, number>()
+    source.forEach((message) => {
+      if (!message.conversationId
+        || !Number.isSafeInteger(message.sequence)
+        || (message.sequence || 0) <= 0) return
+      maximums.set(message.conversationId, Math.max(
+        maximums.get(message.conversationId) || 0,
+        message.sequence!,
+      ))
+    })
+    if (rawLatestPositions
+      && typeof rawLatestPositions === 'object'
+      && !Array.isArray(rawLatestPositions)) {
+      Object.entries(rawLatestPositions as Record<string, unknown>)
+        .forEach(([conversationId, rawSequence]) => {
+          // A returned page can end before the authoritative latest position.
+          // Only use latestPositions when this conversation returned no rows;
+          // otherwise the page maximum is the safe cursor for the next request.
+          if (!conversationId || maximums.has(conversationId)) return
+          const sequence = Number(rawSequence)
+          if (!Number.isSafeInteger(sequence) || sequence <= 0) return
+          maximums.set(conversationId, sequence)
+        })
+    }
+    await Promise.all([...maximums].map(([conversationId, sequence]) =>
+      recordPosition(conversationId, sequence)))
+  }
+
+  async function recordPosition(conversationId: string, sequence: number): Promise<void> {
+    runtimePositions.set(conversationId, Math.max(
+      runtimePositions.get(conversationId) || 0,
+      sequence,
+    ))
+    await savePosition(conversationId, sequence).catch(() => undefined)
+  }
+
+  function mergeCurrentMessages(incoming: readonly ChatMessage[]): void {
+    messages.value = mergeMessages(messages.value, incoming)
+  }
+
+  function mergeMessages(current: readonly ChatMessage[], incoming: readonly ChatMessage[]): ChatMessage[] {
+    return mergeChatMessages(current, incoming, currentUser.value?.id)
+  }
+
+  function updateConversationPreview(
+    message: ChatMessage,
+    selectedConversation = belongsToSelected(message),
+    forcePreview = false,
+  ): void {
+    const conversationId = message.conversationId
+    const currentUserId = currentUser.value?.id
+    if (!conversationId || !currentUserId || inaccessibleConversationIds.has(conversationId)) return
+
+    const previewContent = message.status === 2
+        ? '消息已焚毁'
+        : message.content
+
+    const messageTime = message.createTime || message.timestamp || message.clientCreatedAt || new Date().toISOString()
+
+    recordSummaryDelta({
+      kind: 'message',
+      value: {
+        conversationId,
+        sequence: message.sequence,
+        fromUserId: message.fromUserId,
+        currentUserId,
+        content: previewContent,
+        contentType: message.status === 2 ? 'text' : message.type,
+        createdAt: messageTime,
+        selected: selectedConversation,
+        forcePreview,
+      },
+    })
+
+    // 临时房间通过 conversationId 匹配。
+    const room = rooms.value.find(
+        (item) => item.conversationId === conversationId,
+    )
+
+    if (room) {
+      return
+    }
+
+    // 普通群聊继续同步原有群组目录。
+    if (message.groupId) {
+      const group = groups.value.find(
+          (item) => item.id === message.groupId,
+      )
+
+      if (group) {
+        group.lastMessage = previewContent
+        group.lastMessageType = message.type
+        group.lastMessageTime = message.createTime
+        persistConversationDirectory()
+      }
+
+      return
+    }
+
+    // 私聊继续同步好友目录。
+    const me = currentUser.value?.id
+    const otherId = message.fromUserId === me
+        ? message.toUserId
+        : message.fromUserId
+
+    const friend = friends.value.find(
+        (item) => item.friendId === otherId,
+    )
+
+    if (friend) {
+      friend.lastMessage = previewContent
+      friend.lastMessageType = message.type
+      friend.lastMessageTime = message.createTime
+      persistConversationDirectory()
+    }
+  }
+
+  function registerSystemNotificationAccount(message: ChatMessage): void {
+    const userId = message.fromUserId
+    if (message.type !== 'broadcast') return
+    if (!userId || friends.value.some((friend) => friend.friendId === userId)
+      || systemNotificationAccounts.value.some((account) => account.friendId === userId)) return
+    systemNotificationAccounts.value = [...systemNotificationAccounts.value, {
+      id: userId,
+      friendId: userId,
+      username: 'broadcast-notify',
+      nickname: message.fromNickname || '广播通知',
+      avatar: message.fromAvatar || 'letter:广:#5856D6',
+      signature: '系统广播通知账户',
+      online: 0,
+      status: 1,
+      canSendBroadcast: 0,
+    }]
+  }
+
+  async function loadSystemNotificationAccounts(
+    summaries: readonly ConversationSummary[],
+    friendList: readonly Friend[],
+  ): Promise<Friend[]> {
+    const me = currentUser.value?.id
+    if (!me) return []
+    const friendIds = new Set(friendList.map((friend) => friend.friendId))
+    const candidateIds = [...new Set(summaries
+      .filter((summary) => summary.kind === 'private' && !friendIds.has(summary.targetId))
+      .map((summary) => summary.targetId)
+      .filter((userId) => userId > 0 && userId !== me))]
+    const users = await Promise.all(candidateIds.map((userId) => api.user.byId(userId).catch(() => null)))
+    return users.flatMap((user) => user?.username === 'broadcast-notify'
+      && user.signature === '系统广播通知账户' ? [{
+      ...user,
+      friendId: user.id,
+      isMuted: 0,
+      isPinned: 0,
+    }] : [])
+  }
+
+  async function persistConversationDirectory(): Promise<void> {
+    if(recoveryEnabled.value) return
+    await saveConversationDirectory(
+      friends.value,
+      groups.value,
+      rooms.value,
+      Object.values(conversationSummaries.value),
+    ).catch(() => undefined)
+  }
+
+  async function handleRequest(requestId: number, accept: boolean): Promise<void> {
+    await api.friends.handleRequest(requestId, accept)
+    toast.push(accept ? '已添加为好友' : '已忽略申请', accept ? 'success' : 'default')
+    await refreshLists()
+  }
+
+  async function createGroup(name: string, memberIds: number[]): Promise<ChatGroup> {
+    const group = await api.groups.create(name, memberIds)
+    toast.push('群聊已创建', 'success')
+    await refreshLists()
+    return group
+  }
+
+  async function sendFriendRequest(userId: number, message: string): Promise<void> {
+    await api.friends.sendRequest(userId, message)
+    toast.push('好友申请已发送', 'success')
+  }
+
+  async function togglePin(): Promise<void> {
+    if (selected.value?.kind !== 'private') return
+    await api.friends.togglePin(selected.value.id)
+    await refreshLists()
+  }
+
+  async function toggleMute(): Promise<void> {
+    if (selected.value?.kind !== 'private') return
+    await api.friends.toggleMute(selected.value.id)
+    await refreshLists()
+  }
+
+  async function deleteFriend(): Promise<void> {
+    if (selected.value?.kind !== 'private') return
+    await api.friends.delete(selected.value.id)
+    selected.value = null
+    messages.value = []
+    await refreshLists()
+  }
+
+  async function updateRemark(remark: string): Promise<void> {
+    if (selected.value?.kind !== 'private') return
+    await api.friends.setRemark(selected.value.id, remark)
+    await refreshLists()
+    const updated = conversations.value.find(
+      (conversation) => conversation.kind === 'private' && conversation.id === selected.value?.id,
+    )
+    if (updated) selected.value = updated
+  }
+
+  return {
+    friends: readonly(friends),
+    groups: readonly(groups),
+    rooms: readonly(rooms),
+    requests: readonly(requests),
+    members: readonly(members),
+    messages: readonly(messages),
+    messageSearchResults: readonly(messageSearchResults),
+    messageSearchLoading: readonly(messageSearchLoading),
+    messageSearchError: readonly(messageSearchError),
+    selected,
+    section,
+    query,
+    loading: readonly(loading),
+    loadingMessages: readonly(loadingMessages),
+    typingLabel: readonly(typingLabel),
+    mentionReceiptRefreshRevision: readonly(mentionReceiptRefreshRevision),
+    fileTransferLabel,
+    conversations,
+    visibleConversations,
+    totalUnreadCount,
+    usesMutationRecovery: readonly(recoveryEnabled),
+    recoveryPhase: computed(()=>recoveryState.value?.phase),
+    recoveryNotificationRouteAllowed,
+    recoveryReadScope,
+    observeRecoveryRead,
+    recoveryTerminals: computed(()=>recoveryState.value?.phase !== 'ONLINE_SAFE' ? [] :
+      (recoveredImage.value?.tombstones ?? []).flatMap(item=>{
+        const sequence=Number(item.messageSequence)
+        return item.conversationId===selected.value?.conversationId && item.messageId && Number.isSafeInteger(sequence) && sequence>0
+          && (item.state==='RECALLED' || item.state==='BURNED' || item.state==='UNAVAILABLE')
+          ? [{messageId:item.messageId,conversationId:item.conversationId,sequence,state:item.state}] : []
+      })),
+    recoveryStatus: computed(()=>{
+      if(!recoveryEnabled.value || recoveryState.value?.phase==='ONLINE_SAFE') return ''
+      if(recoveryState.value?.phase==='STORAGE_BLOCKED' || recoveryReason.value==='PERSISTENCE_FAILED') return '本地消息保存失败，请释放空间后重试'
+      if(recoveryReason.value==='BLOCKED_UPGRADE') return '节点暂不支持安全恢复，请更新节点后重试'
+      return '正在校验消息，完成后可继续聊天'
+    }),
+    recoveryCanSend: computed(()=>!recoveryEnabled.value || (recoveryState.value?.phase==='ONLINE_SAFE' && recoveryState.value.access.get(selected.value?.conversationId || '')?.sendAllowed===true)),
+    connected: computed(()=>ws.connected.value && (!recoveryEnabled.value || recoveryState.value?.phase==='ONLINE_SAFE')),
+    reconnecting: ws.reconnecting,
+    connectionState: computed(()=>!recoveryEnabled.value || recoveryState.value?.phase==='ONLINE_SAFE' ? ws.state.value : recoveryState.value?.phase==='STORAGE_BLOCKED' || recoveryReason.value==='BLOCKED_UPGRADE' ? 'DEGRADED' : 'SYNCING'),
+    reconnectAttempts: ws.reconnectAttempts,
+    latencyMs: ws.latencyMs,
+    lastHeartbeatAt: ws.lastHeartbeatAt,
+    lastSyncAt: ws.lastSyncAt,
+    pendingCount: outbox.pendingCount,
+    failedCount: outbox.failedCount,
+    load,
+    refreshLists,
+    selectConversation,
+    forgetConversation,
+    sendText,
+    sendFile,
+    sendTyping,
+    recall,
+    burn,
+    handleRequest,
+    createGroup,
+    sendFriendRequest,
+    togglePin,
+    toggleMute,
+    deleteFriend,
+    updateRemark,
+    retryOutbox,
+    retryMessage,
+    cancelPendingMessage,
+    reconnect: ws.reconnect,
+    disconnect: () => {
+      if (recoveryEnabled.value) {
+        recoverySession?.quarantine('SIGNED_OUT')
+        if (notificationRetry !== null) window.clearTimeout(notificationRetry)
+        void nativeBridge.notificationRecovery({owner: '', kind: 'OWNER'}).catch(() => undefined)
+      }
+      ws.disconnect()
+    },
+  }
+}
+
+function createRequestId(): string {
+  return `req_${createClientMessageId()}`
+}
+
+function temporaryRoomStatusLabel(status: TemporaryRoom['status']): string {
+  return {
+    ACTIVE: '临时协作房间',
+    EXPIRING: '即将到期',
+    FROZEN: '已冻结，只读',
+    ARCHIVED: '已归档，只读',
+    DESTROYED: '已销毁',
+  }[status]
+}

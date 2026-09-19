@@ -1,0 +1,6 @@
+{
+  "context":{"origin":"https://node.example","userId":"7","streamEpoch":"11111111-1111-4111-8111-111111111111","generation":1},
+  "directory":{"kind":"CONVERSATION","conversationId":"group:21","accessVersion":"1","readAllowed":true,"sendAllowed":true,"messageSequenceAtH":"2"},
+  "message":{"kind":"MESSAGE","conversationId":"group:21","messageId":"message-a","objectVersion":"1","state":"NORMAL","messageSequence":"1","content":"fixture body","details":{"fromUserId":7,"contentType":"image","createTime":"2026-09-14T10:00:00.123456","isBurn":0}},
+  "revoked":{"kind":"CONVERSATION","conversationId":"group:21","accessVersion":"2","readAllowed":false,"sendAllowed":false}
+}

@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:storage": "playwright test --config playwright.storage.config.ts",
+    "test:design": "playwright test --config playwright.design.config.ts --project dom",
+    "test:design:visual": "playwright test --config playwright.design.config.ts --project visual"
   },
   "devDependencies": {
     "@playwright/test": "1.55.1",

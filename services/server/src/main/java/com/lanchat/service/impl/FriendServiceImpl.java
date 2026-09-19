@@ -1,0 +1,455 @@
+package com.lanchat.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.lanchat.entity.ChatMessage;
+import com.lanchat.entity.FriendRequest;
+import com.lanchat.entity.Friendship;
+import com.lanchat.entity.User;
+import com.lanchat.mapper.ChatMessageMapper;
+import com.lanchat.mapper.FriendRequestMapper;
+import com.lanchat.mapper.FriendshipMapper;
+import com.lanchat.mapper.UserMapper;
+import com.lanchat.service.FriendService;
+import com.lanchat.websocket.ChatWebSocketHandler;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+public class FriendServiceImpl extends ServiceImpl<FriendshipMapper, Friendship> implements FriendService {
+
+    /** 好友申请有效期：7天 */
+    private static final int REQUEST_EXPIRE_DAYS = 7;
+
+    /** 最大置顶数量 */
+    private static final int MAX_PINNED = 5;
+
+    /** 好友申请验证信息最大长度 */
+    private static final int MAX_MESSAGE_LENGTH = 20;
+
+    @Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.lanchat.service.ConversationService conversationService;
+
+    @Autowired
+    private com.lanchat.recovery.AccessMutationRecorder accessMutationRecorder;
+
+    @Autowired
+    private FriendRequestMapper friendRequestMapper;
+
+    @Autowired
+    private FriendshipMapper friendshipMapper;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private ChatMessageMapper chatMessageMapper;
+
+    @Autowired
+    @Lazy
+    private ChatWebSocketHandler webSocketHandler;
+
+    @Override
+    public boolean sendFriendRequest(Long fromUserId, Long toUserId, String message) {
+        if (fromUserId == null || toUserId == null) {
+            throw new IllegalArgumentException("用户参数不能为空");
+        }
+        if (fromUserId.equals(toUserId)) {
+            throw new IllegalArgumentException("不能添加自己为好友");
+        }
+
+        // 检查目标用户是否存在
+        User targetUser = userMapper.selectById(toUserId);
+        if (targetUser == null || !Integer.valueOf(1).equals(targetUser.getStatus())) {
+            throw new IllegalArgumentException("目标用户不存在");
+        }
+
+        // 检查是否已经是好友
+        if (isFriend(fromUserId, toUserId)) {
+            throw new IllegalArgumentException("你们已经是好友了");
+        }
+
+        // 黑名单互斥校验：如果任一方拉黑了对方，不允许申请
+        Friendship fromRelation = getFriendship(fromUserId, toUserId);
+        if (fromRelation != null && Integer.valueOf(1).equals(fromRelation.getIsBlocked())) {
+            throw new IllegalArgumentException("您已拉黑对方，请先移出黑名单");
+        }
+        Friendship toRelation = getFriendship(toUserId, fromUserId);
+        if (toRelation != null && Integer.valueOf(1).equals(toRelation.getIsBlocked())) {
+            throw new IllegalArgumentException("对方暂不接受好友申请");
+        }
+
+        // 清理过期的申请（7天自动过期）
+        expireOldRequests(fromUserId, toUserId);
+
+        // 检查是否已有待处理的申请
+        LambdaQueryWrapper<FriendRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FriendRequest::getFromUserId, fromUserId)
+                .eq(FriendRequest::getToUserId, toUserId)
+                .eq(FriendRequest::getStatus, 0);
+        if (friendRequestMapper.selectCount(wrapper) > 0) {
+            throw new IllegalArgumentException("已发送过好友申请，请等待对方处理");
+        }
+
+        // 验证信息长度限制（20字内）
+        String msg = message != null ? message : "";
+        if (msg.length() > MAX_MESSAGE_LENGTH) {
+            msg = msg.substring(0, MAX_MESSAGE_LENGTH);
+        }
+
+        FriendRequest request = new FriendRequest();
+        request.setFromUserId(fromUserId);
+        request.setToUserId(toUserId);
+        request.setMessage(msg);
+        request.setStatus(0);
+        request.setCreateTime(LocalDateTime.now());
+        boolean inserted = friendRequestMapper.insert(request) > 0;
+        if (inserted) {
+            // 申请方和被申请方都可能在线。通知只在申请落库成功后发送，
+            // 这样接收端无需刷新页面就能重新拉取申请列表。
+            User sourceUser = userMapper.selectById(fromUserId);
+            String senderName = sourceUser == null || sourceUser.getNickname() == null
+                    ? "有人"
+                    : sourceUser.getNickname();
+            webSocketHandler.sendFriendNotification(toUserId, senderName + " 向你发送了好友申请");
+        }
+        return inserted;
+    }
+
+    @Override
+    @Transactional
+    public boolean handleFriendRequest(Long requestId, Long currentUserId, boolean accept) {
+        FriendRequest request = friendRequestMapper.selectById(requestId);
+        if (request == null || !Integer.valueOf(0).equals(request.getStatus())) {
+            throw new IllegalArgumentException("好友申请不存在或已处理");
+        }
+
+        // 检查申请是否已过期（7天）
+        if (request.getCreateTime() != null &&
+            request.getCreateTime().plusDays(REQUEST_EXPIRE_DAYS).isBefore(LocalDateTime.now())) {
+            LambdaUpdateWrapper<FriendRequest> expireWrapper = new LambdaUpdateWrapper<>();
+            expireWrapper.eq(FriendRequest::getId, requestId)
+                    .set(FriendRequest::getStatus, 2)
+                    .set(FriendRequest::getHandleTime, LocalDateTime.now());
+            friendRequestMapper.update(null, expireWrapper);
+            throw new IllegalArgumentException("好友申请已过期");
+        }
+
+        if (!request.getToUserId().equals(currentUserId)) {
+            throw new IllegalArgumentException("无权处理此申请");
+        }
+
+        // 更新申请状态
+        LambdaUpdateWrapper<FriendRequest> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(FriendRequest::getId, requestId)
+                .eq(FriendRequest::getStatus, 0)
+                .set(FriendRequest::getStatus, accept ? 1 : 2)
+                .set(FriendRequest::getHandleTime, LocalDateTime.now());
+        if (friendRequestMapper.update(null, updateWrapper) == 0) {
+            throw new IllegalArgumentException("好友申请已被处理");
+        }
+
+        if (accept) {
+            conversationService.lockPrivateConversationForWrite(request.getFromUserId(), request.getToUserId());
+            if (isFriend(request.getFromUserId(), request.getToUserId())) {
+                return true;
+            }
+            var before = capturePrivateAccess(request.getFromUserId(), request.getToUserId());
+            // 双向添加好友关系
+            Friendship f1 = new Friendship();
+            f1.setUserId(request.getFromUserId());
+            f1.setFriendId(request.getToUserId());
+            f1.setRemark("");
+            f1.setGroupName("我的好友");
+            f1.setIsBlocked(0);
+            f1.setIsMuted(0);
+            f1.setIsPinned(0);
+            f1.setCreateTime(LocalDateTime.now());
+            friendshipMapper.insert(f1);
+
+            Friendship f2 = new Friendship();
+            f2.setUserId(request.getToUserId());
+            f2.setFriendId(request.getFromUserId());
+            f2.setRemark("");
+            f2.setGroupName("我的好友");
+            f2.setIsBlocked(0);
+            f2.setIsMuted(0);
+            f2.setIsPinned(0);
+            f2.setCreateTime(LocalDateTime.now());
+            friendshipMapper.insert(f2);
+            refreshPrivateAccess(request.getFromUserId(), request.getToUserId(), before,
+                    com.lanchat.recovery.MutationFact.Reason.SEND_DENIED, true);
+            User acceptor = userMapper.selectById(currentUserId);
+            if (acceptor != null) {
+                String notification = acceptor.getNickname() + " 已接受你的好友请求";
+                Runnable notify = () -> webSocketHandler.sendFriendNotification(request.getFromUserId(), notification);
+                if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+                    org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                            new org.springframework.transaction.support.TransactionSynchronization() {
+                                @Override public void afterCommit() { notify.run(); }
+                            });
+                } else {
+                    notify.run();
+                }
+            }
+        }
+
+        return true;
+    }
+
+    @Override
+    public List<FriendRequest> getFriendRequests(Long userId) {
+        // 先清理过期申请
+        expireOldRequestsForUser(userId);
+
+        LambdaQueryWrapper<FriendRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FriendRequest::getToUserId, userId)
+                .eq(FriendRequest::getStatus, 0)
+                .orderByDesc(FriendRequest::getCreateTime);
+        return friendRequestMapper.selectList(wrapper);
+    }
+
+    @Override
+    public List<Friendship> getFriendList(Long userId) {
+        LambdaQueryWrapper<Friendship> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Friendship::getUserId, userId)
+                .eq(Friendship::getIsBlocked, 0)
+                .orderByDesc(Friendship::getIsPinned);
+        return friendshipMapper.selectList(wrapper);
+    }
+
+    @Override
+    public List<Map<String, Object>> getFriendListWithInfo(Long userId) {
+        List<Friendship> friendships = getFriendList(userId);
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (Friendship f : friendships) {
+            User user = userMapper.selectById(f.getFriendId());
+            if (user != null) {
+                // 查询最后通信时间（最后一条私聊消息）
+                LambdaQueryWrapper<ChatMessage> msgWrapper = new LambdaQueryWrapper<>();
+                msgWrapper.and(w -> w
+                                .and(w1 -> w1.eq(ChatMessage::getFromUserId, userId).eq(ChatMessage::getToUserId, f.getFriendId()))
+                        .or(w2 -> w2.eq(ChatMessage::getFromUserId, f.getFriendId()).eq(ChatMessage::getToUserId, userId)))
+                        .orderByDesc(ChatMessage::getCreateTime)
+                        .last("LIMIT 1");
+                ChatMessage lastMsg = chatMessageMapper.selectOne(msgWrapper);
+
+                Map<String, Object> map = new HashMap<>();
+                map.put("friendId", user.getId());
+                map.put("username", user.getUsername());
+                map.put("nickname", user.getNickname());
+                map.put("avatar", user.getAvatar());
+                map.put("signature", user.getSignature());
+                map.put("online", user.getOnline());
+                map.put("remark", f.getRemark());
+                map.put("groupName", f.getGroupName());
+                map.put("isPinned", f.getIsPinned() == null ? 0 : f.getIsPinned());
+                map.put("isMuted", f.getIsMuted() == null ? 0 : f.getIsMuted());
+                map.put("lastLoginAt", user.getLastLoginAt());
+                map.put("lastMessageTime", lastMsg != null ? lastMsg.getCreateTime() : null);
+                map.put("lastMessage", lastMsg != null ? lastMsg.getContent() : null);
+                map.put("lastMessageType", lastMsg != null ? lastMsg.getType() : null);
+                result.add(map);
+            }
+        }
+
+        // 按最后通信时间倒序，置顶优先
+        result.sort((a, b) -> {
+            int pinA = (int) a.get("isPinned");
+            int pinB = (int) b.get("isPinned");
+            if (pinA != pinB) return pinB - pinA;
+            LocalDateTime timeA = (LocalDateTime) a.get("lastMessageTime");
+            LocalDateTime timeB = (LocalDateTime) b.get("lastMessageTime");
+            if (timeA == null && timeB == null) return 0;
+            if (timeA == null) return 1;
+            if (timeB == null) return -1;
+            return timeB.compareTo(timeA);
+        });
+
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public boolean deleteFriend(Long userId, Long friendId) {
+        conversationService.lockPrivateConversationForWrite(userId, friendId);
+        var before = capturePrivateAccess(userId, friendId);
+        // 双向删除好友关系
+        LambdaQueryWrapper<Friendship> wrapper1 = new LambdaQueryWrapper<>();
+        wrapper1.eq(Friendship::getUserId, userId).eq(Friendship::getFriendId, friendId);
+        friendshipMapper.delete(wrapper1);
+
+        LambdaQueryWrapper<Friendship> wrapper2 = new LambdaQueryWrapper<>();
+        wrapper2.eq(Friendship::getUserId, friendId).eq(Friendship::getFriendId, userId);
+        friendshipMapper.delete(wrapper2);
+        refreshPrivateAccess(userId, friendId, before, com.lanchat.recovery.MutationFact.Reason.FRIEND_DELETED, false);
+        // 聊天记录保留但不可再发消息（除非重新添加）
+        return true;
+    }
+
+    @Override
+    @Transactional
+    public boolean toggleBlock(Long userId, Long friendId) {
+        conversationService.lockPrivateConversationForWrite(userId, friendId);
+        Friendship friendship = getFriendship(userId, friendId);
+        if (friendship == null) return false;
+        var before = capturePrivateAccess(userId, friendId);
+        LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(Friendship::getId, friendship.getId())
+                .set(Friendship::getIsBlocked, Integer.valueOf(0).equals(friendship.getIsBlocked()) ? 1 : 0);
+        boolean updated = friendshipMapper.update(null, wrapper) > 0;
+        if (updated) refreshPrivateAccess(userId, friendId, before,
+                com.lanchat.recovery.MutationFact.Reason.SEND_DENIED, false);
+        return updated;
+    }
+
+    private Map<Long, com.lanchat.recovery.ConversationWriteGuard.Permission> capturePrivateAccess(Long first, Long second) {
+        String cid = com.lanchat.common.ConversationIds.privateConversation(first, second);
+        var before = new TreeMap<Long, com.lanchat.recovery.ConversationWriteGuard.Permission>();
+        for (Long user : new TreeSet<>(List.of(first, second))) before.put(user, accessMutationRecorder.before(cid, user));
+        return before;
+    }
+
+    private void refreshPrivateAccess(Long first, Long second,
+            Map<Long, com.lanchat.recovery.ConversationWriteGuard.Permission> before,
+            com.lanchat.recovery.MutationFact.Reason deniedReason, boolean rebuildOnEnable) {
+        String cid = com.lanchat.common.ConversationIds.privateConversation(first, second);
+        before.forEach((user, permission) -> accessMutationRecorder.refreshReadable(cid, user, permission, deniedReason, rebuildOnEnable));
+    }
+
+    @Override
+    public boolean setRemark(Long userId, Long friendId, String remark) {
+        String value = remark == null ? "" : remark.trim();
+        if (value.length() > 50) throw new IllegalArgumentException("好友备注不能超过50个字符");
+        LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(Friendship::getUserId, userId)
+                .eq(Friendship::getFriendId, friendId)
+                .set(Friendship::getRemark, value);
+        return friendshipMapper.update(null, wrapper) > 0;
+    }
+
+    @Override
+    public boolean setGroup(Long userId, Long friendId, String groupName) {
+        String value = groupName == null ? "我的好友" : groupName.trim();
+        if (value.isEmpty() || value.length() > 50) {
+            throw new IllegalArgumentException("分组名称需为1-50个字符");
+        }
+        LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(Friendship::getUserId, userId)
+                .eq(Friendship::getFriendId, friendId)
+                .set(Friendship::getGroupName, value);
+        return friendshipMapper.update(null, wrapper) > 0;
+    }
+
+    @Override
+    public boolean togglePin(Long userId, Long friendId) {
+        Friendship friendship = getFriendship(userId, friendId);
+        if (friendship == null) return false;
+
+        // 如果要置顶，检查是否超过上限（最多5个）
+        if (Integer.valueOf(0).equals(friendship.getIsPinned())) {
+            LambdaQueryWrapper<Friendship> countWrapper = new LambdaQueryWrapper<>();
+            countWrapper.eq(Friendship::getUserId, userId)
+                    .eq(Friendship::getIsPinned, 1);
+            long pinnedCount = friendshipMapper.selectCount(countWrapper);
+            if (pinnedCount >= MAX_PINNED) {
+                throw new IllegalArgumentException("置顶数量不能超过" + MAX_PINNED + "个");
+            }
+        }
+
+        LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(Friendship::getId, friendship.getId())
+                .set(Friendship::getIsPinned, Integer.valueOf(0).equals(friendship.getIsPinned()) ? 1 : 0);
+        return friendshipMapper.update(null, wrapper) > 0;
+    }
+
+    @Override
+    public boolean toggleMute(Long userId, Long friendId) {
+        Friendship friendship = getFriendship(userId, friendId);
+        if (friendship == null) return false;
+        LambdaUpdateWrapper<Friendship> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(Friendship::getId, friendship.getId())
+                .set(Friendship::getIsMuted, Integer.valueOf(0).equals(friendship.getIsMuted()) ? 1 : 0);
+        return friendshipMapper.update(null, wrapper) > 0;
+    }
+
+    @Override
+    public boolean isFriend(Long userId, Long friendId) {
+        LambdaQueryWrapper<Friendship> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Friendship::getUserId, userId)
+                .eq(Friendship::getFriendId, friendId)
+                .eq(Friendship::getIsBlocked, 0);
+        if (inWriteTransaction()) return friendshipMapper.selectOne(wrapper.last("LIMIT 1 FOR UPDATE")) != null;
+        return friendshipMapper.selectCount(wrapper) > 0;
+    }
+
+    /**
+     * 检查是否被对方拉黑
+     */
+    @Override
+    public boolean isBlockedBy(Long userId, Long friendId) {
+        Friendship friendship = getFriendship(friendId, userId);
+        return friendship != null && Integer.valueOf(1).equals(friendship.getIsBlocked());
+    }
+
+    private Friendship getFriendship(Long userId, Long friendId) {
+        LambdaQueryWrapper<Friendship> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Friendship::getUserId, userId)
+                .eq(Friendship::getFriendId, friendId);
+        if (inWriteTransaction()) wrapper.last("FOR UPDATE");
+        return friendshipMapper.selectOne(wrapper);
+    }
+
+    private boolean inWriteTransaction() {
+        return org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()
+                && !org.springframework.transaction.support.TransactionSynchronizationManager.isCurrentTransactionReadOnly();
+    }
+
+    /**
+     * 清理指定用户间过期的好友申请（7天）
+     */
+    private void expireOldRequests(Long fromUserId, Long toUserId) {
+        LocalDateTime expireTime = LocalDateTime.now().minusDays(REQUEST_EXPIRE_DAYS);
+        LambdaQueryWrapper<FriendRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FriendRequest::getFromUserId, fromUserId)
+                .eq(FriendRequest::getToUserId, toUserId)
+                .eq(FriendRequest::getStatus, 0)
+                .lt(FriendRequest::getCreateTime, expireTime);
+        List<FriendRequest> expired = friendRequestMapper.selectList(wrapper);
+        for (FriendRequest req : expired) {
+            LambdaUpdateWrapper<FriendRequest> updateWrapper = new LambdaUpdateWrapper<>();
+            updateWrapper.eq(FriendRequest::getId, req.getId())
+                    .set(FriendRequest::getStatus, 2)
+                    .set(FriendRequest::getHandleTime, LocalDateTime.now());
+            friendRequestMapper.update(null, updateWrapper);
+        }
+    }
+
+    /**
+     * 清理指定用户收到的过期申请
+     */
+    private void expireOldRequestsForUser(Long userId) {
+        LocalDateTime expireTime = LocalDateTime.now().minusDays(REQUEST_EXPIRE_DAYS);
+        LambdaQueryWrapper<FriendRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FriendRequest::getToUserId, userId)
+                .eq(FriendRequest::getStatus, 0)
+                .lt(FriendRequest::getCreateTime, expireTime);
+        List<FriendRequest> expired = friendRequestMapper.selectList(wrapper);
+        for (FriendRequest req : expired) {
+            LambdaUpdateWrapper<FriendRequest> updateWrapper = new LambdaUpdateWrapper<>();
+            updateWrapper.eq(FriendRequest::getId, req.getId())
+                    .set(FriendRequest::getStatus, 2)
+                    .set(FriendRequest::getHandleTime, LocalDateTime.now());
+            friendRequestMapper.update(null, updateWrapper);
+        }
+    }
+}

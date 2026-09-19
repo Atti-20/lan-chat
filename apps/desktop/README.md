@@ -1,7 +1,7 @@
 # MeshX Desktop
 
 LANChat Desktop 是基于 Tauri 2 的 macOS、Windows、Linux 桌面客户端。它复用
-`frontend/` 的 Vue 3 UI；生产环境中的 REST、WebSocket、附件和图片请求由 Rust
+`apps/web/` 的 Vue 3 UI；生产环境中的 REST、WebSocket、附件和图片请求由 Rust
 原生网络层转发，并且只允许访问已完成原生握手的节点 Origin。WebView 的生产 CSP
 不开放任意 `http`、`https`、`ws` 或 `wss`。
 
@@ -55,7 +55,7 @@ LANChat 后 Cookie Jar 会销毁，下次启动需要重新登录；仅关闭主
 从仓库根目录执行：
 
 ```bash
-npm install --prefix frontend
+npm install --prefix apps/web
 npm install --prefix apps/desktop
 npm --prefix apps/desktop run dev
 ```

@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build:web": "npm run build:mobile --prefix ../../frontend",
+    "build:web": "npm run build:mobile --prefix ../../apps/web",
     "sync:ios": "npm run build:web && cap sync ios",
     "open:ios": "cap open ios"
   },

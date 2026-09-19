@@ -1,0 +1,611 @@
+import type { ChatSendPayload } from '../../protocol/src/index'
+
+export interface AuditEvent {
+  id: number
+  actorUserId?: number
+  actorDeviceId?: number
+  action: string
+  targetType?: string
+  targetId?: string
+  outcome: string
+  requestId?: string
+  detailJson?: string
+  createdAt: string
+}
+
+export interface User {
+  id: number
+  userId?: number
+  username: string
+  nickname: string
+  avatar?: string
+  signature?: string
+  online?: number
+  status?: number
+  canSendBroadcast?: number
+  lastLoginAt?: string
+}
+
+export interface AdminUser extends User {
+  muteStart?: string
+  muteEnd?: string
+  /** 归档（注销）时间；有值代表账号已归档，只保留历史记录。 */
+  archivedAt?: string
+}
+
+export interface AuthSession {
+  userId: number
+  username: string
+  nickname: string
+  avatar?: string
+  token: string
+  expiresIn: number
+  /** Present when the selected Control enforces native device identity. */
+  organizationId?: string
+  revocationVersion?: number
+  device?: AuthenticatedDevice
+  nodeRuntime?: NodeRuntimeStatus
+}
+
+export interface NodeRuntimeStatus {
+  running: boolean
+  active: boolean
+  nodeId?: string
+  organizationId?: string
+  accountUserId?: number
+  deviceKey?: string
+  storageScopeId?: string
+  schemaVersion?: number
+  lastError?: string
+}
+
+export interface AuthenticatedDeviceCredential {
+  credentialId: string
+  algorithm: 'ED25519' | string
+  fingerprint: string
+  status: string
+  issuedAt?: string
+  expiresAt?: string
+  certificatePayload?: string
+  certificateSignature?: string
+  controlSigningPublicKey?: string
+  controlKeyFingerprint?: string
+}
+
+export interface AuthenticatedDevice {
+  id: number
+  ownerUserId: number
+  deviceKey: string
+  platform: string
+  displayName?: string
+  appVersion?: string
+  capabilities?: string[]
+  status: string
+  credential?: AuthenticatedDeviceCredential
+}
+
+export interface Friend extends User {
+  friendId: number
+  remark?: string
+  groupName?: string
+  isPinned?: number
+  isMuted?: number
+  lastMessage?: string
+  lastMessageType?: string
+  lastMessageTime?: string
+}
+
+export interface ChatGroup {
+  id: number
+  groupName: string
+  avatar?: string
+  announcement?: string
+  ownerId: number
+  maxMembers?: number
+  joinMode?: number
+  lastMessage?: string
+  lastMessageType?: string
+  lastMessageTime?: string
+}
+
+export type TemporaryRoomStatus = 'ACTIVE' | 'EXPIRING' | 'FROZEN' | 'ARCHIVED' | 'DESTROYED'
+export type TemporaryRoomExpiryAction = 'FREEZE' | 'ARCHIVE' | 'DESTROY'
+
+export interface TemporaryRoom {
+  id: number
+  conversationId: string
+  roomName: string
+  purpose?: string
+  ownerId: number
+  roomCode?: string
+  status: TemporaryRoomStatus
+  expiresAt: string
+  maxMembers: number
+  memberCount?: number
+  currentUserRole?: 'OWNER' | 'ADMIN' | 'MEMBER' | 'READ_ONLY'
+  allowGuests: boolean
+  allowMemberInvite: boolean
+  allowFileUpload: boolean
+  allowFileDownload: boolean
+  allowForward: boolean
+  messageRetentionDays: number
+  allowExternalSync: boolean
+  expireAction: TemporaryRoomExpiryAction
+  createTime?: string
+  updateTime?: string
+}
+
+export interface TemporaryRoomCreatePayload {
+  roomName: string
+  purpose?: string
+  expiresAt: string
+  maxMembers: number
+  allowGuests: boolean
+  allowMemberInvite: boolean
+  allowFileUpload: boolean
+  allowFileDownload: boolean
+  allowForward: boolean
+  messageRetentionDays: number
+  allowExternalSync: boolean
+  expireAction: TemporaryRoomExpiryAction
+}
+
+export interface FriendRequest {
+  id: number
+  fromUserId: number
+  toUserId: number
+  message?: string
+  createTime?: string
+  sender?: User
+}
+
+export interface GroupMember {
+  userId: number
+  nickname: string
+  avatar?: string
+  role: number
+  online?: number
+  muteUntil?: string
+}
+
+export type ConversationKind = 'private' | 'group' | 'temporary'
+
+export interface ConversationSummary {
+  conversationId: string
+  kind: ConversationKind
+  targetId: number
+  lastSequence: number
+  lastReadSequence: number
+  unreadCount: number
+  lastMessage?: string
+  lastMessageType?: string
+  lastMessageAt?: string
+  pinned: boolean
+  muted: boolean
+}
+
+export interface Conversation {
+  id: number
+  conversationId: string
+  kind: ConversationKind
+  name: string
+  avatar?: string
+  subtitle?: string
+  lastMessage?: string
+  lastMessageType?: string
+  lastMessageTime?: string
+  online?: boolean
+  pinned?: boolean
+  muted?: boolean
+  unreadCount?: number
+  lastSequence?: number
+  lastReadSequence?: number
+  pendingCount?: number
+  source: Friend | ChatGroup | TemporaryRoom
+}
+
+export type MessageDeliveryState =
+  | 'WAITING_NETWORK'
+  | 'SENDING'
+  | 'SENT'
+  | 'DELIVERED'
+  | 'READ'
+  | 'FAILED'
+
+export interface ChatMessage {
+  messageId: string
+  clientMsgId?: string
+  conversationId?: string
+  sequence?: number
+  fromUserId: number
+  senderDeviceId?: number
+  fromNickname?: string
+  fromAvatar?: string
+  toUserId?: number
+  groupId?: number
+  type?: string
+  contentType?: string
+  content?: string
+  replyToId?: string
+  mentionUserIds?: string
+  isBurn?: number | boolean
+  burnDuration?: number
+  isRecalled?: number
+  status?: number
+  deliveryState?: MessageDeliveryState
+  errorMessage?: string
+  clientCreatedAt?: string
+  createTime?: string
+  timestamp?: string
+}
+
+export interface MentionReadRecipient {
+  userId: number
+  nickname: string
+  avatar?: string
+  read: boolean
+}
+
+export interface MentionReadReceipt {
+  messageId: string
+  expectedCount: number
+  readCount: number
+  unreadCount: number
+  recipients: readonly MentionReadRecipient[]
+}
+
+export interface FileUpload {
+  id: number
+  url: string
+  thumbnailUrl?: string
+  originalName: string
+  fileName: string
+  fileSize: number
+  fileType?: string
+  fileHash?: string
+  instantUpload?: boolean
+}
+
+export type ResumableUploadStatus =
+  | 'UPLOADING'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'EXPIRED'
+
+export interface ResumableUploadSession {
+  uploadId: string
+  status: ResumableUploadStatus
+  chunkSize: number
+  totalParts: number
+  uploadedParts: number[]
+  expiresAt?: string
+  completedFile?: FileUpload | null
+}
+
+export type FileTransferPath = 'PEER_TO_PEER' | 'NODE_RELAY'
+
+export interface FileAttachmentData {
+  url?: string
+  originalUrl?: string
+  thumbnailUrl?: string
+  name?: string
+  size?: number
+  mime?: string
+  fileHash?: string
+  transferId?: string
+  transferPath?: FileTransferPath
+}
+
+export type BroadcastPriority = 'NORMAL' | 'IMPORTANT' | 'EMERGENCY'
+export type BroadcastScopeType = 'ALL' | 'GROUP' | 'USERS'
+export type BroadcastReceiptStatus =
+  | 'PENDING'
+  | 'DELIVERED'
+  | 'VIEWED'
+  | 'RECEIVED'
+  | 'EXECUTED'
+  | 'NEED_SUPPORT'
+  | 'EXPIRED'
+
+export type BroadcastStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
+
+export interface BroadcastLocation {
+  latitude: number
+  longitude: number
+  accuracyMeters?: number
+  addressText?: string
+  capturedAt?: string
+}
+
+export interface BroadcastSender {
+  id: number
+  username: string
+  nickname?: string
+  avatar?: string
+}
+
+export interface BroadcastContentEvidence {
+  imageUrls: readonly string[]
+  location?: BroadcastLocation
+}
+
+export interface EmergencyBroadcast {
+  id: number
+  title: string
+  content: string
+  priority: BroadcastPriority
+  scopeType: BroadcastScopeType
+  scopeGroupId?: number
+  senderId: number
+  confirmationRequired: boolean
+  confirmationOptions?: string
+  deadlineAt?: string
+  bypassMute: boolean
+  repeatReminder: boolean
+  status: BroadcastStatus
+  requireImageProof: boolean
+  requireLocationProof: boolean
+  completedAt?: string
+  /** Present in list results for a recipient; sender/global lifecycle remains
+   * in `status`. Any submitted response is complete from that recipient's view. */
+  currentUserConfirmStatus?: BroadcastReceiptStatus | 'NOT_REQUIRED'
+  currentUserConfirmedAt?: string
+  currentUserCompletedAt?: string
+  createTime: string
+  updateTime?: string
+}
+
+export interface BroadcastReceiver {
+  id: number
+  broadcastId: number
+  userId: number
+  deliveredAt?: string
+  viewedAt?: string
+  confirmStatus: BroadcastReceiptStatus | 'NOT_REQUIRED'
+  confirmedAt?: string
+  confirmDeviceType?: string
+  createTime: string
+  updateTime?: string
+  targetStatus?: 'ACTIVE' | 'REMOVED'
+  completedAt?: string
+}
+
+export interface BroadcastDetail {
+  broadcast: EmergencyBroadcast
+  receiver?: BroadcastReceiver
+  sender: BroadcastSender
+  contentEvidence?: BroadcastContentEvidence
+  confirmationOptions: readonly string[]
+  createdByCurrentUser: boolean
+}
+
+export interface BroadcastCreatePayload {
+  title: string
+  content: string
+  priority: BroadcastPriority
+  scopeType: BroadcastScopeType
+  groupId?: number
+  receiverIds?: number[]
+  confirmationRequired: boolean
+  confirmationOptions?: string[]
+  deadlineAt?: string
+  bypassMute: boolean
+  repeatReminder: boolean
+  requireImageProof: boolean
+  requireLocationProof: boolean
+  contentImageFileIds?: number[]
+  contentLocation?: BroadcastLocation
+}
+
+export interface BroadcastCompletePayload {
+  imageFileIds: number[]
+  location?: BroadcastLocation
+}
+
+export interface BroadcastRecipientDetail {
+  receiverId: number
+  userId: number
+  username: string
+  nickname: string
+  avatar?: string
+  targetStatus: 'ACTIVE' | 'REMOVED'
+  confirmStatus: BroadcastReceiptStatus | 'NOT_REQUIRED'
+  deliveredAt?: string
+  viewedAt?: string
+  completedAt?: string
+  imageUrls: readonly string[]
+  location?: BroadcastLocation
+  remindCount: number
+  lastRemindedAt?: string
+}
+
+export interface BroadcastTargetUpdatePayload {
+  addUserIds: number[]
+  removeUserIds: number[]
+}
+
+export interface BroadcastTargetCandidate {
+  userId: number
+  username: string
+  nickname: string
+  avatar?: string
+}
+
+export interface BroadcastTargetUpdateResult {
+  addedUserIds: number[]
+  removedUserIds: number[]
+}
+
+export interface BroadcastStatistics {
+  broadcastId: number
+  targetCount: number
+  deliveredCount: number
+  viewedCount: number
+  confirmedCount: number
+  unconfirmedCount: number
+  executedCount: number
+  needSupportCount: number
+  removedCount: number
+  unconfirmedUserIds: readonly number[]
+  expiredCount: number
+  expired: boolean
+  confirmationCounts: Readonly<Record<string, number>>
+}
+
+export interface DeviceLogin {
+  id: number
+  userId: number
+  deviceType: string
+  deviceName: string
+  loginTime: string
+  expireTime?: string
+  status: number
+  current?: boolean
+}
+
+export type ConnectionState =
+  | 'CONNECTING'
+  | 'AUTHENTICATING'
+  | 'SYNCING'
+  | 'ONLINE'
+  | 'DEGRADED'
+  | 'RECONNECTING'
+  | 'OFFLINE'
+
+export type RecoveryDisposition = 'NEEDS_USER_ACTION' | 'DROP_BODY_REVOKED'
+
+export interface OutboxEntry {
+  clientMsgId: string
+  requestId: string
+  conversationId: string
+  payload: ChatSendPayload
+  createdAt: string
+  retryCount: number
+  state: 'WAITING_NETWORK' | 'SENDING' | 'FAILED'
+  lastError?: string
+  recoveryDisposition?: RecoveryDisposition
+}
+
+export type ConnectionPath = 'LOCAL' | 'LAN' | 'REMOTE'
+
+export interface NodePublicInfo {
+  nodeId: string
+  nodeName: string
+  organizationName: string
+  version: string
+  mode: 'LOCAL_INDEPENDENT' | 'LAN_FIRST' | 'HYBRID'
+  serviceStatus: string
+  secure: boolean
+  discoveryEnabled: boolean
+  selfRegistrationEnabled: boolean
+  loginMethods: readonly string[]
+  capabilities: readonly string[]
+  serverTime: number
+  protocolVersion: number
+  apiBasePath: string
+  webSocketPath: string
+  healthPath: string
+  appPath: string
+  desktopAuthSupported: boolean
+  refreshTransport: string
+}
+
+export interface DependencyStatus {
+  status: 'UP' | 'DOWN'
+  latencyMs: number | null
+  message?: string
+}
+
+export interface StorageStatus {
+  status: 'UP' | 'DOWN'
+  path: string
+  totalBytes: number
+  usableBytes: number
+  usedBytes: number
+  usedPercent: number
+  message?: string
+}
+
+export interface JvmStatus {
+  heapUsedBytes: number
+  heapMaxBytes: number
+  threadCount: number
+  availableProcessors: number
+  systemLoadAverage: number
+}
+
+export interface ConnectionLifecycleEvent {
+  timestamp: string
+  event: string
+  userId?: number
+  remoteAddress?: string
+  reason?: string
+}
+
+export interface AdminDiagnostics {
+  nodeId: string
+  nodeName: string
+  mode: string
+  version: string
+  startedAt: string
+  uptimeSeconds: number
+  onlineUsers: number
+  webSocketConnections: number
+  webSocketEvents: number
+  chatAcknowledgements: number
+  webSocketFailures: number
+  averageEventProcessingMs: number
+  database: DependencyStatus
+  redis: DependencyStatus
+  storage: StorageStatus
+  jvm: JvmStatus
+  recentConnections: readonly ConnectionLifecycleEvent[]
+  warnings: readonly string[]
+}
+
+export interface DiscoveredNode {
+  nodeId: string
+  nodeName: string
+  organizationName: string
+  version: string
+  mode: string
+  appUrl: string
+  secure: boolean
+  current: boolean
+  lastSeenAt: string
+}
+
+export type RuntimeLogLevel = 'TRACE' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+export type RuntimeLogLevelFilter = 'ALL' | RuntimeLogLevel
+
+export interface RuntimeLogEntry {
+  sequence: number
+  timestamp: string
+  level: RuntimeLogLevel
+  thread: string
+  requestId: string
+  logger: string
+  message: string
+  details?: string | null
+  explanation?: string | null
+}
+
+export interface RuntimeLogSnapshot {
+  available: boolean
+  fileName: string
+  fileSizeBytes: number
+  updatedAt?: string | null
+  scannedEntries: number
+  truncated: boolean
+  levelCounts: Record<RuntimeLogLevel, number>
+  entries: readonly RuntimeLogEntry[]
+  notice: string
+}
+
+/** Body-free authoritative terminal row; sender and timestamps are intentionally absent. */
+export interface RecoveryTerminal {
+  messageId: string
+  conversationId: string
+  sequence: number
+  state: 'RECALLED' | 'BURNED' | 'UNAVAILABLE'
+}

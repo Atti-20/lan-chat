@@ -1,0 +1,184 @@
+<script setup lang="ts">
+import { computed, shallowRef, watch } from 'vue'
+import {
+  invalidateCachedAvatarImage,
+  resolveCachedAvatarImage,
+} from '../../services/avatarImageCache'
+
+interface Props {
+  name: string
+  avatar?: string
+  size?: number
+  online?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  avatar: '',
+  size: 46,
+  online: false,
+})
+
+const hue = computed(() => {
+  let hash = 0
+  for (const char of props.name || '?') hash = (hash * 31 + char.charCodeAt(0)) % 360
+  return hash
+})
+
+// `text` is an explicit choice, while an empty avatar remains compatible with
+// older accounts. Both render the same deterministic nickname initial. Legacy
+// emoji/svg values deliberately fall through to text so every current client
+// uses one avatar language.
+const textInitial = computed(() => {
+  if (props.avatar?.startsWith('letter:')) {
+    return props.avatar.slice('letter:'.length).slice(0, 1).toUpperCase() || '?'
+  }
+  return props.name?.slice(0, 1).toUpperCase() || '?'
+})
+
+const customColor = computed(() => {
+  if (props.avatar?.startsWith('letter:')) {
+    const parts = props.avatar.split(':')
+    if (parts.length >= 3 && /^#[0-9a-f]{6}$/i.test(parts[2])) return parts[2]
+  }
+  return ''
+})
+
+// 签名后的可用图片 URL
+const resolvedImageUrl = shallowRef('')
+const resolvingImage = shallowRef(false)
+let avatarRequestVersion = 0
+
+function isImageAvatar(avatar: string): boolean {
+  return Boolean(avatar) && avatar !== 'text' && !avatar.startsWith('letter:') && !avatar.startsWith('emoji:') && !avatar.startsWith('svg:')
+}
+
+watch(
+  () => props.avatar,
+  async (avatar, _previous, onCleanup) => {
+    const requestVersion = ++avatarRequestVersion
+    let cancelled = false
+    onCleanup(() => {
+      cancelled = true
+    })
+
+    if (!isImageAvatar(avatar)) {
+      resolvedImageUrl.value = ''
+      resolvingImage.value = false
+      return
+    }
+    resolvingImage.value = true
+    try {
+      const url = await resolveCachedAvatarImage(avatar)
+      if(cancelled || requestVersion !== avatarRequestVersion || props.avatar !== avatar) return
+      resolvedImageUrl.value = url
+      resolvingImage.value = false
+    } catch {
+      if (!cancelled && requestVersion === avatarRequestVersion) {
+        resolvedImageUrl.value = ''
+        resolvingImage.value = false
+      }
+    }
+  },
+    { immediate: true }
+)
+
+function handleAvatarImageError(): void {
+  const avatar = props.avatar
+  if (avatar) void invalidateCachedAvatarImage(avatar)
+  resolvedImageUrl.value = ''
+  resolvingImage.value = false
+}
+
+const avatarStyle = computed(() => {
+  const base: Record<string, string> = {
+    width: `${props.size}px`,
+    height: `${props.size}px`,
+    fontSize: `${Math.max(14, props.size * 0.4)}px`,
+  }
+  if (customColor.value) {
+    const color = customColor.value
+    base.background = `linear-gradient(145deg, ${color}, ${adjustColor(color, -18)})`
+  } else {
+    base.background = `linear-gradient(145deg, hsl(${hue.value} 78% 72%), hsl(${(hue.value + 42) % 360} 72% 54%))`
+  }
+  return base
+})
+
+function adjustColor(hex: string, amount: number): string {
+  const clean = hex.replace('#', '')
+  const num = parseInt(clean, 16)
+  let r = Math.min(255, Math.max(0, ((num >> 16) & 0xFF) + amount))
+  let g = Math.min(255, Math.max(0, ((num >> 8) & 0xFF) + amount))
+  let b = Math.min(255, Math.max(0, (num & 0xFF) + amount))
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
+}
+</script>
+
+<template>
+  <span class="avatar" role="img" :style="avatarStyle" :aria-label="`${name}的头像${online ? '，在线' : ''}`">
+    <img v-if="resolvedImageUrl" class="avatar-image" :src="resolvedImageUrl" alt="" @error="handleAvatarImageError"/>
+    <span v-else-if="resolvingImage" class="avatar-loading" aria-hidden="true" />
+    <span v-else class="avatar-letter" aria-hidden="true">{{ textInitial }}</span>
+    <span v-if="online" class="online-dot" aria-label="在线" />
+  </span>
+</template>
+
+<style scoped>
+.avatar {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  overflow: visible;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  color: var(--mx-color-text-on-accent);
+  font-weight: 750;
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.avatar-loading {
+  width: 38%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  animation: avatar-loading-pulse 900ms ease-in-out infinite alternate;
+}
+
+@keyframes avatar-loading-pulse {
+  from {
+    opacity: 0.35;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+}
+
+.avatar-letter {
+  text-shadow: 0 1px 2px rgba(10, 30, 55, 0.2);
+}
+
+.online-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: clamp(7px, 26%, 18px);
+  aspect-ratio: 1;
+  border: 2px solid rgba(245, 251, 255, 0.96);
+  border-radius: 50%;
+}
+
+.avatar {
+  border-color: var(--mx-color-highlight-default);
+  border-radius: 50%;
+  box-shadow: inset 0 1px 0 var(--mx-color-highlight-default), 0 2px 7px var(--mx-color-shadow-default);
+}
+.online-dot { border-color: var(--mx-color-background-surface); background: var(--mx-color-presence-online); box-shadow: none; }
+</style>

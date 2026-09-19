@@ -5,10 +5,11 @@ on:
     paths:
       - "VERSION"
       - "apps/ios/**"
-      - "frontend/**"
+      - "apps/web/**"
+      - "packages/**"
       - "scripts/ci/check-version-consistency.py"
-      - "src/main/java/com/lanchat/config/**"
-      - "src/main/resources/application.yml"
+      - "services/server/src/main/java/com/lanchat/config/**"
+      - "services/server/src/main/resources/application.yml"
       - ".github/workflows/ios-build.yml"
   push:
     branches:
@@ -18,10 +19,11 @@ on:
     paths:
       - "VERSION"
       - "apps/ios/**"
-      - "frontend/**"
+      - "apps/web/**"
+      - "packages/**"
       - "scripts/ci/check-version-consistency.py"
-      - "src/main/java/com/lanchat/config/**"
-      - "src/main/resources/application.yml"
+      - "services/server/src/main/java/com/lanchat/config/**"
+      - "services/server/src/main/resources/application.yml"
       - ".github/workflows/ios-build.yml"
   workflow_dispatch:
 
@@ -56,7 +58,7 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: |
-            frontend/package-lock.json
+            apps/web/package-lock.json
             apps/ios/package-lock.json
 
       - name: Verify Xcode toolchain
@@ -73,7 +75,7 @@ jobs:
 
       - name: Install JavaScript dependencies
         run: |
-          npm ci --prefix frontend
+          npm ci --prefix apps/web
           npm ci --prefix apps/ios
 
       - name: Build and sync shared Vue assets

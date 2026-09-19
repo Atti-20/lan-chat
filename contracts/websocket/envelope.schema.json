@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MeshX WebSocket V1 envelope",
+  "description": "Common wire envelope; event-specific required metadata is refined by events.schema.json. Optional metadata can be explicit null in server and legacy client frames.",
+  "type": "object",
+  "required": [
+    "version",
+    "event",
+    "timestamp",
+    "payload"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "event": {
+      "type": "string"
+    },
+    "requestId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "clientMsgId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "conversationId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timestamp": {
+      "type": "integer"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

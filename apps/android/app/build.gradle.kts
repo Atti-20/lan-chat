@@ -61,9 +61,12 @@ val syncVueUi by tasks.registering(Exec::class) {
     commandLine("npm", "run", "sync:web")
     inputs.files(
         // Resolve from apps/android, not the :app subproject directory.
-        // Otherwise Gradle watches the nonexistent apps/frontend and packages stale UI.
-        fileTree(rootProject.file("../../frontend")) {
+        // Shared packages are inputs too, so a token/port/core change rebuilds the UI.
+        fileTree(rootProject.file("../../apps/web")) {
             include("src/**", "public/**", "index.html", "package*.json", "tsconfig*.json", "vite.config.*")
+        },
+        fileTree(rootProject.file("../../packages")) {
+            include("**/*.ts", "**/*.css", "**/*.json")
         },
         rootProject.file("package.json"),
         rootProject.file("package-lock.json"),

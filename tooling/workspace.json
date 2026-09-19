@@ -1,0 +1,1158 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "id": "server",
+      "path": "services/server",
+      "role": "Spring Boot 控制面、业务 API、WebSocket 与 Relay",
+      "entries": [
+        "pom.xml",
+        "src/main/java/com/lanchat/LanChatServerApplication.java",
+        "src/main/java/com/lanchat/websocket/ChatWebSocketHandler.java"
+      ],
+      "extensions": [
+        ".java"
+      ],
+      "relatedDocs": [
+        {
+          "path": "contracts/README.md",
+          "when": "接口与消息变更"
+        },
+        {
+          "path": "docs/generated/api-summary.md",
+          "when": "定位 REST 路由"
+        },
+        {
+          "path": "docs/generated/sql-map.md",
+          "when": "数据库变更"
+        }
+      ],
+      "verificationScopes": [
+        "server",
+        "contracts"
+      ]
+    },
+    {
+      "id": "web",
+      "path": "apps/web",
+      "role": "Web / Tauri 共享 Vue 应用；迁移期间仍服务 Capacitor",
+      "entries": [
+        "src/main.ts",
+        "src/App.vue",
+        "src/services/api.ts",
+        "src/composables/useWebSocket.ts",
+        "DESIGN.md"
+      ],
+      "extensions": [
+        ".ts",
+        ".vue",
+        ".css"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/design/README.md",
+          "when": "界面规则"
+        },
+        {
+          "path": "contracts/README.md",
+          "when": "API 或消息变更"
+        },
+        {
+          "path": "docs/architecture/platform-adapters.md",
+          "when": "平台能力"
+        }
+      ],
+      "verificationScopes": [
+        "core",
+        "web"
+      ]
+    },
+    {
+      "id": "desktop",
+      "path": "apps/desktop",
+      "role": "Tauri 原生适配与桌面打包",
+      "entries": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/tauri.conf.json"
+      ],
+      "extensions": [
+        ".rs"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/architecture/platform-adapters.md",
+          "when": "桥接与原生能力"
+        },
+        {
+          "path": "docs/design/README.md",
+          "when": "窗口或界面变更"
+        }
+      ],
+      "verificationScopes": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "android",
+      "path": "apps/android",
+      "role": "迁移期间保留的 Capacitor Android 客户端",
+      "entries": [
+        "app/src/main/java/com/meshx/android/MainActivity.java",
+        "app/build.gradle.kts",
+        "scripts/sync-web.mjs"
+      ],
+      "extensions": [
+        ".java",
+        ".kts"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/adr/0004-client-target-and-contracts.md",
+          "when": "区分现有壳与 Flutter 目标"
+        },
+        {
+          "path": "docs/architecture/platform-adapters.md",
+          "when": "原生能力"
+        }
+      ],
+      "verificationScopes": [
+        "android"
+      ]
+    },
+    {
+      "id": "ios",
+      "path": "apps/ios",
+      "role": "迁移期间保留的 Capacitor iOS 客户端",
+      "entries": [
+        "ios/App/App/AppDelegate.swift",
+        "ios/App/App/MeshXViewController.swift",
+        "capacitor.config.json"
+      ],
+      "extensions": [
+        ".swift"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/adr/0004-client-target-and-contracts.md",
+          "when": "区分现有壳与 Flutter 目标"
+        },
+        {
+          "path": "docs/architecture/platform-adapters.md",
+          "when": "原生能力"
+        }
+      ],
+      "verificationScopes": [
+        "ios"
+      ]
+    },
+    {
+      "id": "flutter",
+      "path": "apps/flutter-prototype",
+      "role": "目标移动端路线的 Flutter 切片原型；完整迁移未完成",
+      "entries": [
+        "README.md",
+        "lib/main.dart",
+        "lib/chat_controller.dart",
+        "lib/application/attachment_controller.dart",
+        "lib/data/attachments_models.dart",
+        "lib/ui/attachments/attachment_message.dart",
+        "lib/platform/discovery.dart"
+      ],
+      "extensions": [
+        ".dart",
+        ".kt",
+        ".swift"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/adr/0004-client-target-and-contracts.md",
+          "when": "移动端迁移范围"
+        },
+        {
+          "path": "contracts/README.md",
+          "when": "API 与消息变更"
+        },
+        {
+          "path": "docs/design/README.md",
+          "when": "主题或界面变更"
+        }
+      ],
+      "verificationScopes": [
+        "flutter",
+        "flutter-candidate",
+        "contracts"
+      ]
+    },
+    {
+      "id": "protocol",
+      "path": "packages/protocol",
+      "role": "REST TS / WS TS 和 Dart 的机器契约生成边界",
+      "entries": [
+        "src/index.ts",
+        "src/envelope.ts",
+        "src/events.ts",
+        "src/rest.ts"
+      ],
+      "extensions": [
+        ".ts"
+      ],
+      "relatedDocs": [
+        {
+          "path": "contracts/AGENTS.md",
+          "when": "修改协议源或生成器"
+        },
+        {
+          "path": "contracts/README.md",
+          "when": "协议字段与兼容性"
+        }
+      ],
+      "verificationScopes": [
+        "contracts",
+        "web",
+        "flutter"
+      ]
+    },
+    {
+      "id": "domain",
+      "path": "packages/domain-ts",
+      "role": "平台无关的聊天模型、消息合并/排序、outbox 恢复、重连与序列规则",
+      "entries": [
+        "src/models.ts",
+        "src/conversation.ts",
+        "src/sequence.ts",
+        "src/messages.ts",
+        "src/outbox.ts",
+        "src/realtime.ts"
+      ],
+      "extensions": [
+        ".ts"
+      ],
+      "relatedDocs": [
+        {
+          "path": "contracts/websocket/README.md",
+          "when": "序列和消息状态"
+        },
+        {
+          "path": "docs/architecture/platform-adapters.md",
+          "when": "共享模型的依赖方向"
+        }
+      ],
+      "verificationScopes": [
+        "core",
+        "contracts",
+        "web"
+      ]
+    },
+    {
+      "id": "ports",
+      "path": "packages/platform-ports",
+      "role": "现有宿主接口与小型 Outbox/Realtime Ports；无平台实现",
+      "entries": [
+        "src/index.ts",
+        "src/runtime.ts",
+        "src/outbox.ts",
+        "src/realtime.ts"
+      ],
+      "extensions": [
+        ".ts"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/architecture/platform-adapters.md",
+          "when": "接口与适配实现"
+        }
+      ],
+      "verificationScopes": [
+        "core",
+        "contracts",
+        "web"
+      ]
+    },
+    {
+      "id": "design",
+      "path": "packages/design-tokens",
+      "role": "中立设计 token 和组件状态，生成 CSS / Dart",
+      "entries": [
+        "README.md",
+        "tokens.json",
+        "components.json",
+        "tokens.css"
+      ],
+      "extensions": [
+        ".json",
+        ".css"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/design/README.md",
+          "when": "设计源及转换规则"
+        },
+        {
+          "path": "docs/design/validation.md",
+          "when": "实际渲染验收"
+        }
+      ],
+      "verificationScopes": [
+        "design",
+        "contracts",
+        "core",
+        "web",
+        "flutter"
+      ]
+    },
+    {
+      "id": "website",
+      "path": "apps/website",
+      "role": "独立静态产品官网，不进入聊天应用构建",
+      "entries": [
+        "index.html"
+      ],
+      "extensions": [
+        ".html"
+      ],
+      "relatedDocs": [],
+      "verificationScopes": [
+        "workspace"
+      ]
+    },
+    {
+      "id": "contracts",
+      "path": "contracts",
+      "role": "REST 与 WS 结构源、兼容规则及测试帧",
+      "entries": [
+        "README.md",
+        "rest/README.md",
+        "websocket/README.md"
+      ],
+      "extensions": [
+        ".json"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/generated/api-summary.md",
+          "when": "REST 路由定位"
+        },
+        {
+          "path": "docs/adr/0005-repository-context-and-contract-authority.md",
+          "when": "事实来源和变更策略"
+        }
+      ],
+      "verificationScopes": [
+        "contracts"
+      ]
+    },
+    {
+      "id": "workspace",
+      "path": "tooling",
+      "role": "按需上下文、生成文档和统一验证工具",
+      "entries": [
+        "workspace.py",
+        "workspace.json",
+        "api_summary.py",
+        "verification.py"
+      ],
+      "extensions": [
+        ".py",
+        ".mjs"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/ai/INDEX.md",
+          "when": "按修改任务定位"
+        },
+        {
+          "path": "docs/architecture/repository-context.md",
+          "when": "上下文与指令预算"
+        },
+        {
+          "path": "docs/AGENTS.md",
+          "when": "文档变更"
+        },
+        {
+          "path": "docs/runbooks/testing.md",
+          "when": "统一验证范围"
+        }
+      ],
+      "verificationScopes": [
+        "workspace",
+        "tooling"
+      ]
+    }
+  ],
+  "verification": {
+    "server": [
+      {
+        "cwd": ".",
+        "argv": [
+          "./mvnw",
+          "-B",
+          "test"
+        ],
+        "name": "maven-tests",
+        "tools": [
+          "java"
+        ],
+        "requires": [
+          ".mvn/wrapper/maven-wrapper.properties",
+          "services/server/pom.xml"
+        ]
+      }
+    ],
+    "web": [
+      {
+        "cwd": ".",
+        "argv": [
+          "npm",
+          "--prefix",
+          "apps/web",
+          "test"
+        ],
+        "name": "unit-tests",
+        "tools": [
+          "node"
+        ],
+        "requires": [
+          "apps/web/package.json",
+          "apps/web/package-lock.json",
+          "apps/web/node_modules/typescript/package.json"
+        ]
+      },
+      {
+        "cwd": ".",
+        "argv": [
+          "npm",
+          "--prefix",
+          "apps/web",
+          "run",
+          "build"
+        ],
+        "name": "typecheck-and-build",
+        "tools": [
+          "node"
+        ],
+        "requires": [
+          "apps/web/package.json",
+          "apps/web/package-lock.json",
+          "apps/web/node_modules/typescript/package.json",
+          "apps/web/node_modules/vite/package.json",
+          "apps/web/node_modules/vue-tsc/package.json"
+        ]
+      }
+    ],
+    "desktop": [
+      {
+        "cwd": ".",
+        "argv": [
+          "npm",
+          "--prefix",
+          "apps/web",
+          "run",
+          "build:desktop"
+        ],
+        "name": "desktop-ui",
+        "tools": [
+          "node"
+        ],
+        "requires": [
+          "apps/web/package.json",
+          "apps/web/package-lock.json",
+          "apps/web/node_modules/typescript/package.json",
+          "apps/web/node_modules/vite/package.json",
+          "apps/web/node_modules/vue-tsc/package.json"
+        ]
+      },
+      {
+        "cwd": ".",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "apps/desktop/src-tauri/Cargo.toml"
+        ],
+        "name": "rust-tests",
+        "requires": [
+          "apps/desktop/src-tauri/Cargo.toml",
+          "apps/desktop/src-tauri/Cargo.lock"
+        ]
+      }
+    ],
+    "android": [
+      {
+        "cwd": "apps/android",
+        "argv": [
+          "./gradlew",
+          "testSecureDebugUnitTest",
+          "lintSecureDebug",
+          "assembleSecureDebug"
+        ],
+        "name": "legacy-gradle-checks",
+        "tools": [
+          "java",
+          "node",
+          "npm"
+        ],
+        "requires": [
+          "apps/android/gradle/wrapper/gradle-wrapper.properties",
+          "apps/android/node_modules/@capacitor/core/package.json",
+          "apps/web/node_modules/vite/package.json"
+        ]
+      }
+    ],
+    "ios": [
+      {
+        "cwd": ".",
+        "argv": [
+          "npm",
+          "--prefix",
+          "apps/ios",
+          "run",
+          "sync:ios"
+        ],
+        "name": "legacy-sync",
+        "tools": [
+          "node"
+        ],
+        "requires": [
+          "apps/ios/package.json",
+          "apps/ios/package-lock.json",
+          "apps/ios/node_modules/@capacitor/cli/package.json",
+          "apps/web/node_modules/vite/package.json"
+        ],
+        "platforms": [
+          "darwin"
+        ]
+      },
+      {
+        "cwd": ".",
+        "argv": [
+          "xcodebuild",
+          "-project",
+          "apps/ios/ios/App/App.xcodeproj",
+          "-scheme",
+          "App",
+          "-configuration",
+          "Debug",
+          "-sdk",
+          "iphonesimulator",
+          "-destination",
+          "generic/platform=iOS Simulator",
+          "-derivedDataPath",
+          "output/ios-workspace-build",
+          "CODE_SIGNING_ALLOWED=NO",
+          "build"
+        ],
+        "name": "legacy-simulator",
+        "platforms": [
+          "darwin"
+        ],
+        "requires": [
+          "apps/ios/ios/App/App.xcodeproj/project.pbxproj"
+        ]
+      }
+    ],
+    "flutter": [
+      {
+        "name": "c08-evidence-script-tests",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tool",
+          "-p",
+          "test_check_c08*_evidence.py"
+        ]
+      },
+      {
+        "name": "dart-boundaries",
+        "cwd": ".",
+        "argv": [
+          "python3",
+          "apps/flutter-prototype/tool/check_core.py"
+        ]
+      },
+      {
+        "name": "dart-vectors",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "dart",
+          "run",
+          "tool/core_vectors.dart"
+        ]
+      },
+      {
+        "cwd": ".",
+        "argv": [
+          "python3",
+          "apps/flutter-prototype/tool/generate_tokens.py",
+          "--check"
+        ],
+        "name": "design-tokens"
+      },
+      {
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "flutter",
+          "analyze",
+          "--no-pub"
+        ],
+        "name": "analyze",
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/.dart_tool/package_config.json"
+        ]
+      },
+      {
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "flutter",
+          "test",
+          "--no-pub"
+        ],
+        "name": "test",
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/.dart_tool/package_config.json"
+        ]
+      }
+    ],
+    "flutter-candidate": [
+      {
+        "name": "candidate-script-tests",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tool",
+          "-p",
+          "test_check_candidate.py"
+        ]
+      },
+      {
+        "name": "candidate-source-audit",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "python3",
+          "tool/check_candidate.py",
+          "source"
+        ],
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/candidate-readiness.json"
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "cwd": ".",
+        "name": "contract-sources",
+        "argv": [
+          "python3",
+          "tooling/workspace.py",
+          "check-contracts"
+        ]
+      },
+      {
+        "cwd": ".",
+        "argv": [
+          "npm",
+          "--prefix",
+          "tooling/contracts",
+          "run",
+          "check"
+        ],
+        "name": "generated-types-and-fixtures",
+        "tools": [
+          "node"
+        ],
+        "requires": [
+          "tooling/contracts/package.json",
+          "tooling/contracts/package-lock.json",
+          "tooling/contracts/node_modules/openapi-typescript/package.json",
+          "tooling/contracts/node_modules/ajv/package.json",
+          "tooling/contracts/node_modules/typescript/package.json"
+        ]
+      },
+      {
+        "cwd": ".",
+        "argv": [
+          "./mvnw",
+          "-B",
+          "-pl",
+          "services/server",
+          "-Dtest=RestContractTest,SharedContractVectorsTest,ContractHttpIntegrationTest",
+          "test"
+        ],
+        "name": "mvc-snapshot",
+        "tools": [
+          "java"
+        ],
+        "requires": [
+          ".mvn/wrapper/maven-wrapper.properties",
+          "services/server/pom.xml"
+        ]
+      },
+      {
+        "cwd": ".",
+        "name": "compatibility-regressions",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tooling/tests",
+          "-p",
+          "test_contract_compatibility.py"
+        ]
+      }
+    ],
+    "workspace": [
+      {
+        "cwd": ".",
+        "name": "context-and-boundaries",
+        "argv": [
+          "python3",
+          "tooling/workspace.py",
+          "check"
+        ]
+      }
+    ],
+    "tooling": [
+      {
+        "cwd": ".",
+        "name": "runner-tests",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tooling/tests"
+        ]
+      }
+    ],
+    "hygiene": [
+      {
+        "cwd": ".",
+        "name": "tracked-files",
+        "argv": [
+          "python3",
+          "scripts/ci/check-repository-hygiene.py"
+        ],
+        "tools": [
+          "git"
+        ]
+      },
+      {
+        "cwd": ".",
+        "name": "native-icons",
+        "argv": [
+          "python3",
+          "scripts/ci/check-native-icon-parity.py"
+        ],
+        "tools": [
+          "git"
+        ]
+      },
+      {
+        "cwd": ".",
+        "name": "versions",
+        "argv": [
+          "python3",
+          "scripts/ci/check-version-consistency.py"
+        ],
+        "tools": [
+          "git"
+        ]
+      },
+      {
+        "cwd": ".",
+        "name": "working-tree-whitespace",
+        "argv": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "tools": [
+          "git"
+        ]
+      },
+      {
+        "cwd": ".",
+        "name": "index-whitespace",
+        "argv": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "tools": [
+          "git"
+        ]
+      }
+    ],
+    "security": [
+      {
+        "cwd": ".",
+        "name": "full-history-gitleaks",
+        "argv": [
+          "gitleaks",
+          "git",
+          ".",
+          "--log-opts=--all",
+          "--config=.gitleaks.toml",
+          "--redact=100",
+          "--no-banner"
+        ],
+        "tools": [
+          "git"
+        ],
+        "requires": [
+          ".gitleaks.toml"
+        ],
+        "fullGitHistory": true
+      }
+    ],
+    "core": [
+      {
+        "cwd": "apps/web",
+        "name": "architecture-and-es-only-types",
+        "argv": [
+          "npm",
+          "run",
+          "check:core"
+        ],
+        "tools": [
+          "node"
+        ],
+        "requires": [
+          "apps/web/node_modules/typescript/package.json"
+        ]
+      },
+      {
+        "cwd": "apps/web",
+        "name": "core-and-port-contracts",
+        "argv": [
+          "node",
+          "--test",
+          "tests/core-boundaries.test.mjs",
+          "tests/chat-core.test.mjs",
+          "tests/core-outbox-realtime.test.mjs",
+          "tests/outbox-contract.test.mjs",
+          "tests/realtime-adapters.test.mjs",
+          "tests/chat-delivery-core-contract.test.mjs",
+          "tests/websocket-contract-vectors.test.mjs"
+        ],
+        "requires": [
+          "apps/web/node_modules/typescript/package.json",
+          "apps/web/node_modules/vue/package.json"
+        ]
+      }
+    ],
+    "design": [
+      {
+        "cwd": ".",
+        "argv": [
+          "python3",
+          "tooling/design_tokens.py",
+          "--check"
+        ],
+        "name": "source-and-generated-drift"
+      },
+      {
+        "cwd": ".",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tooling/tests",
+          "-p",
+          "test_design_tokens.py"
+        ],
+        "name": "schema-reference-and-generation-tests"
+      }
+    ],
+    "dart-core": [
+      {
+        "name": "dart-boundaries",
+        "cwd": ".",
+        "argv": [
+          "python3",
+          "apps/flutter-prototype/tool/check_core.py"
+        ]
+      },
+      {
+        "name": "dart-vectors",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "dart",
+          "run",
+          "tool/core_vectors.dart"
+        ]
+      }
+    ],
+    "flutter-android": [
+      {
+        "name": "android-debug-build",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "flutter",
+          "build",
+          "apk",
+          "--debug",
+          "--no-pub"
+        ],
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/.dart_tool/package_config.json"
+        ]
+      }
+    ],
+    "flutter-android-candidate": [
+      {
+        "name": "remove-stale-generated-test-registrant",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "python3",
+          "tool/check_candidate.py",
+          "clean-generated"
+        ]
+      },
+      {
+        "name": "candidate-source-audit",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "python3",
+          "tool/check_candidate.py",
+          "source"
+        ],
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/candidate-readiness.json"
+        ]
+      },
+      {
+        "name": "android-release-build",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "flutter",
+          "build",
+          "apk",
+          "--release",
+          "--no-pub"
+        ],
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/.dart_tool/package_config.json"
+        ]
+      },
+      {
+        "name": "android-artifact-audit",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "python3",
+          "tool/check_candidate.py",
+          "android-artifact"
+        ]
+      }
+    ],
+    "flutter-ios": [
+      {
+        "name": "ios-debug-build",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "flutter",
+          "build",
+          "ios",
+          "--simulator",
+          "--debug",
+          "--no-pub"
+        ],
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/.dart_tool/package_config.json"
+        ],
+        "platforms": [
+          "darwin"
+        ]
+      }
+    ],
+    "flutter-ios-candidate": [
+      {
+        "name": "candidate-source-audit",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "python3",
+          "tool/check_candidate.py",
+          "source"
+        ],
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/candidate-readiness.json"
+        ],
+        "platforms": [
+          "darwin"
+        ]
+      },
+      {
+        "name": "ios-unsigned-release-build",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "flutter",
+          "build",
+          "ios",
+          "--release",
+          "--no-codesign",
+          "--no-pub"
+        ],
+        "requires": [
+          "apps/flutter-prototype/pubspec.lock",
+          "apps/flutter-prototype/.dart_tool/package_config.json"
+        ],
+        "platforms": [
+          "darwin"
+        ]
+      },
+      {
+        "name": "ios-artifact-audit",
+        "cwd": "apps/flutter-prototype",
+        "argv": [
+          "python3",
+          "tool/check_candidate.py",
+          "ios-artifact"
+        ],
+        "platforms": [
+          "darwin"
+        ]
+      }
+    ]
+  },
+  "verificationGroups": {
+    "all": [
+      "workspace",
+      "tooling",
+      "hygiene",
+      "security",
+      "server",
+      "web",
+      "desktop",
+      "contracts",
+      "flutter",
+      "android",
+      "ios"
+    ]
+  },
+  "taskRoutes": [
+    {
+      "id": "chat",
+      "role": "聊天发送、ACK、重连与同步",
+      "modules": [
+        "web",
+        "server",
+        "domain",
+        "ports"
+      ],
+      "entries": [
+        "apps/web/src/composables/useWebSocket.ts",
+        "apps/web/src/composables/useChat.ts",
+        "services/server/src/main/java/com/lanchat/websocket/ChatWebSocketHandler.java",
+        "packages/domain-ts/src/sequence.ts",
+        "apps/web/src/composables/useOutbox.ts",
+        "packages/domain-ts/src/messages.ts",
+        "packages/platform-ports/src/outbox.ts"
+      ],
+      "tests": [
+        "apps/web/tests/sequence.test.mjs",
+        "services/server/src/test/java/com/lanchat/service/ChatMessageServiceReliableTest.java",
+        "tests/e2e/specs/messaging.spec.ts",
+        "apps/web/tests/chat-delivery-core-contract.test.mjs",
+        "apps/web/tests/outbox-contract.test.mjs"
+      ],
+      "relatedDocs": [
+        {
+          "path": "contracts/websocket/README.md",
+          "when": "帧、状态与兼容边界"
+        }
+      ],
+      "verificationScopes": [
+        "core",
+        "web",
+        "server",
+        "contracts"
+      ]
+    },
+    {
+      "id": "tauri",
+      "role": "桌面原生能力与平台桥接",
+      "modules": [
+        "web",
+        "desktop",
+        "ports"
+      ],
+      "entries": [
+        "apps/web/src/platform/nativeBridge.ts",
+        "apps/web/src/platform/nativeTransport.ts",
+        "apps/desktop/src-tauri/src/lib.rs",
+        "packages/platform-ports/src/index.ts",
+        "apps/web/src/platform/tauri/realtime.ts",
+        "packages/platform-ports/src/realtime.ts"
+      ],
+      "tests": [
+        "apps/web/tests/native-bridge-runtime.test.mjs",
+        "apps/desktop/src-tauri/src/native_transport.rs",
+        "apps/web/tests/realtime-adapters.test.mjs"
+      ],
+      "relatedDocs": [
+        {
+          "path": "docs/architecture/platform-adapters.md",
+          "when": "接口与原生实现的映射"
+        }
+      ],
+      "verificationScopes": [
+        "web",
+        "desktop"
+      ]
+    },
+    {
+      "id": "api",
+      "role": "后端接口、DTO 与权限",
+      "modules": [
+        "server",
+        "contracts"
+      ],
+      "entries": [
+        "docs/generated/api-summary.md",
+        "services/server/src/main/java/com/lanchat/controller/AuthController.java",
+        "services/server/src/main/java/com/lanchat/security/SecurityConfig.java"
+      ],
+      "tests": [
+        "services/server/src/test/java/com/lanchat/contract/RestContractTest.java",
+        "services/server/src/test/java/com/lanchat/controller/AuthControllerTest.java"
+      ],
+      "relatedDocs": [
+        {
+          "path": "contracts/README.md",
+          "when": "协议源与测试覆盖"
+        },
+        {
+          "path": "docs/adr/0005-repository-context-and-contract-authority.md",
+          "when": "结构与业务事实的权威"
+        }
+      ],
+      "verificationScopes": [
+        "server",
+        "contracts",
+        "web"
+      ]
+    }
+  ]
+}

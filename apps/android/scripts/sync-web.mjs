@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const androidRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const webSource = resolve(androidRoot, '../../frontend/dist-mobile')
+const webSource = resolve(androidRoot, '../../apps/web/dist-mobile')
 const assetsRoot = resolve(androidRoot, 'app/src/main/assets')
 const publicTarget = resolve(assetsRoot, 'public')
 const config = JSON.parse(

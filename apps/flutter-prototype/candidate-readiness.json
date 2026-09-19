@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "status": "PREPARED_NOT_APPROVED",
+  "releaseEligible": false,
+  "productTargetVersion": "0.3.1",
+  "entrypoint": "lib/main.dart",
+  "flutterSdk": "3.44.8",
+  "dartSdk": "3.12.2",
+  "artifactVersion": "0.1.0+1",
+  "dependencyLock": {
+    "path": "pubspec.lock",
+    "sha256": "85c4b5f05d12a2a35b801b823394354fcb619eb8820d793bb3853ac7e3ba41fe"
+  },
+  "buildInputs": {
+    "dartDefines": [],
+    "fixtureFiles": []
+  },
+  "android": {
+    "applicationId": "com.meshx.meshx_flutter_probe",
+    "minSdk": 26,
+    "targetSdk": 37,
+    "buildArguments": ["flutter", "build", "apk", "--release", "--no-pub"],
+    "artifact": "build/app/outputs/flutter-apk/app-release.apk",
+    "signing": "UNSIGNED"
+  },
+  "ios": {
+    "bundleId": "com.meshx.meshxFlutterProbe",
+    "minimumVersion": "15.0",
+    "buildArguments": ["flutter", "build", "ios", "--release", "--no-codesign", "--no-pub"],
+    "artifact": "build/ios/iphoneos/Runner.app",
+    "signing": "UNSIGNED"
+  },
+  "blockers": [
+    "APP_IDENTITY_UNAPPROVED",
+    "VERSION_UNAPPROVED",
+    "SIGNING_NOT_CONFIGURED",
+    "UPGRADE_POLICY_UNAPPROVED",
+    "REMOTE_CI_NOT_RUN"
+  ]
+}

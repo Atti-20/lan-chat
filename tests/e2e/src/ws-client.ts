@@ -1,14 +1,7 @@
 import WebSocket from 'ws'
 
-export interface WsEnvelope {
-  version: number
-  event: string
-  requestId?: string
-  clientMsgId?: string
-  conversationId?: string
-  timestamp: number
-  payload: Record<string, unknown>
-}
+import type { WsEnvelope } from '../../../packages/protocol/src/index.js'
+export type { WsEnvelope } from '../../../packages/protocol/src/index.js'
 
 export interface WsClose {
   code: number

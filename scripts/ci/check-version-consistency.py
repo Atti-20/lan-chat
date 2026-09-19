@@ -212,7 +212,7 @@ def read_docker_artifact_contract(
     expected_version: str,
 ) -> str:
     text = read_text(relative_path)
-    if "/workspace/target/lan-chat-server-*.jar /app/lanchat.jar" not in text:
+    if "/workspace/services/server/target/lan-chat-server-*.jar /app/lanchat.jar" not in text:
         raise VersionCheckError(
             f"{relative_path} 必须按通配符复制 Maven 版本产物"
         )
@@ -242,14 +242,15 @@ def main() -> int:
         return 1
 
     checks: list[tuple[str, Callable[[], str]]] = [
+        ("Workspace Maven", lambda: read_maven_version("pom.xml")),
         (
             "Maven",
-            lambda: read_maven_version("pom.xml"),
+            lambda: read_maven_version("services/server/pom.xml"),
         ),
         (
             "Server node configuration",
             lambda: read_regex_version(
-                "src/main/resources/application.yml",
+                "services/server/src/main/resources/application.yml",
                 r"^\s+version:\s*(\d+\.\d+\.\d+)\s*$",
                 "lanchat.node.version",
             ),
@@ -257,7 +258,7 @@ def main() -> int:
         (
             "Server node Java default",
             lambda: read_regex_version(
-                "src/main/java/com/lanchat/config/LanChatNodeProperties.java",
+                "services/server/src/main/java/com/lanchat/config/LanChatNodeProperties.java",
                 r'^\s*private String version = "(\d+\.\d+\.\d+)";\s*$',
                 "节点版本默认值",
             ),
@@ -271,16 +272,16 @@ def main() -> int:
         ),
         (
             "Web package.json",
-            lambda: read_json_version("frontend/package.json"),
+            lambda: read_json_version("apps/web/package.json"),
         ),
         (
             "Web package-lock.json",
-            lambda: read_json_version("frontend/package-lock.json"),
+            lambda: read_json_version("apps/web/package-lock.json"),
         ),
         (
             "Web package-lock root",
             lambda: read_package_lock_root_version(
-                "frontend/package-lock.json"
+                "apps/web/package-lock.json"
             ),
         ),
         (

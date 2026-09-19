@@ -4,7 +4,7 @@
   "version": "0.3.0",
   "type": "module",
   "scripts": {
-    "build:web": "npm run build:mobile --prefix ../../frontend",
+    "build:web": "npm run build:mobile --prefix ../../apps/web",
     "sync:web": "npm run build:web && node scripts/sync-web.mjs",
     "build:debug": "./gradlew assembleSecureDebug",
     "build:lan": "./gradlew assembleLanDebug"

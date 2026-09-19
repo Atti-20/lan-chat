@@ -67,8 +67,8 @@ playwright-report/
 *.rpm
 /.mvn/wrapper/maven-wrapper.jar
 
-# Rebuilt by Vite and Tauri; source inputs live in frontend/ and src-tauri/.
-/src/main/resources/static/app/
+# Rebuilt by Vite and Tauri; source inputs live in apps/web/ and src-tauri/.
+/services/server/src/main/resources/static/app/
 /apps/desktop/src-tauri/gen/
 
 ### Runtime data and local tooling ###
@@ -86,12 +86,9 @@ playwright-report/
 
 ### Local archives and non-build documentation ###
 /apps/mobile-legacy/
-/PRD/
-/DESIGN.md
-/MeshX Architecture Evolution TODO.md
+/docs/archive/local/
 
 ### Private reports, credentials and local deployment overrides ###
-/outputs/
 /docs/reports/
 *.pem
 *.p8

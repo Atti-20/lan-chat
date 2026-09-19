@@ -1,0 +1,40 @@
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import { fileURLToPath } from 'node:url'
+
+export default defineConfig(({ mode }) => {
+  const desktop = mode === 'desktop'
+  const mobile = mode === 'mobile'
+  const nativeShell = desktop || mobile
+
+  return {
+    base: nativeShell ? './' : '/app/',
+    plugins: [vue()],
+    build: {
+      outDir: desktop
+        ? 'dist-desktop'
+        : mobile
+          ? 'dist-mobile'
+          : '../../services/server/src/main/resources/static/app',
+      // Web 构建保留旧哈希资源，避免运行中的 Spring Boot 仍引用旧 index.html。
+      // 原生壳构建则每次清空独立目录，确保打包内容可重复。
+      emptyOutDir: nativeShell,
+      sourcemap: false,
+    },
+    server: {
+      fs: { allow: [fileURLToPath(new URL('../..', import.meta.url))] },
+      port: desktop ? 1420 : 5173,
+      strictPort: desktop,
+      watch: {
+        ignored: ['**/apps/desktop/src-tauri/**'],
+      },
+      proxy: {
+        '/api': 'http://localhost:8080',
+        '/ws': {
+          target: 'ws://localhost:8080',
+          ws: true,
+        },
+      },
+    },
+  }
+})

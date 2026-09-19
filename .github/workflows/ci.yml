@@ -41,19 +41,19 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: apps/web/package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+        run: npm ci --prefix apps/web
 
       - name: Run frontend unit tests
-        run: npm test --prefix frontend
+        run: npm test --prefix apps/web
 
       - name: Run Vue and TypeScript checks
-        run: npm run typecheck --prefix frontend
+        run: npm run typecheck --prefix apps/web
 
       - name: Build production frontend
-        run: npm run build --prefix frontend
+        run: npm run build --prefix apps/web
 
   repository-checks:
     name: Version, Compose and patch hygiene
@@ -72,8 +72,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tooling/contracts/package-lock.json
+
+      - name: Check REST types and WebSocket fixtures
+        run: |
+          npm ci --prefix tooling/contracts
+          npm --prefix tooling/contracts run check
+
       - name: Check release version consistency
         run: python3 scripts/ci/check-version-consistency.py
+
+      - name: Check workspace context and dependency boundaries
+        run: |
+          python3 -m unittest discover -s tooling/tests
+          python3 tooling/workspace.py check
 
       - name: Validate production Compose
         run: docker compose -f compose.yaml config --quiet

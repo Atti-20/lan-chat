@@ -554,10 +554,115 @@ fn network_error(error: &reqwest::Error, subject: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        register_request, validate_identifier, validated_api_url, validated_file_name,
-        validated_method, validated_socket_url, NativeTransportState,
+        execute_request, native_client, register_request, run_socket, validate_identifier,
+        validated_api_url, validated_file_name, validated_method, validated_socket_url, Channel,
+        Duration, Message, NativeTransportState, SocketCommand, BASE64,
     };
+    use base64::Engine;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::sync::mpsc;
     use tokio::sync::oneshot::error::TryRecvError;
+
+    #[tokio::test]
+    async fn native_http_uses_the_selected_absolute_origin_without_a_dev_proxy() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind isolated HTTP listener");
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let size = stream.read(&mut buffer).await.unwrap();
+                assert!(size > 0);
+                request.extend_from_slice(&buffer[..size]);
+            }
+            assert!(String::from_utf8_lossy(&request)
+                .starts_with("GET /api/v1/chat/history?limit=1 HTTP/1.1\r\n"));
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nnode").await.unwrap();
+        });
+        let url = validated_api_url(&origin, "/api/v1/chat/history?limit=1").unwrap();
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            execute_request(native_client().unwrap().get(url)),
+        )
+        .await
+        .expect("native HTTP request completes")
+        .unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(BASE64.decode(response.body_base64).unwrap(), b"node");
+        assert_eq!(response.headers.get("content-type").unwrap(), "text/plain");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_socket_roundtrips_shared_frames_without_a_webview_or_dev_proxy() {
+        use tauri::ipc::InvokeResponseBody;
+        let fixtures: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../contracts/fixtures/core-v1.json"))
+                .unwrap();
+        let auth = fixtures["frames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|value| {
+                value["direction"] == "client"
+                    && value["frame"]["event"] == "AUTH"
+                    && value["valid"] == true
+            })
+            .unwrap()["frame"]
+            .to_string();
+        let auth_ok = fixtures["frames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|value| value["id"] == "auth-ok")
+            .unwrap()["frame"]
+            .to_string();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind isolated socket listener");
+        let url = validated_socket_url(
+            &format!("http://{}", listener.local_addr().unwrap()),
+            "/ws/chat",
+        )
+        .unwrap();
+        let expected = auth.clone();
+        let ready = auth_ok.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let received = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            assert_eq!(received.as_str(), expected);
+            socket.send(Message::Text(ready.into())).await.unwrap();
+            assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
+        });
+        let (event_tx, mut events) = mpsc::unbounded_channel();
+        let on_event = Channel::new(move |body| {
+            if let InvokeResponseBody::Json(value) = body {
+                let _ = event_tx.send(serde_json::from_str::<serde_json::Value>(&value).unwrap());
+            }
+            Ok(())
+        });
+        let (commands, receiver) = mpsc::unbounded_channel();
+        let client = tokio::spawn(async move { run_socket(url, receiver, &on_event).await });
+        let scenario = async {
+            assert_eq!(events.recv().await.unwrap()["type"], "open");
+            commands.send(SocketCommand::Text(auth)).unwrap();
+            let response = events.recv().await.unwrap();
+            assert_eq!(response["type"], "message");
+            assert_eq!(response["data"], auth_ok);
+            commands.send(SocketCommand::Close).unwrap();
+            assert_eq!(events.recv().await.unwrap()["type"], "close");
+            client.await.unwrap();
+            server.await.unwrap();
+        };
+        tokio::time::timeout(Duration::from_secs(5), scenario)
+            .await
+            .expect("native socket lifecycle completes");
+    }
 
     #[test]
     fn accepts_only_the_v1_api_scope() {

@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 2,
+  "components": {
+    "button": {
+      "title": "操作按钮",
+      "tokens": [
+        "size.control.default",
+        "shape.radius.control",
+        "color.action.primary",
+        "color.text.on-accent",
+        "color.focus.ring"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus",
+        "pressed",
+        "selected",
+        "loading",
+        "error",
+        "disabled"
+      ],
+      "rule": "请求处理中禁止重复提交；保留按钮名称，进度与结果另行播报。",
+      "stateCoverage": {
+        "default": "implemented",
+        "hover": "implemented",
+        "focus": "implemented",
+        "pressed": "implemented",
+        "selected": "composed",
+        "loading": "composed",
+        "error": "composed",
+        "disabled": "implemented"
+      },
+      "spec": "docs/design/component-specs/button.md"
+    },
+    "input": {
+      "title": "输入框",
+      "tokens": [
+        "size.control.default",
+        "shape.radius.control",
+        "color.background.fill",
+        "color.text.primary",
+        "color.status.danger",
+        "typography.subtitle.size"
+      ],
+      "states": [
+        "empty",
+        "filled",
+        "hover",
+        "focus",
+        "pressed",
+        "selected",
+        "loading",
+        "error",
+        "disabled",
+        "readOnly"
+      ],
+      "rule": "标签始终可见；错误紧邻字段；移动输入字号至少 16，键盘出现后操作仍可触达。",
+      "stateCoverage": {
+        "empty": "implemented",
+        "filled": "implemented",
+        "hover": "not-applicable",
+        "focus": "implemented",
+        "pressed": "not-applicable",
+        "selected": "not-applicable",
+        "loading": "composed",
+        "error": "composed",
+        "disabled": "implemented",
+        "readOnly": "implemented"
+      },
+      "spec": "docs/design/component-specs/input.md"
+    },
+    "conversation": {
+      "title": "会话项",
+      "tokens": [
+        "color.background.surface",
+        "color.interaction.hover",
+        "color.interaction.selected",
+        "color.text.primary",
+        "color.text.secondary",
+        "color.action.text",
+        "spacing.3"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus",
+        "pressed",
+        "selected",
+        "unread",
+        "muted",
+        "pinned",
+        "pending",
+        "loading",
+        "error",
+        "disabled",
+        "removed"
+      ],
+      "rule": "未读数量与文字/图标共同表达；移除成员后清理列表和缓存访问入口。",
+      "stateCoverage": {
+        "default": "implemented",
+        "hover": "implemented",
+        "focus": "implemented",
+        "pressed": "not-applicable",
+        "selected": "implemented",
+        "unread": "implemented",
+        "muted": "implemented",
+        "pinned": "implemented",
+        "pending": "implemented",
+        "loading": "composed",
+        "error": "composed",
+        "disabled": "not-implemented",
+        "removed": "composed"
+      },
+      "spec": "docs/design/component-specs/conversation.md"
+    },
+    "message": {
+      "title": "消息气泡",
+      "tokens": [
+        "shape.radius.message",
+        "color.action.primary",
+        "color.text.on-accent",
+        "color.background.surface",
+        "color.text.primary",
+        "color.status.danger",
+        "typography.body.size"
+      ],
+      "states": [
+        "own",
+        "peer",
+        "waitingNetwork",
+        "sending",
+        "sent",
+        "failed",
+        "retrying",
+        "recalled",
+        "burned",
+        "selected",
+        "hover",
+        "focus",
+        "pressed",
+        "loading",
+        "error",
+        "disabled",
+        "attachment"
+      ],
+      "rule": "已发送只表示服务端提交确认；不推断对方已读。失败重试保留同一 clientMsgId。",
+      "stateCoverage": {
+        "own": "implemented",
+        "peer": "implemented",
+        "waitingNetwork": "implemented",
+        "sending": "implemented",
+        "sent": "implemented",
+        "failed": "implemented",
+        "retrying": "composed",
+        "recalled": "implemented",
+        "burned": "implemented",
+        "selected": "not-implemented",
+        "hover": "composed",
+        "focus": "composed",
+        "pressed": "not-applicable",
+        "loading": "composed",
+        "error": "implemented",
+        "disabled": "not-applicable",
+        "attachment": "implemented"
+      },
+      "spec": "docs/design/component-specs/message.md"
+    },
+    "composer": {
+      "title": "消息输入区",
+      "tokens": [
+        "fill",
+        "ink",
+        "space-3",
+        "control-height",
+        "radius-control"
+      ],
+      "states": [
+        "empty",
+        "ready",
+        "sending",
+        "offline",
+        "readOnly"
+      ],
+      "rule": "本地草稿不因断线丢失；发送不可用时给出原因；恢复连接后补同步，不隐式复制发送。",
+      "scope": "existing-catalog-only; not expanded by A04"
+    },
+    "connection": {
+      "title": "连接状态",
+      "tokens": [
+        "color.status.success",
+        "color.status.warning",
+        "color.status.danger",
+        "color.text.secondary",
+        "typography.caption.size"
+      ],
+      "states": [
+        "connecting",
+        "authenticating",
+        "syncing",
+        "online",
+        "degraded",
+        "reconnecting",
+        "offline",
+        "sessionExpired",
+        "hover",
+        "focus",
+        "pressed",
+        "selected",
+        "loading",
+        "error",
+        "disabled"
+      ],
+      "rule": "断线保留页面上下文；会话失效明确要求重新登录，不能持续显示发送成功。",
+      "stateCoverage": {
+        "connecting": "implemented",
+        "authenticating": "implemented",
+        "syncing": "implemented",
+        "online": "implemented",
+        "degraded": "implemented",
+        "reconnecting": "implemented",
+        "offline": "implemented",
+        "sessionExpired": "not-implemented",
+        "hover": "not-applicable",
+        "focus": "composed",
+        "pressed": "not-applicable",
+        "selected": "not-applicable",
+        "loading": "implemented",
+        "error": "implemented",
+        "disabled": "not-implemented"
+      },
+      "spec": "docs/design/component-specs/connection.md"
+    },
+    "collection": {
+      "title": "内容区域",
+      "tokens": [
+        "canvas",
+        "panel",
+        "ink",
+        "ink-soft",
+        "space-6"
+      ],
+      "states": [
+        "loading",
+        "empty",
+        "content",
+        "error",
+        "forbidden"
+      ],
+      "rule": "区分没有数据、没有权限和加载失败；只对可恢复失败提供重试入口。",
+      "scope": "existing-catalog-only; not expanded by A04"
+    },
+    "dialog": {
+      "title": "确认弹层",
+      "tokens": [
+        "radius-sheet",
+        "panel",
+        "backdrop",
+        "control-height",
+        "danger-bg",
+        "on-accent"
+      ],
+      "states": [
+        "closed",
+        "open",
+        "confirming",
+        "error"
+      ],
+      "rule": "危险操作显示具体对象；管理焦点和系统返回；确认中不允许重复提交。",
+      "scope": "existing-catalog-only; not expanded by A04"
+    },
+    "avatar": {
+      "title": "用户头像",
+      "tokens": [
+        "color.text.on-accent",
+        "color.presence.online",
+        "color.background.surface",
+        "color.highlight.default",
+        "color.shadow.default"
+      ],
+      "rule": "身份展示；异步图片失败回退首字；父按钮承担交互。",
+      "states": [
+        "default",
+        "image",
+        "online",
+        "hover",
+        "focus",
+        "pressed",
+        "selected",
+        "loading",
+        "error",
+        "disabled"
+      ],
+      "stateCoverage": {
+        "default": "implemented",
+        "image": "implemented",
+        "online": "implemented",
+        "hover": "not-applicable",
+        "focus": "not-applicable",
+        "pressed": "not-applicable",
+        "selected": "not-applicable",
+        "loading": "implemented",
+        "error": "implemented",
+        "disabled": "not-applicable"
+      },
+      "spec": "docs/design/component-specs/avatar.md"
+    }
+  },
+  "messageStates": {
+    "sending": {
+      "label": "发送中",
+      "tone": "color.text.secondary",
+      "meaning": "已进入本地发送流程，尚未收到服务端确认。"
+    },
+    "sent": {
+      "label": "已发送",
+      "tone": "color.text.secondary",
+      "event": "CHAT_ACK",
+      "meaning": "服务端已持久化；重复 ACK 只更新原消息。"
+    },
+    "failed": {
+      "label": "发送失败",
+      "tone": "color.status.danger",
+      "meaning": "失败或确认超时；提供原消息重试。"
+    },
+    "recalled": {
+      "label": "已撤回",
+      "tone": "color.text.secondary",
+      "event": "CHAT_RECALL",
+      "meaning": "展示撤回占位，不再展示原文。"
+    },
+    "burned": {
+      "label": "已焚毁",
+      "tone": "color.text.secondary",
+      "event": "CHAT_BURN",
+      "meaning": "内容已不可展示，不复用普通已发送样式。"
+    },
+    "waitingNetwork": {
+      "label": "等待连接",
+      "tone": "color.text.secondary",
+      "input": "WAITING_NETWORK",
+      "meaning": "稳定投递状态来自上游。"
+    },
+    "retrying": {
+      "label": "发送中",
+      "tone": "color.text.secondary",
+      "input": "SENDING",
+      "meaning": "重试原 clientMsgId 后的显示阶段，不是新增业务枚举。"
+    }
+  },
+  "platforms": {
+    "webDesktop": {
+      "navigation": "三栏工作区，键盘导航和右键菜单；可见焦点；弹层关闭恢复焦点。",
+      "input": "Enter 发送、Shift+Enter 换行，输入法组合中不发送。"
+    },
+    "mobileFlutter": {
+      "navigation": "窄屏单栏、原生返回与底部弹层；安全区和系统键盘共同决定可用高度。",
+      "input": "触摸目标至少 44 逻辑像素；发送按钮保持可见；遵守系统文字缩放与减少动态效果。",
+      "font": "系统默认字体，不把 -apple-system/BlinkMacSystemFont 当作 Flutter 字体名。"
+    },
+    "materials": {
+      "web": "玻璃、CSS 阴影和渐变为 webOnly token。",
+      "flutter": "使用语义面板色、边线与 Material 层次；不得把 CSS 字符串伪装成已转换的原生材质。"
+    },
+    "policy": "Design consistency != pixel identity; platform-and-theme.md separates current behavior from future requirements."
+  },
+  "iconSemantics": {
+    "send": {
+      "asset": "send",
+      "meaning": "发送"
+    },
+    "add": {
+      "asset": "plus",
+      "meaning": "新增"
+    },
+    "search": {
+      "asset": "search",
+      "meaning": "搜索"
+    },
+    "settings": {
+      "asset": null,
+      "meaning": "设置；当前无对应 UiIcon，待有真实入口时另行选择"
+    },
+    "warning": {
+      "asset": null,
+      "meaning": "警告；当前用文字/状态点，不伪造图标资产"
+    },
+    "success": {
+      "asset": "check",
+      "meaning": "操作成功或完成；不等同对方已读"
+    },
+    "file": {
+      "asset": "file",
+      "meaning": "文件"
+    },
+    "image": {
+      "asset": "image",
+      "meaning": "图片"
+    },
+    "user": {
+      "asset": "users",
+      "meaning": "用户"
+    },
+    "group": {
+      "asset": "groups",
+      "meaning": "群组"
+    },
+    "broadcast": {
+      "asset": "bell",
+      "meaning": "广播入口"
+    }
+  }
+}

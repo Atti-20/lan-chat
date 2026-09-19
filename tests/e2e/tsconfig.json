@@ -5,7 +5,20 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "noEmit": true,
-    "types": ["node", "@playwright/test"]
+    "types": [
+      "node",
+      "@playwright/test"
+    ]
   },
-  "include": ["playwright.config.ts", "src/**/*.ts", "specs/**/*.ts"]
+  "include": [
+    "playwright.config.ts",
+    "src/**/*.ts",
+    "specs/**/*.ts",
+    "playwright.storage.config.ts",
+    "storage-specs/**/*.ts",
+    "playwright.design.config.ts",
+    "design-specs/**/*.ts",
+    "playwright.mobile.config.ts",
+    "mobile-specs/**/*.ts"
+  ]
 }

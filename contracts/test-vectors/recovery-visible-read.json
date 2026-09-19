@@ -1,0 +1,524 @@
+{
+  "cases": [
+    {
+      "name": "bottom cannot skip unread body",
+      "baseline": 0,
+      "rows": [
+        {
+          "sequence": 1,
+          "own": false
+        },
+        {
+          "sequence": 2,
+          "own": false
+        },
+        {
+          "sequence": 3,
+          "own": true
+        }
+      ],
+      "completeThrough": 3,
+      "samples": [
+        {
+          "now": 0,
+          "visible": [
+            2,
+            3
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 100,
+          "visible": [
+            2,
+            3
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 200,
+          "visible": [
+            2,
+            3
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 300,
+          "visible": [
+            2,
+            3
+          ],
+          "foreground": true,
+          "scope": "owner"
+        }
+      ],
+      "expected": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "continuous prefix and own row",
+      "baseline": 0,
+      "rows": [
+        {
+          "sequence": 1,
+          "own": false
+        },
+        {
+          "sequence": 2,
+          "own": false
+        },
+        {
+          "sequence": 3,
+          "own": true
+        }
+      ],
+      "completeThrough": 3,
+      "samples": [
+        {
+          "now": 0,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 100,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 200,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 299,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 300,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        }
+      ],
+      "expected": [
+        0,
+        0,
+        0,
+        0,
+        3
+      ]
+    },
+    {
+      "name": "background cancels dwell",
+      "baseline": 0,
+      "rows": [
+        {
+          "sequence": 1,
+          "own": false
+        },
+        {
+          "sequence": 2,
+          "own": false
+        },
+        {
+          "sequence": 3,
+          "own": true
+        }
+      ],
+      "completeThrough": 3,
+      "samples": [
+        {
+          "now": 0,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 200,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 250,
+          "visible": [
+            1
+          ],
+          "foreground": false,
+          "scope": "owner"
+        },
+        {
+          "now": 300,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 400,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 500,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 600,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        }
+      ],
+      "expected": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "old owner cannot qualify",
+      "baseline": 0,
+      "rows": [
+        {
+          "sequence": 1,
+          "own": false
+        },
+        {
+          "sequence": 2,
+          "own": false
+        },
+        {
+          "sequence": 3,
+          "own": true
+        }
+      ],
+      "completeThrough": 3,
+      "samples": [
+        {
+          "now": 0,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "other"
+        },
+        {
+          "now": 100,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "other"
+        },
+        {
+          "now": 200,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "other"
+        },
+        {
+          "now": 300,
+          "visible": [
+            1,
+            2
+          ],
+          "foreground": true,
+          "scope": "other"
+        }
+      ],
+      "expected": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "long scheduling gap resets dwell",
+      "baseline": 0,
+      "rows": [
+        {
+          "sequence": 1,
+          "own": false
+        },
+        {
+          "sequence": 2,
+          "own": false
+        },
+        {
+          "sequence": 3,
+          "own": true
+        }
+      ],
+      "completeThrough": 3,
+      "samples": [
+        {
+          "now": 0,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 500,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 600,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 700,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 800,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        }
+      ],
+      "expected": [
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "unknown missing sequence blocks",
+      "baseline": 0,
+      "rows": [
+        {
+          "sequence": 2,
+          "own": false
+        },
+        {
+          "sequence": 3,
+          "own": true
+        }
+      ],
+      "completeThrough": 0,
+      "samples": [
+        {
+          "now": 0,
+          "visible": [
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 100,
+          "visible": [
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 200,
+          "visible": [
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 300,
+          "visible": [
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        }
+      ],
+      "expected": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "complete manifest proves missing prefix",
+      "baseline": 0,
+      "rows": [
+        {
+          "sequence": 2,
+          "own": false
+        },
+        {
+          "sequence": 3,
+          "own": true
+        }
+      ],
+      "completeThrough": 3,
+      "samples": [
+        {
+          "now": 0,
+          "visible": [
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 100,
+          "visible": [
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 200,
+          "visible": [
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 300,
+          "visible": [
+            2
+          ],
+          "foreground": true,
+          "scope": "owner"
+        }
+      ],
+      "expected": [
+        0,
+        0,
+        0,
+        3
+      ]
+    },
+    {
+      "name": "scroll away cancels dwell",
+      "baseline": 0,
+      "rows": [
+        {
+          "sequence": 1,
+          "own": false
+        },
+        {
+          "sequence": 2,
+          "own": false
+        },
+        {
+          "sequence": 3,
+          "own": true
+        }
+      ],
+      "completeThrough": 3,
+      "samples": [
+        {
+          "now": 0,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 100,
+          "visible": [],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 200,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        },
+        {
+          "now": 300,
+          "visible": [
+            1
+          ],
+          "foreground": true,
+          "scope": "owner"
+        }
+      ],
+      "expected": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ mod lifecycle;
 mod native_auth;
 mod native_transport;
 mod node_runtime;
+mod recovery_notifications;
 mod revocation;
 mod runtime;
 mod tray;
@@ -46,6 +47,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(recovery_notifications::RecoveryNotificationState::default())
         .manage(DeepLinkState::default())
         .manage(LifecycleState::default())
         .manage(NativeTransportState::default())
@@ -103,6 +105,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            recovery_notifications::recovery_notification,
             attachments::save_attachment,
             attachments::cancel_attachment,
             runtime::runtime_info,

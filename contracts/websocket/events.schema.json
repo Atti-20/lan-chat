@@ -1,0 +1,3062 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meshx.local/contracts/websocket/events-v1.schema.json",
+  "title": "MeshX WebSocket V1 event contract",
+  "description": "anyOf allows bidirectional events; x-events explicitly distinguishes direction and payload coverage. Additional fields are forward compatible.",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "AUTH"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/AuthPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "AUTH client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "AUTH_OK"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/AuthOkPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "AUTH_OK server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "BROADCAST"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "BROADCAST server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "BROADCAST_ACK"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "BROADCAST_ACK client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "BROADCAST_PERMISSION_UPDATED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "BROADCAST_PERMISSION_UPDATED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "BROADCAST_UPDATED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "BROADCAST_UPDATED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_ACK"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/ChatAckPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_ACK server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_BURN"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_BURN client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_BURN"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_BURN server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_DELIVER"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_DELIVER client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_DELIVER"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/MessagePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_DELIVER server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_READ"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReadRequestPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload",
+        "requestId",
+        "conversationId"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_READ client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_READ"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReadChangedPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_READ server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_RECALL"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_RECALL client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_RECALL"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_RECALL server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CHAT_SEND"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clientMsgId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,64}$"
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/ChatSendPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload",
+        "requestId",
+        "clientMsgId"
+      ],
+      "additionalProperties": true,
+      "title": "CHAT_SEND client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CONVERSATION_CHANGED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CONVERSATION_CHANGED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "CONVERSATION_REMOVED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "CONVERSATION_REMOVED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "ERROR"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/ErrorPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "ERROR server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_ANSWER"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_ANSWER client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_ANSWER"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_ANSWER server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_CANCELED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_CANCELED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_COMPLETE"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_COMPLETE client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_COMPLETE"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_COMPLETE server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_FAILED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_FAILED client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_FALLBACK"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_FALLBACK client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_OFFER"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_OFFER client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_OFFER"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_OFFER server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_READY"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_READY server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_REJECTED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_REJECTED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_RELAY_COMPLETE"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_RELAY_COMPLETE client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_RELAY_COMPLETED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_RELAY_COMPLETED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FILE_TRANSFER_STARTED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FILE_TRANSFER_STARTED client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FORCE_LOGOUT"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/SessionEndedPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FORCE_LOGOUT server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "FRIEND_CHANGED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "FRIEND_CHANGED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "MENTION_RECEIPT_CHANGED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "MENTION_RECEIPT_CHANGED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "ONLINE_LIST"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "ONLINE_LIST server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "PING"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/PingPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "PING client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "PONG"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/PongPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "PONG server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "PRESENCE_CHANGED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "PRESENCE_CHANGED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "PROFILE_UPDATED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "PROFILE_UPDATED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "ROOM_STATUS_CHANGED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "ROOM_STATUS_CHANGED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "SYNC_REQUEST"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/SyncRequestPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload",
+        "requestId"
+      ],
+      "additionalProperties": true,
+      "title": "SYNC_REQUEST client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "SYNC_RESPONSE"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/SyncResponsePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "SYNC_RESPONSE server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "TOKEN_EXPIRED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/SessionEndedPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "TOKEN_EXPIRED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "TYPING_START"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "TYPING_START client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "TYPING_START"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "TYPING_START server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "TYPING_STOP"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "TYPING_STOP client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "TYPING_STOP"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/OpaquePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "TYPING_STOP server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "RECOVERY_SUBSCRIBE"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/RecoverySubscribePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "RECOVERY_SUBSCRIBE client",
+      "x-direction": "client"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "RECOVERY_SUBSCRIBED"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/RecoverySubscribedPayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "RECOVERY_SUBSCRIBED server",
+      "x-direction": "server"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "event": {
+          "const": "MUTATION_AVAILABLE"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/MutationAvailablePayload"
+        }
+      },
+      "required": [
+        "version",
+        "event",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": true,
+      "title": "MUTATION_AVAILABLE server",
+      "x-direction": "server"
+    }
+  ],
+  "$defs": {
+    "AuthPayload": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "additionalProperties": true
+    },
+    "AuthOkPayload": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "integer"
+        },
+        "deviceId": {
+          "type": "integer"
+        },
+        "serverTime": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "userId",
+        "deviceId",
+        "serverTime"
+      ],
+      "additionalProperties": true
+    },
+    "PingPayload": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": true
+    },
+    "PongPayload": {
+      "type": "object",
+      "properties": {
+        "serverTime": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "serverTime"
+      ],
+      "additionalProperties": true
+    },
+    "SessionEndedPayload": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "additionalProperties": true
+    },
+    "ChatSendPayload": {
+      "type": "object",
+      "properties": {
+        "toUserId": {
+          "type": "integer"
+        },
+        "groupId": {
+          "type": "integer"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "replyToId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mentionUserIds": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isBurn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contentType",
+        "content",
+        "isBurn"
+      ],
+      "additionalProperties": true
+    },
+    "ChatAckPayload": {
+      "type": "object",
+      "properties": {
+        "clientMsgId": {
+          "type": "string"
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer"
+        },
+        "mentionUserIds": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "serverTime": {
+          "type": "integer"
+        },
+        "duplicated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "clientMsgId",
+        "messageId",
+        "conversationId",
+        "sequence",
+        "mentionUserIds",
+        "serverTime",
+        "duplicated"
+      ],
+      "additionalProperties": true
+    },
+    "MessagePayload": {
+      "type": "object",
+      "properties": {
+        "messageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientMsgId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conversationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fromNickname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fromAvatar": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contentType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "replyToId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mentionUserIds": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientCreatedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createTime": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sequence": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fromUserId": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "senderDeviceId": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "toUserId": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "groupId": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "isBurn": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "burnDuration": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "isRecalled": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "messageId",
+        "clientMsgId",
+        "conversationId",
+        "fromNickname",
+        "fromAvatar",
+        "type",
+        "contentType",
+        "content",
+        "replyToId",
+        "mentionUserIds",
+        "clientCreatedAt",
+        "createTime",
+        "sequence",
+        "fromUserId",
+        "senderDeviceId",
+        "toUserId",
+        "groupId",
+        "isBurn",
+        "burnDuration",
+        "isRecalled",
+        "status"
+      ],
+      "additionalProperties": true
+    },
+    "SyncRequestPayload": {
+      "type": "object",
+      "properties": {
+        "positions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "positions"
+      ],
+      "additionalProperties": true
+    },
+    "SyncResponsePayload": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MessagePayload"
+          }
+        },
+        "latestPositions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "deniedConversationIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "messages",
+        "latestPositions",
+        "deniedConversationIds",
+        "hasMore"
+      ],
+      "additionalProperties": true
+    },
+    "ReadRequestPayload": {
+      "type": "object",
+      "properties": {
+        "lastReadSequence": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "lastReadSequence"
+      ],
+      "additionalProperties": true
+    },
+    "ReadChangedPayload": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "integer"
+        },
+        "lastSequence": {
+          "type": "integer"
+        },
+        "lastReadSequence": {
+          "type": "integer"
+        },
+        "unreadCount": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "userId",
+        "lastSequence",
+        "lastReadSequence",
+        "unreadCount"
+      ],
+      "additionalProperties": true
+    },
+    "ErrorPayload": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "additionalProperties": true
+    },
+    "OpaquePayload": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Only direction is frozen; detailed payload remains governed by handler and tests."
+    },
+    "RecoverySubscribePayload": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "const": "meshx.mutation-recovery",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "streamEpoch": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "capability",
+        "protocolVersion",
+        "streamEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "RecoverySubscribedPayload": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "const": "meshx.mutation-recovery",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "streamEpoch": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "capability",
+        "protocolVersion",
+        "streamEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "MutationAvailablePayload": {
+      "type": "object",
+      "properties": {
+        "streamEpoch": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "latestCursor": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        }
+      },
+      "required": [
+        "streamEpoch",
+        "latestCursor"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "x-events": {
+    "AUTH": {
+      "client": {
+        "payload": "AuthPayload",
+        "coverage": "fields"
+      }
+    },
+    "AUTH_OK": {
+      "server": {
+        "payload": "AuthOkPayload",
+        "coverage": "fields"
+      }
+    },
+    "BROADCAST": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "BROADCAST_ACK": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "BROADCAST_PERMISSION_UPDATED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "BROADCAST_UPDATED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "CHAT_ACK": {
+      "server": {
+        "payload": "ChatAckPayload",
+        "coverage": "fields"
+      }
+    },
+    "CHAT_BURN": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      },
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "CHAT_DELIVER": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      },
+      "server": {
+        "payload": "MessagePayload",
+        "coverage": "fields"
+      }
+    },
+    "CHAT_READ": {
+      "client": {
+        "payload": "ReadRequestPayload",
+        "coverage": "fields"
+      },
+      "server": {
+        "payload": "ReadChangedPayload",
+        "coverage": "fields"
+      }
+    },
+    "CHAT_RECALL": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      },
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "CHAT_SEND": {
+      "client": {
+        "payload": "ChatSendPayload",
+        "coverage": "fields"
+      }
+    },
+    "CONVERSATION_CHANGED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "CONVERSATION_REMOVED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "ERROR": {
+      "server": {
+        "payload": "ErrorPayload",
+        "coverage": "fields"
+      }
+    },
+    "FILE_TRANSFER_ANSWER": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      },
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_CANCELED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_COMPLETE": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      },
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_FAILED": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_FALLBACK": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_OFFER": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      },
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_READY": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_REJECTED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_RELAY_COMPLETE": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_RELAY_COMPLETED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FILE_TRANSFER_STARTED": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "FORCE_LOGOUT": {
+      "server": {
+        "payload": "SessionEndedPayload",
+        "coverage": "fields"
+      }
+    },
+    "FRIEND_CHANGED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "MENTION_RECEIPT_CHANGED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "ONLINE_LIST": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "PING": {
+      "client": {
+        "payload": "PingPayload",
+        "coverage": "fields"
+      }
+    },
+    "PONG": {
+      "server": {
+        "payload": "PongPayload",
+        "coverage": "fields"
+      }
+    },
+    "PRESENCE_CHANGED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "PROFILE_UPDATED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "ROOM_STATUS_CHANGED": {
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "SYNC_REQUEST": {
+      "client": {
+        "payload": "SyncRequestPayload",
+        "coverage": "fields"
+      }
+    },
+    "SYNC_RESPONSE": {
+      "server": {
+        "payload": "SyncResponsePayload",
+        "coverage": "fields"
+      }
+    },
+    "TOKEN_EXPIRED": {
+      "server": {
+        "payload": "SessionEndedPayload",
+        "coverage": "fields"
+      }
+    },
+    "TYPING_START": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      },
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "TYPING_STOP": {
+      "client": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      },
+      "server": {
+        "payload": "OpaquePayload",
+        "coverage": "direction"
+      }
+    },
+    "RECOVERY_SUBSCRIBE": {
+      "client": {
+        "payload": "RecoverySubscribePayload",
+        "coverage": "fields"
+      }
+    },
+    "RECOVERY_SUBSCRIBED": {
+      "server": {
+        "payload": "RecoverySubscribedPayload",
+        "coverage": "fields"
+      }
+    },
+    "MUTATION_AVAILABLE": {
+      "server": {
+        "payload": "MutationAvailablePayload",
+        "coverage": "fields"
+      }
+    }
+  }
+}

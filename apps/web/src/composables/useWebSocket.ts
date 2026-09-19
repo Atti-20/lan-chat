@@ -1,0 +1,338 @@
+import type { RealtimePort } from '../../../../packages/platform-ports/src/realtime'
+import { isRealtimeOnline, reconnectDelay } from '../../../../packages/domain-ts/src/realtime'
+import { computed, onBeforeUnmount, readonly, shallowRef } from 'vue'
+import type { ConnectionState, WsEnvelope } from '../types'
+import { WS_PROTOCOL_VERSION, WS_EVENTS } from '../../../../packages/protocol/src/index'
+import {
+  realtimeTransport,
+  SOCKET_CONNECTING,
+  SOCKET_OPEN,
+  type RealtimeSocket,
+} from '../platform/nativeTransport'
+import { createClientMessageId } from '../utils/id'
+import { readSession } from '../utils/storage'
+
+interface UseWebSocketOptions {
+  onMessage: (message: WsEnvelope) => void | Promise<void>
+  onReady?: () => void | Promise<void>
+  onOnline?: () => void | Promise<void>
+  onError?: (message: string) => void
+  refreshAuth?: () => Promise<boolean>
+  onAuthFailed?: (reason: 'TOKEN_EXPIRED' | 'FORCE_LOGOUT') => void
+}
+
+export function useWebSocket(options: UseWebSocketOptions, transport: RealtimePort = realtimeTransport) {
+  const state = shallowRef<ConnectionState>('OFFLINE')
+  const reconnectAttempts = shallowRef(0)
+  const latencyMs = shallowRef<number | null>(null)
+  const lastHeartbeatAt = shallowRef<string | null>(null)
+  const lastSyncAt = shallowRef<string | null>(null)
+  // SYNCING 阶段已完成认证，但尚未补齐服务端序列缺口；业务发送必须等同步结束。
+  const connected = computed(() => isRealtimeOnline(state.value))
+  const reconnecting = computed(() => state.value === 'RECONNECTING')
+
+  let socket: RealtimeSocket | null = null
+  let opening = false
+  let socketEpoch = 0
+  let reconnectTimer: number | null = null
+  let heartbeatTimer: number | null = null
+  let lastPingAt = 0
+  let lastPongAt = 0
+  let manuallyClosed = false
+  let authenticated = false
+  let refreshingAuthEpoch: number | null = null
+  let inboundQueue: Promise<void> = Promise.resolve()
+
+  function createEnvelope(
+    event: string,
+    payload: Record<string, unknown> = {},
+    metadata: Partial<Pick<WsEnvelope, 'requestId' | 'clientMsgId' | 'conversationId'>> = {},
+  ): WsEnvelope {
+    return {
+      version: WS_PROTOCOL_VERSION,
+      event,
+      timestamp: Date.now(),
+      payload,
+      ...metadata,
+    }
+  }
+
+  function connect(): void {
+    const token = readSession()?.token
+    if (!token || opening || socket?.readyState === SOCKET_OPEN || socket?.readyState === SOCKET_CONNECTING) return
+    if (!navigator.onLine) {
+      state.value = 'OFFLINE'
+      return
+    }
+
+    manuallyClosed = false
+    authenticated = false
+    state.value = reconnectAttempts.value > 0 ? 'RECONNECTING' : 'CONNECTING'
+    opening = true
+    const epoch = ++socketEpoch
+    void transport.open()
+      .then((nextSocket) => {
+        if (epoch !== socketEpoch || manuallyClosed) {
+          nextSocket.close()
+          return
+        }
+        opening = false
+        socket = nextSocket
+
+        nextSocket.onopen = () => {
+          if (socket !== nextSocket) return
+          state.value = 'AUTHENTICATING'
+          sendRaw(createEnvelope(WS_EVENTS.AUTH, { token }, { requestId: createRequestId() }))
+        }
+
+        nextSocket.onmessage = (messageEvent) => {
+          if (socket !== nextSocket) return
+          // Preserve server event order even when a handler performs async IndexedDB
+          // work (for example transfer-id remapping before a fallback notification).
+          inboundQueue = inboundQueue
+            .then(() => socket === nextSocket ? handleMessage(messageEvent.data) : undefined)
+            .catch(() => { if (socket === nextSocket) options.onError?.('实时消息处理失败') })
+        }
+
+        nextSocket.onerror = () => {
+          if (socket === nextSocket && state.value !== 'OFFLINE') state.value = 'DEGRADED'
+        }
+
+        nextSocket.onclose = () => {
+          if (socket !== nextSocket) return
+          socket = null
+          authenticated = false
+          stopHeartbeat()
+          if (!manuallyClosed && refreshingAuthEpoch === null) scheduleReconnect()
+        }
+      })
+      .catch((cause) => {
+        if (epoch !== socketEpoch) return
+        opening = false
+        state.value = 'OFFLINE'
+        options.onError?.(cause instanceof Error ? cause.message : '实时连接地址无效')
+        if (!manuallyClosed) scheduleReconnect()
+      })
+  }
+
+  async function handleMessage(raw: unknown): Promise<void> {
+    let envelope: WsEnvelope
+    try {
+      envelope = JSON.parse(String(raw)) as WsEnvelope
+    } catch {
+      options.onError?.('收到一条无法解析的实时消息')
+      return
+    }
+    if (envelope.version !== WS_PROTOCOL_VERSION || !envelope.event) {
+      options.onError?.('实时协议版本不兼容')
+      return
+    }
+
+    if (envelope.event === WS_EVENTS.AUTH_OK) {
+      authenticated = true
+      reconnectAttempts.value = 0
+      state.value = 'SYNCING'
+      startHeartbeat()
+      const readySocket = socket
+      // onReady sends SYNC_REQUEST and waits for a later SYNC_RESPONSE. Running
+      // it inline would deadlock the serialized inbound queue that must process
+      // that response, so keep the connection in SYNCING and finish readiness
+      // independently of the current frame.
+      void (async () => {
+        try {
+          await options.onReady?.()
+        } catch (cause) {
+          if (socket !== readySocket || !authenticated) return
+          state.value = 'DEGRADED'
+          options.onError?.(cause instanceof Error ? cause.message : '遗漏消息同步失败')
+          return
+        }
+        if (socket !== readySocket || !authenticated) return
+        lastSyncAt.value = new Date().toISOString()
+        state.value = 'ONLINE'
+        try {
+          await options.onOnline?.()
+        } catch (cause) {
+          if (socket !== readySocket || !authenticated) return
+          options.onError?.(cause instanceof Error ? cause.message : '离线消息补发失败')
+        }
+      })()
+      return
+    }
+
+    if (envelope.event === WS_EVENTS.PONG) {
+      lastPongAt = Date.now()
+      lastHeartbeatAt.value = new Date(lastPongAt).toISOString()
+      latencyMs.value = lastPingAt > 0 ? Math.max(0, lastPongAt - lastPingAt) : null
+      return
+    }
+
+    if (envelope.event === WS_EVENTS.TOKEN_EXPIRED) {
+      // Refresh closes this socket immediately. Waiting for its HTTP result in
+      // the inbound queue would also block AUTH_OK on a manual replacement.
+      // Keep storage/business handlers serialized; detach only this lifecycle I/O.
+      void refreshExpiredSession().catch(() => options.onError?.('实时消息处理失败'))
+      return
+    }
+
+    if (envelope.event === WS_EVENTS.FORCE_LOGOUT) {
+      disconnect()
+      options.onAuthFailed?.('FORCE_LOGOUT')
+      return
+    }
+
+    await options.onMessage(envelope)
+  }
+
+  async function refreshExpiredSession(): Promise<void> {
+    if (refreshingAuthEpoch !== null) return
+    closeSocket()
+    const refreshEpoch = socketEpoch
+    refreshingAuthEpoch = refreshEpoch
+    const refreshed = await options.refreshAuth?.().catch(() => false) ?? false
+    if (refreshingAuthEpoch !== refreshEpoch) return
+    refreshingAuthEpoch = null
+    // Logout, account/node navigation or a manual reconnect may happen while
+    // refresh is awaiting I/O. Its old result must not restart that connection.
+    if (refreshEpoch !== socketEpoch || manuallyClosed) return
+    if (refreshed) {
+      reconnectAttempts.value = 0
+      connect()
+      return
+    }
+    manuallyClosed = true
+    state.value = 'OFFLINE'
+    options.onAuthFailed?.('TOKEN_EXPIRED')
+  }
+
+  function scheduleReconnect(): void {
+    if (reconnectTimer !== null || manuallyClosed) return
+    reconnectAttempts.value += 1
+    state.value = navigator.onLine ? 'RECONNECTING' : 'OFFLINE'
+    const delay = reconnectDelay(reconnectAttempts.value, Math.random())
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null
+      connect()
+    }, delay)
+  }
+
+  function send(envelope: WsEnvelope): boolean {
+    if (!authenticated || socket?.readyState !== SOCKET_OPEN) return false
+    return sendRaw({ ...envelope, version: WS_PROTOCOL_VERSION, timestamp: Date.now() })
+  }
+
+  function sendEvent(
+    event: string,
+    payload: Record<string, unknown> = {},
+    metadata: Partial<Pick<WsEnvelope, 'requestId' | 'clientMsgId' | 'conversationId'>> = {},
+  ): boolean {
+    return send(createEnvelope(event, payload, metadata))
+  }
+
+  function sendRaw(envelope: WsEnvelope): boolean {
+    if (socket?.readyState !== SOCKET_OPEN) return false
+    socket.send(JSON.stringify(envelope))
+    return true
+  }
+
+  function startHeartbeat(): void {
+    stopHeartbeat()
+    lastPongAt = Date.now()
+    heartbeatTimer = window.setInterval(() => {
+      if (Date.now() - lastPongAt > 60_000) {
+        closeSocket()
+        scheduleReconnect()
+        return
+      }
+      lastPingAt = Date.now()
+      sendEvent(WS_EVENTS.PING, {}, { requestId: createRequestId() })
+    }, 25_000)
+  }
+
+  function stopHeartbeat(): void {
+    if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+
+  function closeSocket(): void {
+    socketEpoch += 1
+    refreshingAuthEpoch = null
+    opening = false
+    const current = socket
+    socket = null
+    authenticated = false
+    stopHeartbeat()
+    if (!current) return
+    current.onopen = null
+    current.onmessage = null
+    current.onerror = null
+    current.onclose = null
+    current.close()
+  }
+
+  function reconnect(): void {
+    manuallyClosed = false
+    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
+    reconnectAttempts.value = 0
+    closeSocket()
+    connect()
+  }
+
+  function disconnect(): void {
+    manuallyClosed = true
+    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
+    closeSocket()
+    reconnectAttempts.value = 0
+    latencyMs.value = null
+    state.value = 'OFFLINE'
+  }
+
+  function handleOnline(): void {
+    if (!manuallyClosed && !hasActiveSocket()) reconnect()
+  }
+
+  function handleOffline(): void {
+    state.value = 'OFFLINE'
+    closeSocket()
+  }
+
+  function handleVisibility(): void {
+    if (document.visibilityState === 'visible' && !hasActiveSocket() && !manuallyClosed) reconnect()
+  }
+
+  function hasActiveSocket(): boolean {
+    return opening || socket?.readyState === SOCKET_CONNECTING || socket?.readyState === SOCKET_OPEN
+  }
+
+  window.addEventListener('online', handleOnline)
+  window.addEventListener('offline', handleOffline)
+  document.addEventListener('visibilitychange', handleVisibility)
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('online', handleOnline)
+    window.removeEventListener('offline', handleOffline)
+    document.removeEventListener('visibilitychange', handleVisibility)
+    disconnect()
+  })
+
+  return {
+    state: readonly(state),
+    connected,
+    reconnecting,
+    reconnectAttempts: readonly(reconnectAttempts),
+    latencyMs: readonly(latencyMs),
+    lastHeartbeatAt: readonly(lastHeartbeatAt),
+    lastSyncAt: readonly(lastSyncAt),
+    connect,
+    reconnect,
+    disconnect,
+    send,
+    sendEvent,
+  }
+}
+
+function createRequestId(): string {
+  return `req_${createClientMessageId()}`
+}

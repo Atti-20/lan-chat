@@ -1,0 +1,377 @@
+@import "../../../../packages/design-tokens/tokens.css";
+
+/* Shared controls; see apps/web/DESIGN.md. */
+*, *::before, *::after { box-sizing: border-box; }
+
+html,
+body,
+#app {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100dvh;
+  overflow-x: hidden;
+  background: var(--body-gradient);
+  font-optical-sizing: auto;
+  line-height: var(--line-body);
+}
+
+/* Native desktop windows are their own frame.  Keep only the host operating
+ * system title bar and let the chat workspace meet every client-area edge.
+ * This must stay global: a scoped rule in ChatView was transformed by Vue into
+ * a selector for html only, leaving the browser-style 20px card shell active.
+ */
+html[data-runtime='tauri'] .chat-page {
+  height: 100vh;
+  max-height: 100vh;
+  padding: 0;
+}
+
+html[data-runtime='tauri'] .chat-shell {
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+button,
+input,
+textarea,
+select { font: inherit; }
+
+select { color: var(--ink); }
+pre, code, kbd, samp { font-family: var(--font-mono); }
+
+/* iOS WKWebView 在聚焦字号小于 16px 的输入框时会强制放大整页且不还原。
+ * 触摸屏上把可编辑控件的最小字号抬到 16px；组件内的紧凑字号定义
+ * 优先级更高，这里必须用 !important 才能兜住，桌面端不受影响。 */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select { font-size: max(16px, 1em) !important; }
+}
+
+button { color: inherit; }
+
+button,
+a,
+input,
+textarea,
+select,
+summary { -webkit-tap-highlight-color: transparent; }
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+::selection { background: rgba(0, 122, 255, 0.16); }
+
+.glass-surface {
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+}
+
+/* Profile and conversation details share one browser-safe glass contract. */
+.modal-backdrop.detail-backdrop,
+.context-backdrop.detail-backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(14px) saturate(125%);
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  isolation: isolate;
+  will-change: backdrop-filter;
+}
+
+/* Keep modal blur reliable in Chromium when component-scoped overlay styles
+ * are composed inside the chat layout. The extra attribute selector wins over
+ * scoped class rules without changing individual dialog layering. */
+body .modal-backdrop[class],
+body .context-backdrop[class],
+body .reset-backdrop[class],
+body .diagnostics-backdrop[class],
+body .image-preview-backdrop[class],
+body .cropper-backdrop[class] {
+  -webkit-backdrop-filter: blur(14px) saturate(125%) !important;
+  backdrop-filter: blur(14px) saturate(125%) !important;
+  isolation: isolate;
+  will-change: backdrop-filter;
+}
+
+.profile-sheet.detail-panel,
+.context-panel.detail-panel {
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  isolation: isolate;
+}
+
+.primary-button,
+.secondary-button,
+.icon-button {
+  border: 0;
+  cursor: pointer;
+  font-size: var(--mx-typography-body-size);
+  transition: transform var(--mx-motion-duration-fast) var(--mx-motion-easing-standard), background-color var(--mx-motion-duration-fast) ease, box-shadow var(--mx-motion-duration-fast) ease;
+}
+
+.primary-button {
+  min-height: var(--mx-size-control-default);
+  padding: var(--mx-spacing-2) var(--mx-spacing-5);
+  border-radius: var(--mx-shape-radius-control);
+  color: var(--mx-color-text-on-accent);
+  font-weight: 650;
+  background: var(--mx-color-action-primary);
+  box-shadow: 0 5px 14px rgba(0, 122, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.primary-button:hover:not(:disabled) { background: var(--mx-color-action-primary-hover); }
+
+.secondary-button {
+  min-height: var(--mx-size-control-default);
+  padding: var(--mx-spacing-2) var(--mx-spacing-4);
+  border: 1px solid var(--mx-color-border-default);
+  border-radius: var(--mx-shape-radius-control);
+  color: var(--mx-color-text-primary);
+  font-weight: 600;
+  background: var(--mx-color-material-surface);
+  box-shadow: inset 0 1px 0 var(--mx-color-highlight-default);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+
+.icon-button {
+  display: inline-grid;
+  width: var(--mx-size-control-icon);
+  height: var(--mx-size-control-icon);
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--mx-color-border-default);
+  border-radius: var(--mx-shape-radius-control);
+  background: var(--mx-color-material-surface);
+}
+
+.primary-button:active,
+.secondary-button:active,
+.icon-button:active { transform: scale(var(--mx-component-button-press-scale)); }
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.field {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--mx-size-control-default);
+  padding: var(--mx-spacing-2) var(--mx-spacing-3);
+  border: 1px solid transparent;
+  border-radius: var(--mx-shape-radius-control);
+  font-size: var(--mx-typography-body-size);
+  color: var(--mx-color-text-primary);
+  background: var(--mx-color-background-fill);
+  outline: none;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.field:focus {
+  border-color: rgba(0, 122, 255, 0.45);
+  background: var(--mx-color-background-surface);
+  box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.08);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--mx-color-text-tertiary);
+  font-size: .92em;
+  font-weight: 400;
+  letter-spacing: 0;
+  opacity: 1;
+}
+
+.field::placeholder { color: var(--mx-color-text-tertiary); }
+.field:focus-visible { outline: 3px solid var(--mx-color-focus-ring); outline-offset: 2px; }
+.secondary-button:hover:not(:disabled), .icon-button:hover:not(:disabled) { background: var(--mx-color-interaction-control-hover); }
+
+/* Shared visual language: structural navigation is a heavier material, while
+ * content surfaces are lighter and actions answer immediately on press. */
+body .apple-structural-surface {
+  background: var(--rail-bg);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+
+body .apple-content-surface {
+  background: var(--surface-glass);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+body .apple-float-surface {
+  border: var(--surface-border);
+  background: var(--surface-raise);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+}
+
+body .apple-list-row {
+  border-radius: var(--radius-control);
+  transition: transform 140ms var(--ease-liquid), background-color 160ms ease, border-color 160ms ease;
+}
+
+body .apple-list-row:active:not(:disabled) { transform: scale(var(--press-scale)); }
+
+/* All task dialogs share one depth model. Components retain their own size and
+ * content layout, while this contract keeps materials and dismissal controls
+ * predictable across chat, rooms, broadcasts, administration and desktop. */
+body .apple-modal-backdrop[class] {
+  background: var(--backdrop) !important;
+  backdrop-filter: blur(16px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(130%) !important;
+  isolation: isolate;
+}
+
+body .apple-modal-surface[class] {
+  border: var(--surface-border) !important;
+  background: var(--surface-raise) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: blur(22px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(160%) !important;
+}
+
+body .apple-modal-close[class] {
+  display: grid;
+  width: var(--control-icon);
+  height: var(--control-icon);
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-soft);
+  background: var(--fill);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-liquid), background-color 160ms ease;
+}
+
+body .apple-modal-close[class]:hover:not(:disabled) { background: var(--button-hover); }
+body .apple-modal-close[class]:active:not(:disabled) { transform: scale(.92); }
+body .apple-modal-close[class]:disabled { cursor: default; opacity: .45; }
+
+@media (max-width: 760px) {
+  /* A task dialog becomes a reachable bottom sheet on compact windows. Detail
+   * pages keep their own full-screen contract, so context is never lost. */
+  body .modal-backdrop.apple-modal-backdrop:not(.detail-backdrop) {
+    padding: 0;
+    place-items: end center;
+  }
+
+  body .modal-backdrop.apple-modal-backdrop:not(.detail-backdrop) .apple-modal-surface {
+    width: 100%;
+    max-height: 92dvh;
+    border-right: 0 !important;
+    border-bottom: 0 !important;
+    border-left: 0 !important;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0 !important;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Material is decorative, never required for legibility. Keep the same surface
+ * hierarchy for people who reduce transparency or increase contrast. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --mx-color-material-glass: var(--mx-color-background-surface);
+    --mx-color-material-glass-strong: var(--mx-color-background-surface);
+    --mx-color-material-surface: var(--mx-color-background-surface);
+    --mx-color-material-raised: var(--mx-color-background-surface);
+    --mx-color-material-tinted: var(--mx-color-background-muted);
+    --mx-color-material-navigation: var(--mx-color-background-muted);
+  }
+  .glass-surface,
+  .profile-sheet.detail-panel,
+  .context-panel.detail-panel {
+    background: var(--surface-raise);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .modal-backdrop.detail-backdrop,
+  .context-backdrop.detail-backdrop,
+  body .modal-backdrop[class],
+  body .context-backdrop[class],
+  body .reset-backdrop[class],
+  body .diagnostics-backdrop[class],
+  body .image-preview-backdrop[class],
+  body .cropper-backdrop[class],
+  body .apple-modal-backdrop[class] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
+  .apple-structural-surface,
+  .apple-content-surface,
+  .apple-float-surface,
+  body .apple-modal-surface[class] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+}
+
+@media (prefers-contrast: more) {
+  .glass-surface,
+  .profile-sheet.detail-panel,
+  .context-panel.detail-panel,
+  .field { border-color: var(--separator-strong); }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  summary:focus-visible { outline-color: var(--accent-text); }
+}
+
+@media (pointer: coarse) {
+  .primary-button, .secondary-button, .icon-button,
+  body .apple-modal-close[class] { min-width: 44px; min-height: 44px; }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-surface { background: var(--surface-raise); }
+}

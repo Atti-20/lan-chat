@@ -1,0 +1,90 @@
+{
+  "mode": "verify",
+  "status": "PASS",
+  "exitCode": 0,
+  "steps": [
+    {
+      "scope": "flutter",
+      "name": "c08-evidence-script-tests",
+      "cwd": "/Volumes/External Disk/Project/java/lan-chat-server/apps/flutter-prototype",
+      "argv": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tool",
+        "-p",
+        "test_check_c08*_evidence.py"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 0.053
+    },
+    {
+      "scope": "flutter",
+      "name": "dart-boundaries",
+      "cwd": "/Volumes/External Disk/Project/java/lan-chat-server",
+      "argv": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "apps/flutter-prototype/tool/check_core.py"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 0.026
+    },
+    {
+      "scope": "flutter",
+      "name": "dart-vectors",
+      "cwd": "/Volumes/External Disk/Project/java/lan-chat-server/apps/flutter-prototype",
+      "argv": [
+        "dart",
+        "run",
+        "tool/core_vectors.dart"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 0.247
+    },
+    {
+      "scope": "flutter",
+      "name": "design-tokens",
+      "cwd": "/Volumes/External Disk/Project/java/lan-chat-server",
+      "argv": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "apps/flutter-prototype/tool/generate_tokens.py",
+        "--check"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 0.044
+    },
+    {
+      "scope": "flutter",
+      "name": "analyze",
+      "cwd": "/Volumes/External Disk/Project/java/lan-chat-server/apps/flutter-prototype",
+      "argv": [
+        "flutter",
+        "analyze",
+        "--no-pub"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 1.828
+    },
+    {
+      "scope": "flutter",
+      "name": "test",
+      "cwd": "/Volumes/External Disk/Project/java/lan-chat-server/apps/flutter-prototype",
+      "argv": [
+        "flutter",
+        "test",
+        "--no-pub"
+      ],
+      "status": "PASS",
+      "exitCode": 0,
+      "durationSeconds": 19.956
+    }
+  ],
+  "requestedScope": "flutter"
+}

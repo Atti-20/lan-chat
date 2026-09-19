@@ -6,7 +6,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 
-/** Thin native host: all visible product UI comes from frontend/dist-mobile. */
+/** Thin native host: all visible product UI comes from apps/web/dist-mobile. */
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {

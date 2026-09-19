@@ -1,0 +1,4 @@
+[agents]
+# 只有可独立处理的证据收集或审查才派生一个子代理。
+enabled = true
+max_concurrent_threads_per_session = 1
