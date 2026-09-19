@@ -118,3 +118,7 @@ iOS Profile 构建安装启动 PASS；用户重试后 Web 实际图片已加载�
 本机统一 desktop 验证 PASS（53项及1项既有ignored）；新增长路径用例后定向复验与云端结果另记。图标校验再次 PASS：50份raster及Android adaptive层一致。Android图片反馈新版已构建并覆盖安装模拟器，未将安装结果计作图片功能验收。正在重建包含图片处理的macOS应用包。
 
 长路径定向复验最终 5 PASS（含新增 WAL/双连接/重开），严格 clippy PASS。GitHub 3065385 的 Flutter iOS unsigned job 与 macOS smoke 已 PASS；Android 包名修复和 Windows 扩展路径修复将由后续提交验证，不能将旧 run 的结果迁移到新提交。最新 macOS app 构建已完成，更新安装包与启动验证继续进行。
+
+图片修复 macOS 安装包已生成：output/mx-delivery-2026-09-20/image-fix/MeshX-macOS-AppleSilicon.dmg，codesign strict/deep PASS。从挂载包实际启动（进程路径已核对）、手动指定本次fixture地址并登录，通过系统选择器发送camera-48mp.jpg（8000×6000）；Mac出现新图片消息，Web无需刷新收到，服务器存储图像实测4096×3072。初次选择同名发现节点登录失败，改用明确fixture地址后通过；不把同名节点当作同一地址。GitHub run35464452626的3065385无签名iOS工件已下载并记录SHA-256，此包为正式main/HTTPS入口，与手机上的LAN Profile验收包区分。新修复提交a1ab0fa已推送，云端复验仍在运行。
+
+Android 旧兼容壳云端现已通过 SDK 安装，随后暴露 gradle.properties 写死 macOS Homebrew JAVA_HOME。移除机器专属路径，改由已有 JAVA_HOME（CI setup-java 21）选择工具链；本机显式 Java21 的 gradlew --version PASS，不升级依赖或改变旧壳功能。此失败与 Flutter 工程独立，Flutter Android 在新SDK配置下继续构建。
