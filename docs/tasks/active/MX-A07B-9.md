@@ -122,3 +122,9 @@ iOS Profile 构建安装启动 PASS；用户重试后 Web 实际图片已加载�
 图片修复 macOS 安装包已生成：output/mx-delivery-2026-09-20/image-fix/MeshX-macOS-AppleSilicon.dmg，codesign strict/deep PASS。从挂载包实际启动（进程路径已核对）、手动指定本次fixture地址并登录，通过系统选择器发送camera-48mp.jpg（8000×6000）；Mac出现新图片消息，Web无需刷新收到，服务器存储图像实测4096×3072。初次选择同名发现节点登录失败，改用明确fixture地址后通过；不把同名节点当作同一地址。GitHub run35464452626的3065385无签名iOS工件已下载并记录SHA-256，此包为正式main/HTTPS入口，与手机上的LAN Profile验收包区分。新修复提交a1ab0fa已推送，云端复验仍在运行。
 
 Android 旧兼容壳云端现已通过 SDK 安装，随后暴露 gradle.properties 写死 macOS Homebrew JAVA_HOME。移除机器专属路径，改由已有 JAVA_HOME（CI setup-java 21）选择工具链；本机显式 Java21 的 gradlew --version PASS，不升级依赖或改变旧壳功能。此失败与 Flutter 工程独立，Flutter Android 在新SDK配置下继续构建。
+
+### 用户要求收尾审计（2026-09-20）
+
+用户明确不再继续追查图片准备耗时，要求检查剩余项，无待办才结束目标。本批停止该性能微调。现场核对：GitHub a1ab0fa Flutter quality/Android/iOS 全部 PASS；Desktop Linux/macOS PASS，Windows Rust测试与strict clippy PASS但安装包尚在生成；83c0075旧Android、常规CI及hygiene PASS。Linux amd64 deb/AppImage与Flutter Android/iOS云端工件已下载，正式main iOS最低15、Android最低26/target37，身份仍为prototype，未把无签名包记为正式分发。
+
+仍不能关闭整个目标：Flutter MESHX_MUTATION_RECOVERY与Web VITE_MESHX_MUTATION_RECOVERY仍默认关闭，1I的新安全恢复链路及真实故障矩阵未整体验收；adb当前只发现emulator-5554，无Android真机证据；正式身份/签名/HTTPS与升级验收没有关闭。Windows运行中是具体待完成构建，不是失败或无法继续。桌面高像素图片实际闭环已通过，图片方向/HEIC/透明PNG补充ImageIO验证通过，仅为macOS宿主运行同一Swift处理函数，不冒充新增iPhone实测。保持目标未完成，不缩小原始目标或把体验包当正式迁移完成。
