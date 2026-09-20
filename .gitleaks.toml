@@ -10,3 +10,27 @@ targetRules = ["generic-api-key"]
 paths = ['''(^|/)src/test/java/com/lanchat/controller/FileControllerTest\.java$''']
 regexTarget = "secret"
 regexes = ['''^(0123456789abcdef0123456789abcdef|fedcba9876543210fedcba9876543210)$''']
+
+[[allowlists]]
+description = "Public localStorage namespace in the historical notification deduper, not a credential"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)(frontend|apps/web)/src/platform/notificationDeliveryDeduper\.ts$''']
+regexTarget = "secret"
+regexes = ['''^meshx_notification_delivery_v1$''']
+
+[[allowlists]]
+description = "PEM framing parses an externally supplied FCM credential or generates an ephemeral test key; no key material is checked in"
+condition = "AND"
+targetRules = ["private-key"]
+paths = ['''(^|/)services/server/src/(main/java|test/java)/com/lanchat/push/(MobilePushService|MobilePushServiceTest)\.java$''']
+regexTarget = "line"
+regexes = ['''credentials\.path\("private_key"\)|Base64\.getEncoder\(\)\.encodeToString\(pair\.getPrivate\(\)\.getEncoded\(\)\)''']
+
+[[allowlists]]
+description = "The FCM PEM parser's static header/footer sequence is not embedded key material"
+condition = "AND"
+targetRules = ["private-key"]
+paths = ['''(^|/)services/server/src/main/java/com/lanchat/push/MobilePushService\.java$''']
+regexTarget = "match"
+regexes = ['''^\-\-\-\-\-BEGIN\ PRIVATE\ KEY\-\-\-\-\-",\ ""\)\.replace\("\-\-\-\-\-END\ PRIVATE\ KEY\-\-\-\-\-",\ ""\)\.replaceAll\("\\\\s",\ ""\);''']

@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "types": [
+      "node",
+      "@playwright/test"
+    ]
+  },
+  "include": [
+    "playwright.config.ts",
+    "src/**/*.ts",
+    "specs/**/*.ts",
+    "playwright.storage.config.ts",
+    "storage-specs/**/*.ts",
+    "playwright.design.config.ts",
+    "design-specs/**/*.ts",
+    "playwright.mobile.config.ts",
+    "mobile-specs/**/*.ts"
+  ]
+}

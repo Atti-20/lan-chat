@@ -1,0 +1,223 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import type { AdminUser } from '../../types'
+import AppleSwitch from '../base/AppleSwitch.vue'
+import UserAvatar from '../base/UserAvatar.vue'
+import UiIcon from '../base/UiIcon.vue'
+
+interface Props {
+  user: AdminUser
+  busy: boolean
+}
+
+const props = defineProps<Props>()
+const muteStart = defineModel<string>('muteStart', { required: true })
+const muteEnd = defineModel<string>('muteEnd', { required: true })
+const emit = defineEmits<{
+  saveMute: []
+  broadcastPermission: [enabled: boolean]
+  resetPassword: []
+  toggleStatus: []
+  delete: []
+  changeOwnPassword: []
+}>()
+
+const isAdministrator = computed(() => props.user.username === 'admin')
+const isArchived = computed(() => Boolean(props.user.archivedAt))
+const canSaveMute = computed(() => Boolean(muteStart.value && muteEnd.value) && !props.busy)
+
+function requestBroadcastPermission(enabled: boolean): void {
+  emit('broadcastPermission', enabled)
+}
+</script>
+
+<template>
+  <article class="account-card" :class="{ 'account-card--banned': user.status === 0 && !isArchived }" :aria-busy="busy">
+    <header class="account-card-header">
+      <UserAvatar :name="user.nickname || user.username" :avatar="user.avatar" :size="40" />
+      <span class="account-identity">
+        <strong>{{ user.nickname || user.username }}</strong>
+        <small>@{{ user.username }} · ID {{ user.id }}</small>
+      </span>
+      <span
+        class="account-status"
+        :class="{
+          'account-status--banned': user.status === 0 && !isArchived,
+          'account-status--archived': isArchived,
+        }"
+      >
+        {{ isArchived ? '已归档' : user.status === 0 ? '已封禁' : '正常' }}
+      </span>
+    </header>
+
+    <p v-if="isArchived" class="administrator-note">
+      该账号已归档：会话已注销、资料已匿名化，聊天与广播历史仍保留。归档账号不能解封或再次删除。
+    </p>
+
+    <section v-else-if="!isAdministrator" class="account-tools" aria-label="账号控制">
+      <div class="broadcast-permission">
+        <span>
+          <strong>广播发布权限</strong>
+        </span>
+        <AppleSwitch
+          :model-value="user.canSendBroadcast === 1"
+          :disabled="busy"
+          :aria-label="`${user.username} 的广播发布权限`"
+          @update:model-value="requestBroadcastPermission"
+        />
+      </div>
+
+      <div class="account-mute" aria-label="禁言时段">
+        <strong class="account-tool-label">禁言</strong>
+        <div class="account-time-fields">
+          <input v-model="muteStart" type="time" :aria-label="`${user.username} 禁言开始时间`" />
+          <span aria-hidden="true">至</span>
+          <input v-model="muteEnd" type="time" :aria-label="`${user.username} 禁言结束时间`" />
+          <button
+            class="save-mute-button"
+            type="button"
+            :disabled="!canSaveMute"
+            :aria-label="busy ? '正在保存禁言时段' : '保存禁言时段'"
+            title="保存禁言时段"
+            @click="emit('saveMute')"
+          >
+            <UiIcon name="check" :size="16" />
+          </button>
+        </div>
+      </div>
+
+      <footer class="account-actions">
+        <button type="button" :disabled="busy" @click="emit('resetPassword')">重置密码</button>
+        <button type="button" :disabled="busy" @click="emit('toggleStatus')">
+          {{ user.status === 0 ? '解封' : '封禁' }}
+        </button>
+        <button class="danger-button" type="button" :disabled="busy" @click="emit('delete')">删除</button>
+      </footer>
+    </section>
+
+    <p v-else class="administrator-note">系统管理员不受禁言和封禁限制。</p>
+
+    <footer v-if="isAdministrator" class="account-actions account-actions--single">
+      <button type="button" @click="emit('changeOwnPassword')">修改管理员密码</button>
+    </footer>
+  </article>
+</template>
+
+<style scoped>
+.account-card {
+  display: grid;
+  padding: 11px 12px;
+  gap: 9px;
+  border: 1px solid var(--separator);
+  border-radius: 15px;
+  background: var(--surface-raise);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--shadow-color) 42%, transparent);
+}
+.account-card--banned { border-color: color-mix(in srgb, var(--coral) 24%, var(--separator)); }
+.account-card-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+.account-identity { display: grid; min-width: 0; gap: 3px; }
+.account-identity strong,
+.account-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-identity strong { color: var(--ink); font-size: var(--font-body); }
+.account-identity small { color: var(--ink-faint); font-size: var(--font-caption); }
+.account-status {
+  padding: 4px 7px;
+  border-radius: var(--radius-pill);
+  color: var(--success);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--green) 11%, transparent);
+}
+.account-status--banned { color: var(--danger); background: color-mix(in srgb, var(--coral) 10%, transparent); }
+.account-status--archived { color: var(--ink-faint); background: var(--fill); }
+.account-tools {
+  display: grid;
+  gap: var(--space-2);
+}
+.broadcast-permission {
+  display: flex;
+  min-height: 46px;
+  padding: 8px 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--fill);
+}
+.broadcast-permission span { display: grid; min-width: 0; gap: 2px; }
+.broadcast-permission strong { color: var(--ink); font-size: var(--font-micro); }
+.broadcast-permission small { color: var(--ink-faint); font-size: var(--font-micro); line-height: 1.4; }
+.account-mute {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+.account-tool-label { color: var(--ink-soft); font-size: var(--font-caption); font-weight: 700; }
+.account-time-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+}
+.account-time-fields input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 7px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--font-caption);
+  background: var(--surface);
+}
+.account-time-fields > span { color: var(--ink-faint); font-size: var(--font-caption); }
+.save-mute-button,
+.account-actions button {
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--font-caption);
+  font-weight: 700;
+  background: var(--active);
+  cursor: pointer;
+}
+.save-mute-button { display: grid; width: 36px; padding: 0; place-items: center; }
+.save-mute-button:disabled,
+.account-actions button:disabled { cursor: default; opacity: .45; }
+.administrator-note {
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: var(--radius-control);
+  color: var(--ink-soft);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  background: var(--fill);
+}
+.account-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.account-actions--single { grid-template-columns: 1fr; }
+.account-actions .danger-button { color: var(--danger); background: color-mix(in srgb, var(--danger-bg) 9%, transparent); }
+.account-card button:focus-visible,
+.account-card input:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 48%, transparent); outline-offset: 2px; }
+
+@media (max-width: 360px) {
+  .account-card { padding: 10px; }
+  .account-card-header { gap: 7px; }
+  .account-identity strong { font-size: var(--font-body-sm); }
+  .account-identity small { font-size: var(--font-micro); }
+  .account-status { padding-inline: 6px; font-size: var(--font-micro); }
+  .account-mute { gap: 6px; }
+  .account-time-fields { gap: var(--space-1); }
+  .account-time-fields input { padding-inline: 5px; font-size: var(--font-micro); }
+  .account-actions { gap: 5px; }
+  .account-actions button { font-size: var(--font-micro); }
+}
+</style>

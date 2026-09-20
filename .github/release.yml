@@ -1,0 +1,24 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+      - internal
+  categories:
+    - title: Security
+      labels:
+        - security
+    - title: Desktop
+      labels:
+        - desktop
+        - tauri
+    - title: Server and deployment
+      labels:
+        - server
+        - deployment
+    - title: Reliability and testing
+      labels:
+        - reliability
+        - testing
+    - title: Other changes
+      labels:
+        - "*"

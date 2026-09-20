@@ -24,6 +24,8 @@ jobs:
           persist-credentials: false
       - name: Check tracked file policy
         run: python3 scripts/ci/check-repository-hygiene.py
+      - name: Verify native icon parity
+        run: python3 scripts/ci/check-native-icon-parity.py
       - name: Install verified Gitleaks binary
         shell: bash
         run: |

@@ -1,0 +1,89 @@
+[
+  {
+    "name": "text-send",
+    "direction": "client",
+    "frame": {
+      "version": 1,
+      "timestamp": 1788868800000,
+      "requestId": "request-0001",
+      "event": "CHAT_SEND",
+      "payload": {
+        "toUserId": 2,
+        "contentType": "text",
+        "content": "协议与设计保持一致。",
+        "isBurn": false
+      },
+      "clientMsgId": "client-msg-0001"
+    }
+  },
+  {
+    "name": "duplicate-ack",
+    "direction": "server",
+    "frame": {
+      "version": 1,
+      "timestamp": 1788868800000,
+      "requestId": "request-0001",
+      "event": "CHAT_ACK",
+      "payload": {
+        "clientMsgId": "client-msg-0001",
+        "messageId": "server-msg-0001",
+        "conversationId": "private:1:2",
+        "sequence": 42,
+        "mentionUserIds": null,
+        "serverTime": 1788868800001,
+        "duplicated": true
+      },
+      "clientMsgId": "client-msg-0001",
+      "conversationId": "private:1:2"
+    }
+  },
+  {
+    "name": "sync-request",
+    "direction": "client",
+    "frame": {
+      "version": 1,
+      "timestamp": 1788868800000,
+      "requestId": "request-0001",
+      "event": "SYNC_REQUEST",
+      "payload": {
+        "positions": {
+          "private:1:2": 41
+        },
+        "limit": 100
+      }
+    }
+  },
+  {
+    "name": "sync-empty-denied",
+    "direction": "server",
+    "frame": {
+      "version": 1,
+      "timestamp": 1788868800000,
+      "requestId": "request-0001",
+      "event": "SYNC_RESPONSE",
+      "payload": {
+        "messages": [],
+        "latestPositions": {},
+        "deniedConversationIds": [
+          "group:99"
+        ],
+        "hasMore": false
+      }
+    }
+  },
+  {
+    "name": "business-error",
+    "direction": "server",
+    "frame": {
+      "version": 1,
+      "timestamp": 1788868800000,
+      "requestId": "request-0001",
+      "event": "ERROR",
+      "payload": {
+        "code": "FORBIDDEN",
+        "message": "没有访问权限",
+        "retryable": false
+      }
+    }
+  }
+]

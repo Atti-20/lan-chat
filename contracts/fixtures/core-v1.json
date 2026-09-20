@@ -1,0 +1,714 @@
+{
+  "version": 1,
+  "frames": [
+    {
+      "id": "normal-auth",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "event": "AUTH",
+        "timestamp": 1788868800000,
+        "payload": {
+          "token": "fixture-access"
+        }
+      },
+      "valid": true,
+      "javaEvent": "AUTH_OK",
+      "baseValid": true
+    },
+    {
+      "id": "auth-ok",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "event": "AUTH_OK",
+        "timestamp": 1788868800000,
+        "payload": {
+          "userId": 7,
+          "deviceId": 99,
+          "serverTime": 1788868800000
+        }
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "unknown-client",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "event": "FUTURE_EVENT",
+        "timestamp": 1788868800000,
+        "payload": {}
+      },
+      "valid": false,
+      "javaEvent": "ERROR",
+      "javaCode": "UNKNOWN_EVENT",
+      "baseValid": true
+    },
+    {
+      "id": "unknown-server",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "event": "FUTURE_EVENT",
+        "timestamp": 1788868800000,
+        "payload": {
+          "future": true
+        }
+      },
+      "valid": false,
+      "baseValid": true
+    },
+    {
+      "id": "unsupported-version",
+      "direction": "client",
+      "frame": {
+        "version": 2,
+        "event": "AUTH",
+        "timestamp": 1788868800000,
+        "payload": {
+          "token": "fixture-access"
+        }
+      },
+      "valid": false,
+      "javaEvent": "ERROR",
+      "javaCode": "UNSUPPORTED_VERSION",
+      "baseValid": false
+    },
+    {
+      "id": "missing-version-legacy",
+      "direction": "client",
+      "frame": {
+        "event": "AUTH",
+        "timestamp": 1788868800000,
+        "payload": {
+          "token": "fixture-access"
+        }
+      },
+      "valid": false,
+      "javaEvent": "AUTH_OK",
+      "legacy": true,
+      "baseValid": false
+    },
+    {
+      "id": "null-version",
+      "direction": "client",
+      "frame": {
+        "version": null,
+        "event": "AUTH",
+        "timestamp": 1788868800000,
+        "payload": {
+          "token": "fixture-access"
+        }
+      },
+      "valid": false,
+      "javaEvent": "ERROR",
+      "javaCode": "UNSUPPORTED_VERSION",
+      "baseValid": false
+    },
+    {
+      "id": "null-metadata",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "event": "AUTH",
+        "timestamp": 1788868800000,
+        "payload": {
+          "token": "fixture-access"
+        },
+        "requestId": null,
+        "clientMsgId": null,
+        "conversationId": null
+      },
+      "valid": true,
+      "javaEvent": "AUTH_OK",
+      "baseValid": true
+    },
+    {
+      "id": "missing-token",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "event": "AUTH",
+        "timestamp": 1788868800000,
+        "payload": {}
+      },
+      "valid": false,
+      "javaEvent": "TOKEN_EXPIRED",
+      "baseValid": true
+    },
+    {
+      "id": "expired-auth",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "event": "AUTH",
+        "timestamp": 1788868800000,
+        "payload": {
+          "token": "fixture-expired"
+        }
+      },
+      "valid": true,
+      "javaEvent": "TOKEN_EXPIRED",
+      "baseValid": true
+    },
+    {
+      "id": "revoked-auth",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "event": "AUTH",
+        "timestamp": 1788868800000,
+        "payload": {
+          "token": "fixture-revoked"
+        }
+      },
+      "valid": true,
+      "javaEvent": "FORCE_LOGOUT",
+      "baseValid": true
+    },
+    {
+      "id": "token-expired",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "event": "TOKEN_EXPIRED",
+        "timestamp": 1788868800000,
+        "payload": {
+          "message": "访问令牌无效或已过期"
+        }
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "force-logout",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "event": "FORCE_LOGOUT",
+        "timestamp": 1788868800000,
+        "payload": {
+          "message": "设备会话已经失效"
+        }
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "text-send",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "timestamp": 1788868800000,
+        "requestId": "request-0001",
+        "event": "CHAT_SEND",
+        "payload": {
+          "toUserId": 2,
+          "contentType": "text",
+          "content": "协议与设计保持一致。",
+          "isBurn": false
+        },
+        "clientMsgId": "client-msg-0001"
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "duplicate-ack",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "timestamp": 1788868800000,
+        "requestId": "request-0001",
+        "event": "CHAT_ACK",
+        "payload": {
+          "clientMsgId": "client-msg-0001",
+          "messageId": "server-msg-0001",
+          "conversationId": "private:1:2",
+          "sequence": 42,
+          "mentionUserIds": null,
+          "serverTime": 1788868800001,
+          "duplicated": true
+        },
+        "clientMsgId": "client-msg-0001",
+        "conversationId": "private:1:2"
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "sync-request",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "timestamp": 1788868800000,
+        "requestId": "request-0001",
+        "event": "SYNC_REQUEST",
+        "payload": {
+          "positions": {
+            "private:1:2": 41
+          },
+          "limit": 100
+        }
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "sync-empty-denied",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "timestamp": 1788868800000,
+        "requestId": "request-0001",
+        "event": "SYNC_RESPONSE",
+        "payload": {
+          "messages": [],
+          "latestPositions": {},
+          "deniedConversationIds": [
+            "group:99"
+          ],
+          "hasMore": false
+        }
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "business-error",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "timestamp": 1788868800000,
+        "requestId": "request-0001",
+        "event": "ERROR",
+        "payload": {
+          "code": "FORBIDDEN",
+          "message": "没有访问权限",
+          "retryable": false
+        }
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "duplicate-client-msg-id",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "timestamp": 1788868800000,
+        "requestId": "request-0001",
+        "event": "CHAT_SEND",
+        "payload": {
+          "toUserId": 8,
+          "contentType": "text",
+          "content": "shared message",
+          "isBurn": false
+        },
+        "clientMsgId": "client-msg-0001"
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "ack-after-retry",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "timestamp": 1788868800000,
+        "requestId": "request-0001",
+        "event": "CHAT_ACK",
+        "payload": {
+          "clientMsgId": "client-msg-0001",
+          "messageId": "server-msg-0001",
+          "conversationId": "private:7:8",
+          "sequence": 42,
+          "mentionUserIds": null,
+          "serverTime": 1788868800001,
+          "duplicated": true
+        },
+        "clientMsgId": "client-msg-0001",
+        "conversationId": "private:7:8"
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "event-after-ack",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "event": "CHAT_DELIVER",
+        "timestamp": 1788868800000,
+        "payload": {
+          "messageId": "server-msg-0001",
+          "clientMsgId": "client-msg-0001",
+          "conversationId": "private:7:8",
+          "fromNickname": null,
+          "fromAvatar": null,
+          "type": "text",
+          "contentType": "text",
+          "content": "shared message",
+          "replyToId": null,
+          "mentionUserIds": null,
+          "clientCreatedAt": null,
+          "createTime": "2026-09-08T23:00:00",
+          "sequence": 42,
+          "fromUserId": 7,
+          "senderDeviceId": null,
+          "toUserId": 8,
+          "groupId": null,
+          "isBurn": 0,
+          "burnDuration": null,
+          "isRecalled": 0,
+          "status": 1
+        },
+        "conversationId": "private:7:8"
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "reconnect-sync-request",
+      "direction": "client",
+      "frame": {
+        "version": 1,
+        "event": "SYNC_REQUEST",
+        "timestamp": 1788868800000,
+        "payload": {
+          "positions": {
+            "private:7:8": 41
+          },
+          "limit": 100
+        },
+        "requestId": "req-sync"
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "reconnect-sync-response",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "event": "SYNC_RESPONSE",
+        "timestamp": 1788868800000,
+        "payload": {
+          "messages": [
+            {
+              "messageId": "server-msg-0001",
+              "clientMsgId": "client-msg-0001",
+              "conversationId": "private:7:8",
+              "fromNickname": null,
+              "fromAvatar": null,
+              "type": "text",
+              "contentType": "text",
+              "content": "shared message",
+              "replyToId": null,
+              "mentionUserIds": null,
+              "clientCreatedAt": null,
+              "createTime": "2026-09-08T23:00:00",
+              "sequence": 42,
+              "fromUserId": 7,
+              "senderDeviceId": null,
+              "toUserId": 8,
+              "groupId": null,
+              "isBurn": 0,
+              "burnDuration": null,
+              "isRecalled": 0,
+              "status": 1
+            }
+          ],
+          "latestPositions": {
+            "private:7:8": 42
+          },
+          "deniedConversationIds": [],
+          "hasMore": false
+        },
+        "requestId": "req-sync"
+      },
+      "valid": true,
+      "baseValid": true
+    },
+    {
+      "id": "ack-required-nullable-missing",
+      "direction": "server",
+      "frame": {
+        "version": 1,
+        "timestamp": 1788868800000,
+        "requestId": "request-0001",
+        "event": "CHAT_ACK",
+        "payload": {
+          "clientMsgId": "client-msg-0001",
+          "messageId": "server-msg-0001",
+          "conversationId": "private:7:8",
+          "sequence": 42,
+          "serverTime": 1788868800001,
+          "duplicated": true
+        },
+        "clientMsgId": "client-msg-0001",
+        "conversationId": "private:7:8"
+      },
+      "valid": false,
+      "baseValid": true
+    }
+  ],
+  "rest": [
+    {
+      "id": "login-normal",
+      "model": "LoginDTO",
+      "valid": true,
+      "value": {
+        "username": "alice",
+        "password": "fixture-password",
+        "deviceType": "desktop",
+        "deviceName": "  Test desktop  "
+      }
+    },
+    {
+      "id": "login-null-optionals",
+      "model": "LoginDTO",
+      "valid": true,
+      "value": {
+        "username": "alice",
+        "password": "fixture-password",
+        "deviceType": null,
+        "deviceName": null
+      }
+    },
+    {
+      "id": "login-missing-password",
+      "model": "LoginDTO",
+      "valid": false,
+      "value": {
+        "username": "alice"
+      }
+    },
+    {
+      "id": "login-null-password",
+      "model": "LoginDTO",
+      "valid": false,
+      "value": {
+        "username": "alice",
+        "password": null
+      }
+    },
+    {
+      "id": "login-empty-password",
+      "model": "LoginDTO",
+      "valid": false,
+      "value": {
+        "username": "alice",
+        "password": ""
+      }
+    },
+    {
+      "id": "unknown-device-normalized",
+      "model": "LoginDTO",
+      "valid": true,
+      "value": {
+        "username": "alice",
+        "password": "fixture-password",
+        "deviceType": "future-device"
+      }
+    },
+    {
+      "id": "refresh-cookie-only",
+      "model": "TokenRefreshDTO",
+      "valid": true,
+      "value": {}
+    },
+    {
+      "id": "refresh-explicit-null",
+      "model": "TokenRefreshDTO",
+      "valid": true,
+      "value": {
+        "refreshToken": null,
+        "deviceType": null
+      }
+    },
+    {
+      "id": "result-null-data",
+      "model": "ResultLoginVO",
+      "valid": true,
+      "value": {
+        "code": 200,
+        "msg": "success",
+        "data": null,
+        "requestId": null
+      }
+    },
+    {
+      "id": "result-missing-data",
+      "model": "ResultLoginVO",
+      "valid": true,
+      "value": {
+        "code": 200,
+        "msg": "success"
+      }
+    },
+    {
+      "id": "result-missing-code",
+      "model": "ResultLoginVO",
+      "valid": false,
+      "value": {
+        "msg": "success"
+      }
+    },
+    {
+      "id": "result-wrong-code-type",
+      "model": "ResultLoginVO",
+      "valid": false,
+      "value": {
+        "code": "200",
+        "msg": "success"
+      }
+    },
+    {
+      "id": "result-future-field",
+      "model": "ResultLoginVO",
+      "valid": true,
+      "value": {
+        "code": 200,
+        "msg": "success",
+        "future": "allowed"
+      }
+    },
+    {
+      "id": "rest-message-integer-flags",
+      "model": "ChatMessage",
+      "valid": true,
+      "value": {
+        "messageId": "server-msg-0001",
+        "clientMsgId": "client-msg-0001",
+        "conversationId": "private:7:8",
+        "fromNickname": null,
+        "fromAvatar": null,
+        "type": "image",
+        "content": "shared message",
+        "replyToId": null,
+        "mentionUserIds": null,
+        "clientCreatedAt": null,
+        "createTime": "2026-09-08T23:00:00",
+        "sequence": 42,
+        "fromUserId": 7,
+        "senderDeviceId": null,
+        "toUserId": 8,
+        "groupId": null,
+        "isBurn": 0,
+        "burnDuration": null,
+        "isRecalled": 1,
+        "status": 1
+      }
+    },
+    {
+      "id": "http-login-response",
+      "model": "ResultLoginVO",
+      "valid": true,
+      "value": {
+        "code": 200,
+        "msg": "success",
+        "data": {
+          "userId": 7,
+          "username": "alice",
+          "nickname": "Alice",
+          "avatar": null,
+          "token": "fixture-access",
+          "expiresIn": 7200
+        },
+        "requestId": null
+      }
+    },
+    {
+      "id": "http-conversations-response",
+      "model": "ResultListConversationSummary",
+      "valid": true,
+      "value": {
+        "code": 200,
+        "msg": "success",
+        "data": [
+          {
+            "conversationId": "private:7:8",
+            "kind": "private",
+            "targetId": 8,
+            "lastSequence": 42,
+            "lastReadSequence": 41,
+            "unreadCount": 1,
+            "lastMessage": "shared message",
+            "lastMessageType": "text",
+            "lastMessageAt": null,
+            "pinned": false,
+            "muted": false
+          }
+        ],
+        "requestId": null
+      }
+    },
+    {
+      "id": "register-normal",
+      "model": "RegisterDTO",
+      "valid": true,
+      "value": {
+        "username": "alice",
+        "password": "Password123",
+        "nickname": null
+      }
+    },
+    {
+      "id": "register-missing-password",
+      "model": "RegisterDTO",
+      "valid": false,
+      "value": {
+        "username": "alice"
+      }
+    },
+    {
+      "id": "register-empty",
+      "model": "RegisterDTO",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "register-null-password",
+      "model": "RegisterDTO",
+      "valid": false,
+      "value": {
+        "username": "alice",
+        "password": null
+      }
+    }
+  ],
+  "sequences": [
+    {
+      "id": "sequence-gap",
+      "current": 41,
+      "candidates": [
+        44,
+        42,
+        44
+      ],
+      "expected": 42
+    },
+    {
+      "id": "ack-then-duplicate-event",
+      "current": 42,
+      "candidates": [
+        42,
+        42
+      ],
+      "expected": 42
+    },
+    {
+      "id": "reconnect-fills-gap",
+      "current": 42,
+      "candidates": [
+        44,
+        43,
+        43
+      ],
+      "expected": 44
+    }
+  ]
+}

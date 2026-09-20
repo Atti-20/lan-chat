@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:meshx:proposal:mutation-record:1",
+  "title": "Proposal only: MutationRecord v1",
+  "description": "READY_FOR_APPROVAL; NOT a production contract. All decimal version/cursor values must also be <= 9223372036854775807.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recordVersion": {
+          "const": 1
+        },
+        "eventId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "streamEpoch": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "cursor": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "type": {
+          "enum": [
+            "MESSAGE_RECALLED",
+            "MESSAGE_BURNED",
+            "MESSAGE_UNAVAILABLE"
+          ]
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "committedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "objectVersion": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        }
+      },
+      "required": [
+        "recordVersion",
+        "eventId",
+        "streamEpoch",
+        "cursor",
+        "type",
+        "conversationId",
+        "committedAt",
+        "messageId",
+        "objectVersion"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recordVersion": {
+          "const": 1
+        },
+        "eventId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "streamEpoch": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "cursor": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "type": {
+          "enum": [
+            "CONVERSATION_ACCESS_REVOKED"
+          ]
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "committedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        },
+        "accessVersion": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "readAllowed": {
+          "const": false
+        },
+        "sendAllowed": {
+          "const": false
+        },
+        "reason": {
+          "enum": [
+            "REMOVED",
+            "GROUP_REMOVED",
+            "DESTROYED",
+            "ACCESS_REVOKED"
+          ]
+        }
+      },
+      "required": [
+        "recordVersion",
+        "eventId",
+        "streamEpoch",
+        "cursor",
+        "type",
+        "conversationId",
+        "committedAt",
+        "accessVersion",
+        "readAllowed",
+        "sendAllowed",
+        "reason"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recordVersion": {
+          "const": 1
+        },
+        "eventId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "streamEpoch": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "cursor": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "type": {
+          "enum": [
+            "CONVERSATION_ACCESS_CHANGED"
+          ]
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "committedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        },
+        "accessVersion": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "readAllowed": {
+          "const": true
+        },
+        "sendAllowed": {
+          "type": "boolean"
+        },
+        "rebuildConversation": {
+          "type": "boolean"
+        },
+        "reason": {
+          "enum": [
+            "FRIEND_DELETED",
+            "SEND_DENIED",
+            "GRANTED",
+            "UPDATED"
+          ]
+        }
+      },
+      "required": [
+        "recordVersion",
+        "eventId",
+        "streamEpoch",
+        "cursor",
+        "type",
+        "conversationId",
+        "committedAt",
+        "accessVersion",
+        "readAllowed",
+        "sendAllowed",
+        "rebuildConversation",
+        "reason"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "reason": {
+                "enum": [
+                  "FRIEND_DELETED",
+                  "SEND_DENIED"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sendAllowed": {
+                "const": false
+              },
+              "rebuildConversation": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "reason": {
+                "const": "GRANTED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "rebuildConversation": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

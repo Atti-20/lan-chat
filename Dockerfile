@@ -1,18 +1,18 @@
 FROM node:22-alpine AS frontend-build
 WORKDIR /workspace
-COPY frontend/package.json frontend/package-lock.json ./frontend/
-RUN cd frontend && npm ci
-COPY frontend ./frontend
-RUN mkdir -p src/main/resources/static/app \
-    && cd frontend \
-    && npm run build
+COPY apps/web/package.json apps/web/package-lock.json ./apps/web/
+RUN cd apps/web && npm ci
+COPY apps/web ./apps/web
+COPY packages ./packages
+RUN npm run build --prefix apps/web
 
 FROM maven:3.9.11-eclipse-temurin-17 AS backend-build
 WORKDIR /workspace
 COPY pom.xml ./
-RUN mvn -B -q -DskipTests dependency:go-offline
-COPY src ./src
-COPY --from=frontend-build /workspace/src/main/resources/static/app ./src/main/resources/static/app
+COPY services/server/pom.xml ./services/server/
+RUN mvn -B -q -pl services/server -DskipTests dependency:go-offline
+COPY services/server/src ./services/server/src
+COPY --from=frontend-build /workspace/services/server/src/main/resources/static/app ./services/server/src/main/resources/static/app
 RUN mvn -B -DskipTests package
 
 FROM eclipse-temurin:17-jre
@@ -24,7 +24,7 @@ RUN apt-get update \
     && useradd --system --gid lanchat --home-dir /app lanchat \
     && mkdir -p /app/uploads /app/logs \
     && chown -R lanchat:lanchat /app
-COPY --from=backend-build --chown=lanchat:lanchat /workspace/target/lan-chat-server-2.3.0.jar /app/lanchat.jar
+COPY --from=backend-build --chown=lanchat:lanchat /workspace/services/server/target/lan-chat-server-*.jar /app/lanchat.jar
 USER lanchat
 EXPOSE 8080
 ENV FILE_STORAGE_PATH=/app/uploads/ \

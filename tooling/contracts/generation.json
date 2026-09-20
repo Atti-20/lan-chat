@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "openapiVersion": "3.0.1",
+  "dartOperations": [
+    "login",
+    "refreshToken",
+    "logout",
+    "register_1",
+    "getConversationSummaries",
+    "getConversationHistory",
+    "info_1",
+    "getDevices",
+    "logoutDevice",
+    "getCurrentUserInfo",
+    "capabilities",
+    "open",
+    "snapshot",
+    "cut",
+    "mutations",
+    "ready",
+    "release"
+  ]
+}

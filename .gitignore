@@ -67,8 +67,8 @@ playwright-report/
 *.rpm
 /.mvn/wrapper/maven-wrapper.jar
 
-# Rebuilt by Vite and Tauri; source inputs live in frontend/ and src-tauri/.
-/src/main/resources/static/app/
+# Rebuilt by Vite and Tauri; source inputs live in apps/web/ and src-tauri/.
+/services/server/src/main/resources/static/app/
 /apps/desktop/src-tauri/gen/
 
 ### Runtime data and local tooling ###
@@ -86,12 +86,21 @@ playwright-report/
 
 ### Local archives and non-build documentation ###
 /apps/mobile-legacy/
-/PRD/
-/DESIGN.md
-/MeshX Architecture Evolution TODO.md
+/docs/archive/local/
+
+# This public repository contains only reproducible source and project inputs.
+# Keep planning material, design handoffs, local agent settings, and candidate
+# evidence outside of GitHub.
+/.codex/
+/archive/
+/docs/
+/apps/website/
+/apps/flutter-prototype/output/
+/apps/flutter-prototype/candidate-readiness.json
+*.md
 
 ### Private reports, credentials and local deployment overrides ###
-/outputs/
+/docs/reports/
 *.pem
 *.p8
 id_rsa

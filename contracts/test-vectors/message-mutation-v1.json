@@ -1,0 +1,26 @@
+{
+  "purpose": "A07B-1 characterization, not a new wire contract or an accepted safety baseline",
+  "provenance": "Real current Spring/MySQL probe: sequence 1 recalled, 2 burned, cursor 62; reconnect returned no rows. IDs normalized; contents synthetic.",
+  "conversationId": "private:1:2",
+  "original": {
+    "messageId": "mutation-original", "clientMsgId": "mutation-client-01",
+    "conversationId": "private:1:2", "fromUserId": 2,
+    "contentType": "text", "content": "synthetic protected text",
+    "sequence": 1, "isBurn": 1, "isRecalled": 0, "status": 0,
+    "createTime": "2026-09-09T12:00:00"
+  },
+  "recall": {"version": 1, "event": "CHAT_RECALL", "conversationId": "private:1:2", "payload": {"messageId": "mutation-original", "sequence": 1}},
+  "burn": {"version": 1, "event": "CHAT_BURN", "conversationId": "private:1:2", "payload": {"messageId": "mutation-original", "sequence": 1}},
+  "removed": {"version": 1, "event": "CONVERSATION_REMOVED", "conversationId": "private:1:2", "payload": {"active": false}},
+  "unknown": {"version": 1, "event": "FUTURE_MUTATION", "conversationId": "private:1:2", "payload": {"messageId": "mutation-original", "state": "restricted"}},
+  "reconnect": {"version": 1, "event": "SYNC_RESPONSE", "payload": {"messages": [], "latestPositions": {"private:1:2": 62}, "deniedConversationIds": [], "hasMore": false}},
+  "cases": [
+    {"id": "duplicate-mutation", "order": ["original", "recall", "recall"], "safetyTarget": "redacted"},
+    {"id": "mutation-before-original", "order": ["recall", "original"], "safetyTarget": "redacted"},
+    {"id": "mutation-after-original", "order": ["original", "burn"], "safetyTarget": "redacted"},
+    {"id": "reconnect-mutation", "order": ["original", "reconnect"], "safetyTarget": "redacted after authoritative reconciliation"},
+    {"id": "stale-connection-mutation", "order": ["original", "old-generation-recall"], "safetyTarget": "current account unchanged"},
+    {"id": "unknown-mutation", "order": ["original", "unknown"], "safetyTarget": "documented negotiated fail-closed recovery; no invented v1 semantics"},
+    {"id": "removed-conversation", "order": ["original", "removed"], "safetyTarget": "access invalidated and pending send blocked"}
+  ]
+}

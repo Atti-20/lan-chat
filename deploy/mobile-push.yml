@@ -1,0 +1,14 @@
+# Load explicitly with SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/meshx/mobile-push.yml
+meshx:
+  push:
+    enabled: ${MESHX_PUSH_ENABLED:false}
+    fcm-service-account-file: ${MESHX_PUSH_FCM_SERVICE_ACCOUNT_FILE:}
+    fcm-project-id: ${MESHX_PUSH_FCM_PROJECT_ID:}
+    fcm-application-id: ${MESHX_PUSH_FCM_APPLICATION_ID:}
+    fcm-api-key: ${MESHX_PUSH_FCM_API_KEY:}
+    fcm-sender-id: ${MESHX_PUSH_FCM_SENDER_ID:}
+    apns-key-file: ${MESHX_PUSH_APNS_KEY_FILE:}
+    apns-key-id: ${MESHX_PUSH_APNS_KEY_ID:}
+    apns-team-id: ${MESHX_PUSH_APNS_TEAM_ID:}
+    apns-topic: ${MESHX_PUSH_APNS_TOPIC:com.meshx.meshxFlutterProbe}
+    apns-sandbox: ${MESHX_PUSH_APNS_SANDBOX:true}

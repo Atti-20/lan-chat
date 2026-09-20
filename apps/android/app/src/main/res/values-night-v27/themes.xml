@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Match Android's system-dark navigation and status surfaces instead of
+         leaving a light strip around the shared Vue application. -->
+    <style name="Theme.MeshX" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:navigationBarColor">#111113</item>
+        <item name="android:statusBarColor">#111113</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

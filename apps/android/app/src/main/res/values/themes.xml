@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.MeshX" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowActionModeOverlay">true</item>
+        <!-- API 26 only has light navigation icons; keep their background dark. -->
+        <item name="android:navigationBarColor">#111113</item>
+        <item name="android:statusBarColor">#F4F7FB</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

@@ -1,0 +1,154 @@
+name: Flutter prototype checks
+
+on:
+  pull_request:
+    paths:
+      - 'apps/flutter-prototype/**'
+      - 'apps/desktop/src-tauri/icons/**'
+      - 'apps/android/app/src/main/res/**'
+      - 'apps/android/app/src/main/AndroidManifest.xml'
+      - 'apps/ios/ios/App/App/Assets.xcassets/AppIcon.appiconset/**'
+      - 'scripts/ci/check-native-icon-parity.py'
+      - 'packages/design-tokens/**'
+      - 'contracts/**'
+      - 'tooling/workspace.json'
+      - 'tooling/workspace.py'
+      - 'tooling/api_summary.py'
+      - 'tooling/tests/**'
+      - 'tooling/verification.py'
+      - 'tooling/rest_contracts.py'
+      - 'tooling/contracts/generation.json'
+      - 'tooling/design_tokens.py'
+      - 'tooling/protocol_types.py'
+      - '.github/workflows/flutter-prototype.yml'
+  push:
+    paths:
+      - 'apps/flutter-prototype/**'
+      - 'apps/desktop/src-tauri/icons/**'
+      - 'apps/android/app/src/main/res/**'
+      - 'apps/android/app/src/main/AndroidManifest.xml'
+      - 'apps/ios/ios/App/App/Assets.xcassets/AppIcon.appiconset/**'
+      - 'scripts/ci/check-native-icon-parity.py'
+      - 'packages/design-tokens/**'
+      - 'contracts/**'
+      - 'tooling/workspace.json'
+      - 'tooling/workspace.py'
+      - 'tooling/api_summary.py'
+      - 'tooling/tests/**'
+      - 'tooling/verification.py'
+      - 'tooling/rest_contracts.py'
+      - 'tooling/contracts/generation.json'
+      - 'tooling/design_tokens.py'
+      - 'tooling/protocol_types.py'
+      - '.github/workflows/flutter-prototype.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Flutter quality and candidate input audit
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.44.8 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Restore Dart dependencies
+        working-directory: apps/flutter-prototype
+        run: flutter pub get --enforce-lockfile
+      - name: Check generated design values
+        run: python3 tooling/workspace.py generate --check
+      - name: Check native launcher icon parity
+        run: python3 scripts/ci/check-native-icon-parity.py
+      - name: Analyze and run regression tests
+        run: python3 tooling/workspace.py verify flutter
+      - name: Audit prepared candidate inputs
+        run: python3 tooling/workspace.py verify flutter-candidate
+
+  android-candidate:
+    name: Android release-mode prototype artifact
+    needs: quality
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android API 37 build prerequisites
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
+      - name: Install pinned Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.44.8 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Restore locked Dart dependencies
+        working-directory: apps/flutter-prototype
+        run: flutter pub get --enforce-lockfile
+      - name: Build and inspect Android candidate
+        run: python3 tooling/workspace.py verify flutter-android-candidate
+      - name: Record Android coverage boundary
+        if: always()
+        run: |
+          echo "### Flutter Android candidate boundary" >> "$GITHUB_STEP_SUMMARY"
+          echo "The artifact uses the unapproved prototype application ID and version. Signing identity, upgrade compatibility, device installation and distribution are not verified." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Android prototype artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshx-flutter-prototype-android-${{ github.sha }}
+          path: apps/flutter-prototype/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios-candidate:
+    name: iOS unsigned release-mode prototype artifact
+    needs: quality
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Xcode toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -F iphonesimulator
+      - name: Install pinned Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.44.8 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Restore locked Dart dependencies
+        working-directory: apps/flutter-prototype
+        run: flutter pub get --enforce-lockfile
+      - name: Build and inspect iOS candidate
+        run: python3 tooling/workspace.py verify flutter-ios-candidate
+      - name: Verify unsigned device bundle
+        run: |
+          app="apps/flutter-prototype/build/ios/iphoneos/Runner.app"
+          if codesign -dv --verbose=4 "$app" > flutter-ios-codesign.txt 2>&1; then
+            echo "::error::Unsigned candidate unexpectedly carries a valid signature."
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$app" flutter-ios-unsigned.zip
+      - name: Record iOS coverage boundary
+        if: always()
+        run: |
+          echo "### Flutter iOS candidate boundary" >> "$GITHUB_STEP_SUMMARY"
+          echo "The artifact is an unsigned release-mode iphoneos bundle and uses the unapproved prototype identity/version. Device installation, signing, upgrade compatibility, TestFlight and App Store distribution are not verified." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload iOS prototype artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshx-flutter-prototype-ios-unsigned-${{ github.sha }}
+          path: |
+            flutter-ios-unsigned.zip
+            flutter-ios-codesign.txt
+          if-no-files-found: error
+          retention-days: 14

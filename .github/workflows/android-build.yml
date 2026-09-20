@@ -1,0 +1,95 @@
+name: Android Build
+
+on:
+  pull_request:
+    paths:
+      - "VERSION"
+      - "apps/android/**"
+      - "apps/web/**"
+      - "packages/**"
+      - "scripts/ci/check-version-consistency.py"
+      - "services/server/src/main/java/com/lanchat/config/**"
+      - "services/server/src/main/resources/application.yml"
+      - ".github/workflows/android-build.yml"
+  push:
+    branches:
+      - master
+      - "feature/**"
+      - "codex/**"
+    paths:
+      - "VERSION"
+      - "apps/android/**"
+      - "apps/web/**"
+      - "packages/**"
+      - "scripts/ci/check-version-consistency.py"
+      - "services/server/src/main/java/com/lanchat/config/**"
+      - "services/server/src/main/resources/application.yml"
+      - ".github/workflows/android-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Native Android verification
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check release version consistency
+        run: python3 scripts/ci/check-version-consistency.py
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/android/package-lock.json
+
+      - name: Install shared UI and Android shell dependencies
+        run: |
+          npm ci --prefix apps/web
+          npm ci --prefix apps/android
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android API 37 build prerequisites
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
+
+      - name: Verify Android toolchain
+        working-directory: apps/android
+        run: ./gradlew --version
+
+      - name: Run Android checks and build artifacts
+        working-directory: apps/android
+        run: >-
+          ./gradlew --console=plain --no-daemon
+          :app:testSecureDebugUnitTest :app:lintSecureDebug
+          :app:assembleSecureDebug :app:assembleLanDebug :app:bundleSecureRelease
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lanchat-android-${{ github.sha }}
+          path: |
+            apps/android/app/build/outputs/apk/secure/debug/*.apk
+            apps/android/app/build/outputs/apk/lan/debug/*.apk
+            apps/android/app/build/outputs/bundle/secureRelease/*.aab
+          if-no-files-found: error
+          retention-days: 14

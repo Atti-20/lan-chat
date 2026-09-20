@@ -1,0 +1,1258 @@
+{
+  "targetStatus": "TARGET_PENDING_APPROVAL",
+  "designVersion": "meshx.mutation-recovery/1",
+  "purpose": "Normative target expectations for approval; current runtime is NOT expected to pass. Existing characterization file is unchanged.",
+  "executionContract": "Each case starts with a fresh deep copy of baseState; initialOverride replaces matching top-level fields. Steps are behavioral adapter inputs, not wire packets except record. expected lists required observable assertions; omitted properties are not asserted. applyMutation includes validation and atomic commit unless commitSuccessful=false. Server steps require real transactional integration in 1I, not a reference reducer.",
+  "baseState": {
+    "owner": {
+      "origin": "https://fixture.invalid",
+      "userId": "7",
+      "streamEpoch": "11111111-1111-4111-8111-111111111111",
+      "generation": 4
+    },
+    "phase": "ONLINE_SAFE",
+    "recoveryStoreVersion": 2,
+    "mutationCursor": "0",
+    "message": {
+      "id": "message-a",
+      "sequence": 62,
+      "objectVersion": "1",
+      "state": "NORMAL",
+      "body": "synthetic sample"
+    },
+    "access": {
+      "conversationId": "group:21",
+      "accessVersion": "1",
+      "readAllowed": true,
+      "sendAllowed": true
+    },
+    "outbox": {
+      "state": "PENDING",
+      "body": "synthetic draft",
+      "autoSend": true
+    },
+    "notificationEligible": true,
+    "lastReadSequence": 0,
+    "messageCursors": {
+      "group:21": 62
+    }
+  },
+  "cases": [
+    {
+      "id": "duplicate-mutation",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "messageState": "RECALLED",
+        "body": null,
+        "mutationCursor": "1",
+        "notificationEligible": false,
+        "durableMutationApplications": 1,
+        "messageCursors": {
+          "group:21": 62
+        }
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "mutation-before-original",
+      "initialOverride": {
+        "message": null
+      },
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "receiveV1Original",
+          "body": "synthetic late original",
+          "messageId": "message-a"
+        }
+      ],
+      "expected": {
+        "messageState": "RECALLED",
+        "body": null,
+        "mutationCursor": "1",
+        "notificationEligible": false,
+        "messageCursors": {
+          "group:21": 62
+        }
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "stale-original-after-tombstone",
+      "initialOverride": {
+        "message": {
+          "id": "message-a",
+          "state": "RECALLED",
+          "objectVersion": "2",
+          "body": null
+        },
+        "mutationCursor": "1",
+        "notificationEligible": false
+      },
+      "steps": [
+        {
+          "op": "receiveV1Original",
+          "body": "synthetic late original",
+          "messageId": "message-a"
+        }
+      ],
+      "expected": {
+        "messageState": "RECALLED",
+        "body": null,
+        "mutationCursor": "1",
+        "notificationEligible": false,
+        "messageCursors": {
+          "group:21": 62
+        }
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "stale-snapshot",
+      "initialOverride": {
+        "message": {
+          "id": "message-a",
+          "state": "RECALLED",
+          "objectVersion": "2",
+          "body": null
+        },
+        "mutationCursor": "1",
+        "notificationEligible": false
+      },
+      "steps": [
+        {
+          "op": "receiveSnapshotObject",
+          "messageId": "message-a",
+          "state": "NORMAL",
+          "objectVersion": "1",
+          "body": "synthetic old snapshot"
+        }
+      ],
+      "expected": {
+        "messageState": "RECALLED",
+        "body": null,
+        "mutationCursor": "1",
+        "notificationEligible": false,
+        "messageCursors": {
+          "group:21": 62
+        }
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "reconnect-replay",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "disconnect"
+        },
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "ready",
+          "acceptedCursor": "1",
+          "latest": "1"
+        }
+      ],
+      "expected": {
+        "messageState": "RECALLED",
+        "body": null,
+        "mutationCursor": "1",
+        "notificationEligible": false,
+        "phase": "ONLINE_SAFE"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "old-connection",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 3
+          }
+        }
+      ],
+      "expected": {
+        "body": "synthetic sample",
+        "mutationCursor": "0",
+        "noStateWrite": true
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "old-account",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "8",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "body": "synthetic sample",
+        "mutationCursor": "0",
+        "noStateWrite": true
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "old-origin",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://other.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "body": "synthetic sample",
+        "mutationCursor": "0",
+        "noStateWrite": true
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "unknown-negotiated-secure-state",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "FUTURE_SECURE_RESTRICTION",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "phase": "QUARANTINED",
+        "cacheVisible": false,
+        "mutationCursor": "0",
+        "reason": "UNSUPPORTED_SECURE_STATE"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "conversation-removed",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "CONVERSATION_ACCESS_REVOKED",
+            "conversationId": "group:21",
+            "committedAt": "2026-09-09T00:00:00.000Z",
+            "accessVersion": "2",
+            "readAllowed": false,
+            "sendAllowed": false,
+            "reason": "REMOVED"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "body": null,
+        "readAllowed": false,
+        "sendAllowed": false,
+        "outboxBody": null,
+        "outboxState": "DROP_BODY_REVOKED",
+        "autoSend": false,
+        "notificationEligible": false,
+        "activeConversation": null,
+        "messageCursorRemoved": true,
+        "mutationCursor": "1"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "group-access-revoked",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "CONVERSATION_ACCESS_REVOKED",
+            "conversationId": "group:21",
+            "committedAt": "2026-09-09T00:00:00.000Z",
+            "accessVersion": "2",
+            "readAllowed": false,
+            "sendAllowed": false,
+            "reason": "GROUP_REMOVED"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "body": null,
+        "readAllowed": false,
+        "sendAllowed": false,
+        "outboxBody": null,
+        "outboxState": "DROP_BODY_REVOKED",
+        "autoSend": false,
+        "notificationEligible": false,
+        "activeConversation": null,
+        "messageCursorRemoved": true,
+        "mutationCursor": "1"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "friend-deleted-read-allowed-send-denied",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "CONVERSATION_ACCESS_CHANGED",
+            "conversationId": "group:21",
+            "committedAt": "2026-09-09T00:00:00.000Z",
+            "accessVersion": "2",
+            "readAllowed": true,
+            "sendAllowed": false,
+            "reason": "FRIEND_DELETED",
+            "rebuildConversation": false
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "body": "synthetic sample",
+        "readAllowed": true,
+        "sendAllowed": false,
+        "outboxState": "NEEDS_USER_ACTION",
+        "autoSend": false,
+        "mutationCursor": "1"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "pending-outbox-does-not-revive",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "CONVERSATION_ACCESS_CHANGED",
+            "conversationId": "group:21",
+            "committedAt": "2026-09-09T00:00:00.000Z",
+            "accessVersion": "2",
+            "readAllowed": true,
+            "sendAllowed": false,
+            "reason": "FRIEND_DELETED",
+            "rebuildConversation": false
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "33333333-3333-4333-8333-333333333333",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "2",
+            "type": "CONVERSATION_ACCESS_CHANGED",
+            "conversationId": "group:21",
+            "committedAt": "2026-09-09T00:00:00.000Z",
+            "accessVersion": "3",
+            "readAllowed": true,
+            "sendAllowed": true,
+            "reason": "GRANTED",
+            "rebuildConversation": true
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "finishConversationRebuild"
+        }
+      ],
+      "expected": {
+        "autoSend": false,
+        "outboxState": "NEEDS_USER_ACTION",
+        "sendCount": 0,
+        "mutationCursor": "2"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "cursor-expired",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "recoveryError",
+          "reason": "CURSOR_EXPIRED",
+          "floor": "100",
+          "latest": "200",
+          "rebuildRequired": true
+        }
+      ],
+      "expected": {
+        "phase": "QUARANTINED",
+        "mutationCursor": "0",
+        "cacheVisible": false,
+        "autoSend": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "rebuild-required",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "recoveryError",
+          "reason": "STREAM_RESET",
+          "floor": "100",
+          "latest": "200",
+          "rebuildRequired": true
+        }
+      ],
+      "expected": {
+        "phase": "QUARANTINED",
+        "mutationCursor": "0",
+        "cacheVisible": false,
+        "autoSend": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "persistence-failure",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          },
+          "commitSuccessful": false
+        },
+        {
+          "op": "restart"
+        }
+      ],
+      "expected": {
+        "phase": "STORAGE_BLOCKED_OR_QUARANTINED",
+        "mutationCursor": "0",
+        "cacheVisible": false,
+        "reportedDurableSuccess": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "restart-after-mutation",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "restart"
+        },
+        {
+          "op": "resumeAndReady",
+          "through": "1"
+        }
+      ],
+      "expected": {
+        "messageState": "RECALLED",
+        "body": null,
+        "mutationCursor": "1",
+        "notificationEligible": false,
+        "cacheVisible": false,
+        "phase": "ONLINE_SAFE"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "pagination-time-mutation",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "snapshotBegin",
+          "H": "0"
+        },
+        {
+          "op": "snapshotPage",
+          "messageId": "message-a",
+          "state": "NORMAL",
+          "objectVersion": "1",
+          "body": "synthetic sample"
+        },
+        {
+          "op": "serverCommitMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "snapshotComplete"
+        },
+        {
+          "op": "cut",
+          "F": "1"
+        },
+        {
+          "op": "replay",
+          "records": [
+            {
+              "recordVersion": 1,
+              "eventId": "22222222-2222-4222-8222-222222222222",
+              "streamEpoch": "11111111-1111-4111-8111-111111111111",
+              "cursor": "1",
+              "type": "MESSAGE_RECALLED",
+              "conversationId": "group:21",
+              "messageId": "message-a",
+              "objectVersion": "2",
+              "committedAt": "2026-09-09T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "op": "atomicCommitAndReady",
+          "cursor": "1"
+        }
+      ],
+      "expected": {
+        "messageState": "RECALLED",
+        "body": null,
+        "mutationCursor": "1",
+        "notificationEligible": false,
+        "phase": "ONLINE_SAFE",
+        "intermediateBodyVisible": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "permission-change-during-pagination",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "snapshotBegin",
+          "H": "0"
+        },
+        {
+          "op": "serverCommitMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "CONVERSATION_ACCESS_REVOKED",
+            "conversationId": "group:21",
+            "committedAt": "2026-09-09T00:00:00.000Z",
+            "accessVersion": "2",
+            "readAllowed": false,
+            "sendAllowed": false,
+            "reason": "GROUP_REMOVED"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "snapshotComplete"
+        },
+        {
+          "op": "replay",
+          "records": [
+            {
+              "recordVersion": 1,
+              "eventId": "22222222-2222-4222-8222-222222222222",
+              "streamEpoch": "11111111-1111-4111-8111-111111111111",
+              "cursor": "1",
+              "type": "CONVERSATION_ACCESS_REVOKED",
+              "conversationId": "group:21",
+              "committedAt": "2026-09-09T00:00:00.000Z",
+              "accessVersion": "2",
+              "readAllowed": false,
+              "sendAllowed": false,
+              "reason": "GROUP_REMOVED"
+            }
+          ]
+        },
+        {
+          "op": "atomicCommitAndReady",
+          "cursor": "1"
+        }
+      ],
+      "expected": {
+        "body": null,
+        "outboxBody": null,
+        "readAllowed": false,
+        "autoSend": false,
+        "mutationCursor": "1"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "markRead-foreground",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "observeMessage",
+          "sequence": 1,
+          "foreground": true,
+          "opened": true,
+          "accessible": true,
+          "visibleMs": 300
+        }
+      ],
+      "expected": {
+        "lastReadSequence": 1,
+        "readRequestCount": 1
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "markRead-background",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "observeMessage",
+          "sequence": 1,
+          "foreground": false,
+          "opened": true,
+          "accessible": true,
+          "visibleMs": 1000
+        }
+      ],
+      "expected": {
+        "lastReadSequence": 0,
+        "readRequestCount": 0
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "markRead-unopened",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "observeMessage",
+          "sequence": 1,
+          "foreground": true,
+          "opened": false,
+          "accessible": true,
+          "visibleMs": 1000
+        }
+      ],
+      "expected": {
+        "lastReadSequence": 0,
+        "readRequestCount": 0
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "markRead-no-unseen-gap",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "observeMessage",
+          "sequence": 2,
+          "foreground": true,
+          "opened": true,
+          "accessible": true,
+          "visibleMs": 300,
+          "sequence1Unseen": true
+        }
+      ],
+      "expected": {
+        "lastReadSequence": 0,
+        "readRequestCount": 0
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "historical-sync-is-not-read",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "historicalSync",
+          "sequences": [
+            1,
+            2,
+            3
+          ]
+        }
+      ],
+      "expected": {
+        "lastReadSequence": 0,
+        "readRequestCount": 0,
+        "notificationCount": 0
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "notification-suppression",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "delayedNotificationAttempt",
+          "messageId": "message-a"
+        },
+        {
+          "op": "historicalSync",
+          "sequences": [
+            62
+          ]
+        }
+      ],
+      "expected": {
+        "notificationCount": 0,
+        "routeEligible": false,
+        "mutationCursor": "1"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "os-cancel-failure",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        },
+        {
+          "op": "cancelOsNotification",
+          "succeeded": false
+        },
+        {
+          "op": "restart"
+        }
+      ],
+      "expected": {
+        "durableCancelIntent": true,
+        "routeEligible": false,
+        "cacheVisible": false,
+        "mutationCursor": "1"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "same-version-conflict",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "1",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "phase": "QUARANTINED",
+        "mutationCursor": "0",
+        "cacheVisible": false,
+        "reason": "PROTOCOL_ERROR"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "cursor-gap",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "2",
+            "type": "MESSAGE_RECALLED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "mutationCursor": "0",
+        "phase": "QUARANTINED",
+        "reason": "CURSOR_GAP"
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "retention-floor-inclusive",
+      "initialOverride": {
+        "mutationCursor": "100"
+      },
+      "steps": [
+        {
+          "op": "resume",
+          "cursor": "100",
+          "floor": "100",
+          "latest": "101"
+        }
+      ],
+      "expected": {
+        "resumeAllowed": true,
+        "rebuildRequired": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "old-server-new-client",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "capabilitiesResponse",
+          "http": 404
+        }
+      ],
+      "expected": {
+        "phase": "BLOCKED_UPGRADE",
+        "cacheVisible": false,
+        "sendCount": 0,
+        "mutationSafe": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "epoch-reset-on-server-rollback",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "capabilitiesLost"
+        }
+      ],
+      "expected": {
+        "phase": "QUARANTINED",
+        "cacheVisible": false,
+        "autoSend": false,
+        "fallbackActivated": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "transaction-rollback",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "rollbackMutation"
+        }
+      ],
+      "expected": {
+        "businessChanged": false,
+        "mutationRecords": 0,
+        "dispatchFacts": 0,
+        "successAck": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "concurrent-recall-burn",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "raceRecallBurn"
+        }
+      ],
+      "expected": {
+        "terminalWinners": 1,
+        "normalResurrection": false,
+        "recordsPerRecipient": 1
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "remove-before-send",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "commitRemoveThenSend"
+        }
+      ],
+      "expected": {
+        "messageSaved": false,
+        "sendAck": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "redis-failure",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "commitMutationWithRedisDown"
+        }
+      ],
+      "expected": {
+        "businessChanged": true,
+        "mutationRecords": 1,
+        "dispatchFacts": 1,
+        "restRecoveryAvailable": true
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "multi-device-replay",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "twoDevicesReplaySameRecord"
+        }
+      ],
+      "expected": {
+        "device1Cursor": "1",
+        "device2Cursor": "1",
+        "earlyLogDeletion": false
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "message-burned",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_BURNED",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "messageState": "BURNED",
+        "body": null,
+        "notificationEligible": false,
+        "mutationCursor": "1",
+        "messageCursors": {
+          "group:21": 62
+        }
+      },
+      "runtimeVerification": "NOT_RUN"
+    },
+    {
+      "id": "message-unavailable",
+      "initialOverride": {},
+      "steps": [
+        {
+          "op": "applyMutation",
+          "record": {
+            "recordVersion": 1,
+            "eventId": "22222222-2222-4222-8222-222222222222",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "cursor": "1",
+            "type": "MESSAGE_UNAVAILABLE",
+            "conversationId": "group:21",
+            "messageId": "message-a",
+            "objectVersion": "2",
+            "committedAt": "2026-09-09T00:00:00.000Z"
+          },
+          "context": {
+            "origin": "https://fixture.invalid",
+            "userId": "7",
+            "streamEpoch": "11111111-1111-4111-8111-111111111111",
+            "generation": 4
+          }
+        }
+      ],
+      "expected": {
+        "messageState": "UNAVAILABLE",
+        "body": null,
+        "notificationEligible": false,
+        "mutationCursor": "1",
+        "messageCursors": {
+          "group:21": 62
+        }
+      },
+      "runtimeVerification": "NOT_RUN"
+    }
+  ]
+}
