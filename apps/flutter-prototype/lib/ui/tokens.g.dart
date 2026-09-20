@@ -34,6 +34,10 @@ const meshXLight = <String, Color>{
   'color.decorative.cyan': Color(0xff32ade6),
   'color.decorative.violet': Color(0xff5856d6),
   'color.focus.ring': Color(0x8c006fe8),
+  'color.glass.accessible-border': Color(0xff63636a),
+  'color.glass.readable': Color(0xf5ffffff),
+  'color.glass.regular': Color(0xdbffffff),
+  'color.glass.rim': Color(0xd9ffffff),
   'color.highlight.default': Color(0xe6ffffff),
   'color.highlight.soft': Color(0xf0ffffff),
   'color.interaction.control-hover': Color(0xffe8e8ed),
@@ -130,6 +134,10 @@ const meshXDark = <String, Color>{
   'color.decorative.cyan': Color(0xff64d2ff),
   'color.decorative.violet': Color(0xff5e5ce6),
   'color.focus.ring': Color(0xcc70b5ff),
+  'color.glass.accessible-border': Color(0xffa1a1aa),
+  'color.glass.readable': Color(0xf51c1c1e),
+  'color.glass.regular': Color(0xd61c1c1e),
+  'color.glass.rim': Color(0x2effffff),
   'color.highlight.default': Color(0x0fffffff),
   'color.highlight.soft': Color(0x0affffff),
   'color.interaction.control-hover': Color(0xff3a3a3c),
@@ -196,6 +204,18 @@ const meshXDark = <String, Color>{
 };
 
 const meshXSizes = <String, double>{
+  'component.badge.font-size': 11,
+  'component.badge.min-size': 20,
+  'component.badge.padding-inline': 4,
+  'component.composer.min-height': 44,
+  'component.composer.radius': 18,
+  'component.glass.control-size': 48,
+  'component.glass.fallback-blur': 20,
+  'component.glass.navigation-inset': 12,
+  'component.glass.navigation-max-width': 560,
+  'component.glass.navigation-min-height': 64,
+  'component.icon-button.icon-size': 20,
+  'component.icon-button.size': 40,
   'component.message.tail-radius': 6,
   'control-compact': 36,
   'control-height': 44,
@@ -265,6 +285,7 @@ const meshXSizes = <String, double>{
 
 const meshXNumbers = <String, double>{
   'component.button.press-scale': 0.97,
+  'component.icon-button.press-scale': 0.985,
   'component.message.line-height': 1.55,
   'line-body': 1.5,
   'line-reading': 1.65,

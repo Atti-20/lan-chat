@@ -12,7 +12,7 @@ const ast = ts.createSourceFile('useChat.ts', source, ts.ScriptTarget.Latest, tr
 const names = new Set(['handleSocketMessage', 'handleSyncResponse', 'handleMessageMutation', 'rememberRecalledMessage',
   'handleDelivery', 'recordPosition', 'recordSynchronizedPositions', 'mergeCurrentMessages', 'mergeMessages',
   'normalizeMessage', 'belongsToSelected', 'handleConversationRemoved', 'forgetConversation',
-  'canReadSelectedConversation', 'sendReadPosition', 'transmitReadPosition', 'flushPendingReadPositions'])
+  'canReadSelectedConversation', 'transmitReadPosition', 'flushPendingReadPositions'])
 const bodies = []
 function collect(node) {
   if (ts.isFunctionDeclaration(node) && names.has(node.name?.text)) bodies.push(node.getText(ast))
@@ -30,6 +30,7 @@ function harness() {
     recoveryEnabled: { value: false },
     currentUser: { value: { id: 1 } }, selected, messages, members: vue.ref([]),
     runtimePositions: new Map([[v.conversationId, 62]]), pendingReadPositions: new Map(),
+    ordinaryReadProofRevision: { value: 0 },
     inaccessibleConversationIds: new Set(), recalledMessageIds: new Set(), recalledMessageOrder: [],
     conversations: { value: [] }, loadingMessages: { value: false },
     options: { isConversationVisible: () => visible }, isAppForeground: () => foreground,
@@ -84,19 +85,4 @@ test('Web burn for an unselected cached message is not durably invalidated', asy
   h.selected.value = null
   await h.handleMessageMutation(plain(v.burn))
   assert.equal(h.cached.get(v.original.messageId).content, v.original.content)
-})
-
-test('Web read visibility gates include foreground and selected conversation; pending read can flush in background', () => {
-  const h = harness()
-  h.sendReadPosition(v.conversationId, [v.original])
-  assert.equal(h.requests.filter(f => f.event === 'CHAT_READ').length, 1)
-  h.foreground = false; h.sendReadPosition(v.conversationId, [v.original])
-  h.foreground = true; h.visible = false; h.sendReadPosition(v.conversationId, [v.original])
-  h.visible = true; h.selected.value = null; h.sendReadPosition(v.conversationId, [v.original])
-  assert.equal(h.requests.filter(f => f.event === 'CHAT_READ').length, 1)
-  h.selected.value = { conversationId: v.conversationId }; h.ws.connected.value = false
-  h.sendReadPosition(v.conversationId, [v.original])
-  h.foreground = false; h.ws.connected.value = true; h.flushPendingReadPositions()
-  assert.equal(h.requests.filter(f => f.event === 'CHAT_READ').length, 2)
-  // This cursor was earned while visible; it does not imply background-received messages were read.
 })

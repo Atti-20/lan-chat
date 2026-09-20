@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, shallowRef } from 'vue'
+import { useGlassChromeMetrics } from '../../composables/useGlassChromeMetrics'
 import type { User } from '../../types'
 import type { ChatSection } from '../../composables/useChat'
 import BrandLogo from '../base/BrandLogo.vue'
 import UserAvatar from '../base/UserAvatar.vue'
+import UiBadge from '../base/UiBadge.vue'
 import UiIcon, { type IconName } from '../base/UiIcon.vue'
 
 interface Props {
@@ -16,6 +18,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const railElement = shallowRef<HTMLElement | null>(null)
+useGlassChromeMetrics(railElement, 'navigation')
 const emit = defineEmits<{
   change: [section: ChatSection]
   profile: []
@@ -51,7 +55,7 @@ function activateItem(item: RailItem): void {
 </script>
 
 <template>
-  <nav class="app-rail apple-structural-surface" aria-label="主导航" :style="lensStyle">
+  <nav ref="railElement" class="app-rail apple-structural-surface" :class="{ 'app-rail--admin': navigationItems.length > 4 }" aria-label="主导航" :style="lensStyle">
     <div class="rail-brand" role="img" aria-label="MeshX">
       <BrandLogo decorative />
     </div>
@@ -70,9 +74,9 @@ function activateItem(item: RailItem): void {
       >
         <UiIcon :name="item.icon" :size="23" />
         <span class="rail-label">{{ item.label }}</span>
-        <b v-if="item.id === 'messages' && messageCount" class="rail-badge">{{ messageCount > 99 ? '99+' : messageCount }}</b>
-        <b v-if="item.id === 'contacts' && requestCount" class="rail-badge">{{ Math.min(requestCount, 9) }}</b>
-        <b v-else-if="item.id === 'broadcasts' && broadcastCount" class="rail-badge">{{ Math.min(broadcastCount, 9) }}</b>
+        <UiBadge v-if="item.id === 'messages' && messageCount" class="rail-badge" tone="unread" :value="messageCount > 99 ? '99+' : messageCount" :label="`${messageCount} 条未读消息`" />
+        <UiBadge v-if="item.id === 'contacts' && requestCount" class="rail-badge" tone="unread" :value="requestCount > 99 ? '99+' : requestCount" :label="`${requestCount} 条待处理好友申请`" />
+        <UiBadge v-else-if="item.id === 'broadcasts' && broadcastCount" class="rail-badge" tone="unread" :value="broadcastCount > 99 ? '99+' : broadcastCount" :label="`${broadcastCount} 条待处理广播`" />
       </button>
     </div>
 
@@ -84,145 +88,86 @@ function activateItem(item: RailItem): void {
 </template>
 
 <style scoped>
+/* Native iOS is the reference. This is an accessible Web equivalent, not a
+   claim to run UIKit or duplicate Apple's optical renderer. */
 .app-rail {
-  display: flex;
-  /* 与 ChatView 的 --rail-width 网格列保持一致（平板压缩到 68px）。 */
-  width: var(--rail-width, 72px);
-  min-height: 0;
-  padding: 12px 8px;
-  flex-direction: column;
-  align-items: center;
-  border-width: 0 1px 0 0;
-  border-color: var(--separator);
-  border-radius: 0;
-  background: var(--rail-bg);
-  box-shadow: none;
+  display: flex; width: var(--rail-width, 72px); min-height: 0;
+  padding: 12px 8px; flex-direction: column; align-items: center;
+  border: 0; border-right: 1px solid var(--separator); border-radius: 0;
+  background: var(--mx-color-glass-regular); box-shadow: none;
 }
-.rail-brand {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-md);
-  color: var(--accent-text);
-  background: transparent;
-  box-shadow: none;
-}
+.rail-brand { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; }
 .rail-brand .brand-logo { width: 32px; height: 32px; }
-.rail-items { position: relative; display: grid; width: 100%; margin: auto 0; gap: var(--space-1); }
+.rail-items { position: relative; display: grid; width: 100%; margin: auto 0; gap: 4px; }
 .rail-item {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  height: 58px;
-  padding: 7px 2px;
-  grid-template-rows: 28px 14px;
-  align-content: center;
-  justify-items: center;
-  row-gap: 2px;
-  border: 0;
-  border-radius: var(--radius-md);
-  color: var(--ink-faint);
-  font-size: var(--font-micro);
-  font-weight: 600;
-  background: none;
-  cursor: pointer;
-  transition: color 180ms ease, background-color 180ms ease;
+  position: relative; z-index: 1; display: grid; min-height: 58px;
+  padding: 6px 2px; grid-template-rows: 26px auto; align-content: center;
+  justify-items: center; gap: 2px; border: 0; border-radius: 20px;
+  color: var(--ink); font-size: .75rem; font-weight: 600;
+  background: none; cursor: pointer;
+  transition: color var(--duration-fast) ease;
 }
-.rail-label { display: block; min-width: 0; line-height: 14px; }
-.rail-item:hover { color: var(--ink); }
+.rail-label { display: block; min-width: 0; line-height: 1.2; }
 .rail-item--active { color: var(--accent-text); }
-.rail-item .ui-icon { width: 23px; height: 23px; }
+.rail-item:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.rail-item .ui-icon { width: 24px; height: 24px; }
 .liquid-lens {
-  position: absolute;
-  z-index: 0;
-  top: 0;
-  left: 3px;
-  width: calc(100% - 6px);
-  height: 58px;
-  border: 1px solid var(--glass-border);
-  border-radius: 15px;
-  background: var(--surface-glass);
-  box-shadow: 0 3px 12px var(--shadow-color), inset 0 1px 1px var(--highlight);
-  backdrop-filter: blur(16px) saturate(150%);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  transform: translateY(calc(var(--active-index) * 62px));
-  transition: transform 360ms var(--ease-liquid);
+  position: absolute; z-index: 0; top: 0; left: 0; pointer-events: none;
+  width: var(--mx-lens-width, 100%); height: var(--mx-lens-height, 58px);
+  transform: translate(var(--mx-lens-x, 0px), var(--mx-lens-y, 0px));
+  border: 1px solid var(--mx-color-glass-rim); border-radius: 20px;
+  background: var(--mx-color-glass-readable);
+  box-shadow: 0 2px 8px var(--shadow-color), inset 0 1px 0 var(--highlight);
+  transition: transform 240ms var(--ease-liquid), width 240ms var(--ease-liquid), height 240ms var(--ease-liquid);
 }
 .rail-badge {
-  position: absolute;
-  top: 5px;
-  right: 6px;
-  display: grid;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  place-items: center;
-  box-sizing: border-box;
-  border: 2px solid var(--surface);
-  border-radius: 50%;
-  color: white;
-  font-size: 8px;
-  font-weight: 750;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -.06em;
-  line-height: 1;
-  white-space: nowrap;
-  background: var(--coral);
+  position: absolute; top: 2px; right: 2px; display: grid;
+  border: 2px solid var(--surface); border-radius: var(--radius-pill);
 }
-.rail-profile { width: 100%; min-height: 58px; flex: 0 0 auto; }
+.rail-profile { width: 100%; flex: 0 0 auto; margin-top: 8px; }
 
 @media (max-width: 760px) {
   .app-rail {
-    position: fixed;
-    z-index: 40;
-    right: auto;
-    bottom: max(12px, env(safe-area-inset-bottom));
-    left: 50%;
-    width: min(calc(100% - 28px), 560px);
-    height: 64px;
-    min-height: 64px;
-    padding: 6px;
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-sheet);
-    background: var(--rail-bg);
-    box-shadow: 0 10px 30px var(--shadow-color), inset 0 1px 0 var(--highlight);
-    backdrop-filter: blur(20px) saturate(150%);
-    -webkit-backdrop-filter: blur(20px) saturate(150%);
-    transform: translateX(-50%);
-    flex-direction: row;
+    position: fixed; z-index: 40;
+    left: 50%; right: auto; bottom: max(var(--mx-component-glass-navigation-inset), env(safe-area-inset-bottom));
+    width: min(calc(100% - 24px), var(--mx-component-glass-navigation-max-width));
+    height: auto; min-height: var(--mx-component-glass-navigation-min-height);
+    padding: 6px; gap: 6px; flex-direction: row; transform: translateX(-50%);
+    border: 1px solid var(--mx-color-glass-rim); border-radius: 30px;
+    background: var(--mx-color-glass-regular);
+    background-image: linear-gradient(125deg, var(--highlight-soft), transparent 32%, transparent 76%, var(--highlight));
+    box-shadow: 0 10px 32px var(--shadow-color), inset 0 1px 0 var(--highlight);
+    -webkit-backdrop-filter: blur(var(--mx-component-glass-fallback-blur)) saturate(150%);
+    backdrop-filter: blur(var(--mx-component-glass-fallback-blur)) saturate(150%);
   }
   .rail-brand { display: none; }
-  .rail-item {
-    height: 50px;
-    grid-template-rows: 28px 14px;
-  }
-  .rail-items {
-    min-width: 0;
-    flex: var(--item-count) 1 0;
-    grid-template-columns: repeat(var(--item-count), 1fr);
-    margin: 0;
-  }
-  .rail-profile {
-    width: auto;
-    min-width: 0;
-    height: 50px;
-    min-height: 50px;
-    flex: 1 1 0;
-  }
+  .rail-items { min-width: 0; flex: var(--item-count) 1 0; grid-template-columns: repeat(var(--item-count), minmax(0,1fr)); margin: 0; gap: 0; }
+  .rail-item { min-width: 0; min-height: var(--mx-component-glass-control-size); height: auto; }
+  .rail-profile { width: auto; min-width: 0; flex: 1 1 0; margin: 0; border-left: 1px solid var(--separator); border-radius: 0; }
   .rail-profile :deep(.avatar) { margin: 0; }
-  .liquid-lens {
-    left: 0;
-    width: calc(100% / var(--item-count));
-    height: 50px;
-    transform: translateX(calc(var(--active-index) * 100%));
-  }
+  .liquid-lens { border-radius: 24px; }
+}
+/* An admin has six visible controls. Wrap at the smallest sizes rather than
+   shrink the touch targets or silently remove an authorized destination. */
+@media (max-width: 380px) {
+  .app-rail--admin { align-items: stretch; }
+  .app-rail--admin .rail-items { grid-template-columns: repeat(3, minmax(48px,1fr)); flex: 3; }
+}
+@media (prefers-reduced-motion: reduce) { .liquid-lens, .rail-item { transition: none; } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .app-rail, .liquid-lens { background: var(--surface); background-image: none; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; border-color: var(--mx-color-glass-accessible-border); }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-rail, .liquid-lens { background: var(--surface); background-image: none; }
+}
+@media (forced-colors: active) {
+  .app-rail, .liquid-lens { background: Canvas; box-shadow: none; border: 1px solid CanvasText; }
+  .rail-item { color: ButtonText; }
+  .rail-item--active { outline: 2px solid Highlight; }
+  .rail-badge { background: Highlight; color: HighlightText; border-color: Canvas; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .liquid-lens,
-  .rail-item { transition: none; }
+@media (min-width: 761px) {
+  .rail-items { min-height: 0; overflow-y: auto; }
 }
 </style>

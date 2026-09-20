@@ -660,6 +660,21 @@ void main() {
   );
 
   test(
+    'photo selection reaches native picker with bounded photo intent',
+    () async {
+      final calls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(capabilityChannel, (call) async {
+        calls.add(call);
+        return {'status': 'CANCELLED'};
+      });
+      final result = await NativeSystemCapabilities().pickPhoto(maxBytes: 1024);
+      expect(result.status, CapabilityStatus.cancelled);
+      expect(calls.single.method, 'pickFile');
+      expect(calls.single.arguments, {'maxBytes': 1024, 'photos': true});
+    },
+  );
+
+  test(
     'file cancellation, too-large, missing and permission denial retain reason and never share paths',
     () async {
       final adapter = NativeSystemCapabilities();

@@ -132,6 +132,14 @@ class SelectedFile {
   final int size;
 }
 
+/// Optional system media chooser. It returns the same bounded opaque copy as
+/// FilePickerPort; callers must still check capability results and ownership.
+abstract interface class PhotoPickerPort {
+  Future<CapabilityResult<SelectedFile>> pickPhoto({
+    int maxBytes = 25 * 1024 * 1024,
+  });
+}
+
 abstract interface class FilePickerPort {
   Future<CapabilityResult<SelectedFile>> pick({
     int maxBytes = 25 * 1024 * 1024,
@@ -215,4 +223,43 @@ class NotificationPolicy {
     if (_seen.length > 512) _seen.remove(_seen.first);
     return live && !ownMessage && !alreadyStored && !viewingConversation;
   }
+}
+
+class LocationProof {
+  const LocationProof(
+    this.latitude,
+    this.longitude,
+    this.accuracyMeters,
+    this.capturedAt,
+  );
+  final double latitude, longitude, accuracyMeters;
+  final DateTime capturedAt;
+  bool get fresh =>
+      latitude.isFinite &&
+      longitude.isFinite &&
+      accuracyMeters.isFinite &&
+      latitude.abs() <= 90 &&
+      longitude.abs() <= 180 &&
+      accuracyMeters >= 0 &&
+      DateTime.now().difference(capturedAt).inSeconds >= 0 &&
+      DateTime.now().difference(capturedAt).inSeconds <= 60;
+  Map<String, dynamic> toJson() => {
+    'latitude': latitude,
+    'longitude': longitude,
+    'accuracyMeters': accuracyMeters,
+    'capturedAt': capturedAt.toLocal().toIso8601String(),
+  };
+}
+
+abstract interface class LocationPort {
+  Future<CapabilityResult<LocationProof>> currentLocation();
+}
+
+abstract interface class PushPort {
+  Future<CapabilityResult<Map<String, dynamic>>> registerPush(
+    String owner,
+    Map<String, dynamic> firebase,
+  );
+  Future<CapabilityResult<Map<String, dynamic>>> pushState();
+  Future<CapabilityResult<void>> clearPush();
 }

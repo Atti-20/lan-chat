@@ -22,6 +22,7 @@ const compiled = ts.transpileModule(bodies.join('\n'), { compilerOptions: { targ
 function harness(cursor = 41) {
   const stored = new Map(), cached = new Map(), persisted = new Map(), requests = [], notifications = []
   const messages = vue.ref([]), runtimePositions = new Map([['private:7:8', cursor]])
+  const ordinaryReadProofRevision = vue.shallowRef(0)
   const queueStorage = {
     loadOutbox: async () => [...stored.values()],
     saveOutboxEntry: async entry => { stored.set(entry.clientMsgId, plain(entry)) },
@@ -34,7 +35,7 @@ function harness(cursor = 41) {
   const dependencies = {
     recoveryEnabled: { value: false },
     currentUser: { value: { id: 7 } }, selected: { value: { conversationId: 'private:7:8' } },
-    messages, runtimePositions, outbox, conversations: { value: [] },
+    messages, runtimePositions, ordinaryReadProofRevision, outbox, conversations: { value: [] },
     normalizeChatMessage: rules.normalizeMessage, mergeChatMessages: rules.mergeMessages, sortMessages: rules.sortMessages,
     advanceContiguousSequence: load('packages/domain-ts/src/sequence.ts').advanceContiguousSequence,
     inaccessibleConversationIds: new Set(), recalledMessageIds: new Set(),

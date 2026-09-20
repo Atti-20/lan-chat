@@ -94,7 +94,9 @@ void main() {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      final c = ChatController()..api = FakeApi();
+      final c = ChatController()
+        ..api = FakeApi()
+        ..online = true;
       const conversation = Conversation(
         id: 'private:1:2',
         targetId: 2,

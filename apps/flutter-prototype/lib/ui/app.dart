@@ -11,10 +11,17 @@ import 'capabilities_page.dart';
 import 'friends_page.dart';
 import 'groups_page.dart';
 import '../data/models.dart';
+import '../data/meshx_api.dart';
 import '../core/store.dart';
 import 'theme.dart';
+import 'glass_chrome.dart';
+import '../platform/glass_bridge.dart';
 import 'tokens.g.dart';
 import 'profile_page.dart';
+import 'components/meshx_avatar.dart';
+import 'components/meshx_badge.dart';
+import 'chat_tools.dart';
+import 'burn_reader.dart';
 import 'attachments/attachment_message.dart';
 import 'broadcasts_page.dart';
 
@@ -110,7 +117,7 @@ class _MeshXAppState extends State<MeshXApp> {
                 statusBarColor: Colors.transparent,
                 systemNavigationBarColor: Colors.transparent,
               ),
-      child: child ?? const SizedBox.shrink(),
+      child: MeshXGlassScope(child: child ?? const SizedBox.shrink()),
     ),
     home: AnimatedBuilder(
       animation: widget.controller,
@@ -239,6 +246,27 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 8),
                 const Text('发现结果是候选节点，请确认地址与空间来源后再登录。'),
+                TextButton.icon(
+                  icon: const Icon(Icons.help_outline),
+                  label: const Text('局域网连接与证书帮助'),
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('连接局域网节点'),
+                      content: const SingleChildScrollView(
+                        child: Text(
+                          '1. 手机与节点接入同一局域网，允许系统的本地网络权限。\n\n2. 使用管理员提供的 HTTPS 域名和端口；域名可以解析到内网地址，业务服务不必开放到公网。\n\n3. 若采用单位的私有证书，请由管理员按设备策略配置可信证书。不要忽略证书错误或改用未知节点。\n\n4. 无法连接时区分：网络/端口不可达、域名解析失败、证书验证失败、账号登录失败。断开外网后能否继续使用取决于内网解析、节点服务和证书是否仍有效。',
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('知道了'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 if (widget.platform != null)
                   TextButton.icon(
                     key: const Key('system-capabilities'),
@@ -404,16 +432,108 @@ class ChatPage extends StatefulWidget {
   State<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends State<ChatPage> {
+class _ChatPageState extends State<ChatPage> with RouteAware {
   int _section = 0;
   late NavigationCountsController _counts;
   final Set<int> _visited = {0};
   int _navigationGeneration = 0;
+  ModalRoute<dynamic>? _rootRoute;
+  CupertinoPageRoute<void>? _conversationRoute;
+  String? _routeConversationId;
+  bool _preserveSelection = false;
+  bool _routeSyncScheduled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != _rootRoute) {
+      meshXRouteObserver.unsubscribe(this);
+      _rootRoute = route;
+      if (route != null) meshXRouteObserver.subscribe(this, route);
+    }
+    _queueConversationRoute();
+  }
+
+  @override
+  void didPopNext() => _queueConversationRoute();
+
+  void _queueConversationRoute() {
+    if (_routeSyncScheduled || !mounted) return;
+    _routeSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _routeSyncScheduled = false;
+      if (!mounted) return;
+      final routed =
+          Theme.of(context).platform == TargetPlatform.iOS &&
+          MediaQuery.sizeOf(context).width < 760;
+      final active = controller.active;
+      final old = _conversationRoute;
+      if (old != null &&
+          (!routed || _section != 0 || active?.id != _routeConversationId)) {
+        _preserveSelection = true;
+        Navigator.of(context).removeRoute(old);
+        return;
+      }
+      if (!routed ||
+          _section != 0 ||
+          active == null ||
+          old != null ||
+          _rootRoute?.isCurrent != true) {
+        return;
+      }
+      final id = active.id;
+      _routeConversationId = id;
+      final route = CupertinoPageRoute<void>(
+        builder: (routeContext) => AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) {
+            if (controller.active?.id != id) {
+              return const Scaffold(body: SizedBox.shrink());
+            }
+            return Scaffold(
+              appBar: AppBar(
+                title: Text(controller.active!.title),
+                actions: [
+                  IconButton(
+                    tooltip: '搜索消息',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => MessageSearchPage(chat: controller),
+                      ),
+                    ),
+                    icon: const Icon(Icons.search),
+                  ),
+                ],
+              ),
+              body: MessagePane(
+                key: ValueKey(id),
+                controller: controller,
+                platform: platform,
+              ),
+            );
+          },
+        ),
+      );
+      _conversationRoute = route;
+      Navigator.of(context).push(route).then((_) {
+        if (!mounted) return;
+        _conversationRoute = null;
+        if (!_preserveSelection && controller.active?.id == id) {
+          controller.leaveConversation();
+        }
+        _preserveSelection = false;
+        _queueConversationRoute();
+      });
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     _counts = NavigationCountsController(controller);
+    controller.addListener(_queueConversationRoute);
+    MeshXGlassRuntime.instance.addListener(_syncGlassVisibility);
     _bindNavigation();
   }
 
@@ -421,6 +541,8 @@ class _ChatPageState extends State<ChatPage> {
   void didUpdateWidget(ChatPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != controller) {
+      oldWidget.controller.removeListener(_queueConversationRoute);
+      controller.addListener(_queueConversationRoute);
       _counts.dispose();
       _counts = NavigationCountsController(controller);
     }
@@ -485,6 +607,11 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> Function(ThemeMode)? get onThemeModeChanged =>
       widget.onThemeModeChanged;
 
+  void _syncGlassVisibility() {
+    platform?.chatViewVisible =
+        _section == 0 && !MeshXGlassRuntime.instance.obscuresConversation;
+  }
+
   void _selectSection(int value) {
     if (_section == value) return;
     _counts.refresh();
@@ -533,6 +660,9 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     ++_navigationGeneration;
+    controller.removeListener(_queueConversationRoute);
+    meshXRouteObserver.unsubscribe(this);
+    MeshXGlassRuntime.instance.removeListener(_syncGlassVisibility);
     _counts.dispose();
     platform?.setBroadcastNavigationHandler(null);
     platform?.setConversationNavigationHandler(null);
@@ -543,7 +673,12 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) {
     final c = controller;
     final wide = MediaQuery.sizeOf(context).width >= 760;
-    final unread = c.online && c.session != null
+    final routed = !wide && Theme.of(context).platform == TargetPlatform.iOS;
+    _queueConversationRoute();
+    // Offline changes transport state, not the server-derived conversation
+    // summaries already held by this signed-in account. Keep the badge visible
+    // until an authoritative CHAT_READ event or refreshed summary changes it.
+    final unread = c.session != null
         ? c.conversations.fold<int>(
             0,
             (total, item) => total + (item.unread > 0 ? item.unread : 0),
@@ -552,7 +687,7 @@ class _ChatPageState extends State<ChatPage> {
     Widget countedIcon(IconData data, int? count) {
       final icon = Icon(data);
       if (count == null || count <= 0) return icon;
-      return Badge.count(count: count, maxCount: 99, child: icon);
+      return MeshXBadge(count: count, child: icon);
     }
 
     Widget messageIcon(bool selected) {
@@ -560,7 +695,7 @@ class _ChatPageState extends State<ChatPage> {
         selected ? Icons.chat_bubble : Icons.chat_bubble_outline,
       );
       if (unread == 0) return icon;
-      return Badge(label: Text(unread > 99 ? '99+' : '$unread'), child: icon);
+      return MeshXBadge(count: unread, child: icon);
     }
 
     return PopScope(
@@ -574,10 +709,12 @@ class _ChatPageState extends State<ChatPage> {
         }
       },
       child: Scaffold(
+        extendBody: true,
         appBar: _section == 0
             ? AppBar(
                 leading: c.active != null && !wide
-                    ? IconButton(
+                    ? MeshXGlassButton(
+                        nativeSymbol: 'chevron.left',
                         key: const Key('back-conversations'),
                         tooltip: '返回消息列表',
                         onPressed: c.leaveConversation,
@@ -622,24 +759,40 @@ class _ChatPageState extends State<ChatPage> {
                   ],
                 ),
                 actions: [
-                  IconButton(
-                    key: const Key('theme-toggle'),
-                    tooltip: '切换明暗主题',
-                    onPressed: widget.onToggleTheme,
-                    icon: const Icon(CupertinoIcons.moon, size: 21),
+                  PopupMenuButton<String>(
+                    tooltip: '消息工具',
+                    icon: const Icon(Icons.more_horiz),
+                    onSelected: (value) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => value == 'search'
+                              ? MessageSearchPage(chat: c)
+                              : TemporaryRoomsPage(chat: c),
+                        ),
+                      );
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'search', child: Text('搜索消息')),
+                      PopupMenuItem(value: 'rooms', child: Text('临时房间')),
+                    ],
                   ),
-                  IconButton(
+                  MeshXGlassButton(
+                    nativeSymbol: 'person.crop.circle',
                     key: const Key('open-profile'),
                     tooltip: '打开个人资料与设置',
                     onPressed: _openProfile,
                     icon: const Icon(Icons.account_circle_outlined),
                   ),
-                  IconButton(
-                    key: const Key('reconnect'),
-                    tooltip: '重新连接',
-                    onPressed: c.online ? null : () => unawaited(c.reconnect()),
-                    icon: const Icon(Icons.refresh),
-                  ),
+                  if (!c.online)
+                    MeshXGlassButton(
+                      nativeSymbol: 'arrow.clockwise',
+                      key: const Key('reconnect'),
+                      tooltip: '重新连接',
+                      onPressed: c.online
+                          ? null
+                          : () => unawaited(c.reconnect()),
+                      icon: const Icon(Icons.refresh),
+                    ),
                 ],
               )
             : null,
@@ -649,6 +802,7 @@ class _ChatPageState extends State<ChatPage> {
             _section == 0
                 ? SafeArea(
                     top: false,
+                    bottom: false,
                     child: Column(
                       children: [
                         if (c.error != null)
@@ -681,7 +835,7 @@ class _ChatPageState extends State<ChatPage> {
                                     ),
                                   ],
                                 )
-                              : c.active == null
+                              : c.active == null || routed
                               ? ConversationList(controller: c)
                               : MessagePane(
                                   key: ValueKey(c.active!.id),
@@ -700,11 +854,18 @@ class _ChatPageState extends State<ChatPage> {
               ),
           ],
         ),
-        bottomNavigationBar: !wide && _section == 0 && c.active != null
+        bottomNavigationBar:
+            !wide && !routed && _section == 0 && c.active != null
             ? null
             : AnimatedBuilder(
                 animation: _counts,
-                builder: (context, _) => NavigationBar(
+                builder: (context, _) => MeshXNavigationBar(
+                  counts: [
+                    unread,
+                    _counts.friendRequests,
+                    0,
+                    _counts.broadcastTasks,
+                  ],
                   key: const Key('primary-bottom-navigation'),
                   selectedIndex: _section,
                   onDestinationSelected: _selectSection,
@@ -774,6 +935,9 @@ class ConversationList extends StatelessWidget {
         onRefresh: c.refreshConversations,
         child: ListView.builder(
           key: const Key('conversation-list'),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.paddingOf(context).bottom + 16,
+          ),
           physics: const AlwaysScrollableScrollPhysics(),
           itemCount: c.conversations.length + 1,
           itemBuilder: (context, index) {
@@ -797,8 +961,10 @@ class ConversationList extends StatelessWidget {
               ),
               selected: c.active?.id == conversation.id,
               selectedTileColor: colors['blue']!.withValues(alpha: .07),
-              leading: Avatar(
+              leading: _ConversationAvatar(
                 name: conversation.title,
+                avatar: conversation.avatar,
+                api: c.api,
                 group: conversation.kind != 'private',
               ),
               title: Text(
@@ -813,20 +979,14 @@ class ConversationList extends StatelessWidget {
               subtitle: Padding(
                 padding: const EdgeInsets.only(top: 5),
                 child: Text(
-                  conversation.preview.isEmpty ? '开始交流' : conversation.preview,
+                  !c.online ? '等待节点校验' : c.conversationPreview(conversation),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 13, color: colors['ink-soft']),
                 ),
               ),
               trailing: conversation.unread > 0
-                  ? Badge(
-                      label: Text(
-                        conversation.unread > 99
-                            ? '99+'
-                            : conversation.unread.toString(),
-                      ),
-                    )
+                  ? MeshXBadge(count: conversation.unread)
                   : null,
               onTap: () => c.select(conversation),
             );
@@ -837,39 +997,32 @@ class ConversationList extends StatelessWidget {
   }
 }
 
-class Avatar extends StatelessWidget {
-  const Avatar({
-    super.key,
+class _ConversationAvatar extends StatelessWidget {
+  const _ConversationAvatar({
     required this.name,
     this.group = false,
     this.small = false,
+    this.avatar = '',
+    this.api,
   });
+  final MeshXApi? api;
+  final String avatar;
   final String name;
   final bool group, small;
   @override
-  Widget build(BuildContext context) => Container(
-    width: small ? 32 : 48,
-    height: small ? 32 : 48,
-    alignment: Alignment.center,
-    decoration: BoxDecoration(
-      color: palette(context)['blue']!.withValues(alpha: .10),
-      borderRadius: BorderRadius.circular(small ? 10 : 15),
-    ),
-    child: group
-        ? Icon(
-            CupertinoIcons.person_2,
-            color: palette(context)['accent-text'],
-            size: 22,
-          )
-        : Text(
-            name.isEmpty ? 'M' : name.characters.first,
-            style: TextStyle(
-              fontSize: small ? 14 : 20,
-              fontWeight: FontWeight.w600,
-              color: palette(context)['accent-text'],
-            ),
-          ),
-  );
+  Widget build(BuildContext context) =>
+      (!group || avatar.isNotEmpty) && api != null
+      ? ProfileAvatar(
+          api: api!,
+          nickname: name,
+          avatar: avatar,
+          size: small ? 32 : 48,
+        )
+      : MeshXAvatar(
+          label: name,
+          size: small ? 32 : 48,
+          icon: group ? CupertinoIcons.person_2 : null,
+        );
 }
 
 class MessagePane extends StatefulWidget {
@@ -904,25 +1057,52 @@ class _MessagePaneState extends State<MessagePane> with RouteAware {
   @override
   void didPopNext() => _cancelReadDwell();
   late final TextEditingController _input;
+  late final String _conversationId;
   AttachmentController? _attachments;
+  ChatMessage? _reply;
+  bool _burn = false;
+  final _mentions = <int, String>{};
+  String? _lastFocus;
   final _scroll = ScrollController();
   final _viewport = GlobalKey();
+  final _composerViewport = GlobalKey();
   final _visibleKeys = <String, GlobalKey>{};
+  final _visibleSequences = <String, int>{};
   final _readClock = Stopwatch();
   Timer? _readTimer;
   void _sampleReadVisibility() {
     if (!mounted) return;
     final c = widget.controller, scope = widget.controller.recoveryReadScope;
     if (scope.isEmpty) return;
-    final foreground = ModalRoute.of(context)?.isCurrent == true;
+    final foreground =
+        ModalRoute.of(context)?.isCurrent == true &&
+        c.active?.id == _conversationId &&
+        !MeshXGlassRuntime.instance.obscuresConversation &&
+        widget.platform?.busy != true;
     final visible = <int>{};
     final viewport = _viewport.currentContext?.findRenderObject();
     if (foreground && viewport is RenderBox && viewport.hasSize) {
-      final bounds = viewport.localToGlobal(Offset.zero) & viewport.size;
-      final sequences = {
-        for (final m in c.messages) m.key: m.sequence,
-        for (final t in c.recoveryTerminals) t.messageId: t.sequence,
-      };
+      var bounds = viewport.localToGlobal(Offset.zero) & viewport.size;
+      final composerBox = _composerViewport.currentContext?.findRenderObject();
+      if (composerBox is RenderBox &&
+          composerBox.hasSize &&
+          composerBox.attached) {
+        final top = composerBox.localToGlobal(Offset.zero).dy;
+        // Native/Flutter controls obscure messages even though the list paints
+        // behind them. Never submit visibility for that covered strip.
+        bounds = Rect.fromLTRB(
+          bounds.left,
+          bounds.top,
+          bounds.right,
+          top.clamp(bounds.top, bounds.bottom).toDouble(),
+        );
+      }
+      _visibleKeys.removeWhere((key, value) {
+        if (value.currentContext != null) return false;
+        _visibleSequences.remove(key);
+        return true;
+      });
+      final sequences = _visibleSequences;
       for (final entry in _visibleKeys.entries) {
         final box = entry.value.currentContext?.findRenderObject();
         if (box is! RenderBox || !box.hasSize || !box.attached) continue;
@@ -948,17 +1128,23 @@ class _MessagePaneState extends State<MessagePane> with RouteAware {
       const Duration(milliseconds: 100),
       (_) => _sampleReadVisibility(),
     );
+    _conversationId = widget.controller.active!.id;
     _input = TextEditingController(
-      text: widget.controller.drafts[widget.controller.active!.id] ?? '',
+      text: widget.controller.drafts[_conversationId] ?? '',
     );
     if (widget.platform != null) {
       _attachments = AttachmentController(
         chat: widget.controller,
         platform: widget.platform!,
       );
+      unawaited(_attachments!.refreshPending());
     }
     _input.addListener(() {
-      widget.controller.drafts[widget.controller.active!.id] = _input.text;
+      final id = widget.controller.active?.id;
+      if (id == _conversationId) {
+        widget.controller.updateDraft(_conversationId, _input.text);
+        widget.controller.sendTyping(_input.text.isNotEmpty);
+      }
       setState(() {});
     });
   }
@@ -979,25 +1165,186 @@ class _MessagePaneState extends State<MessagePane> with RouteAware {
     super.dispose();
   }
 
-  void _send() {
-    if (widget.controller.send(_input.text)) {
-      _input.clear();
-      if (_scroll.hasClients) {
-        _scroll.animateTo(
-          0,
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-        );
+  Future<void> _chooseAttachment() async {
+    final controller = widget.controller;
+    final api = controller.api;
+    final userId = controller.session?.userId;
+    final conversationId = controller.active?.id;
+    if (conversationId != _conversationId) return;
+    final choice = await showMeshXAttachmentMenu(
+      context,
+      direct:
+          widget.controller.active?.kind == 'private' &&
+          widget.platform?.direct != null,
+    );
+    if (!mounted ||
+        choice == null ||
+        _attachments == null ||
+        !identical(controller.api, api) ||
+        controller.session?.userId != userId ||
+        controller.active?.id != conversationId ||
+        !controller.canSendInActiveConversation) {
+      return;
+    }
+    await _attachments!.pickAndSend(
+      photos: choice == 'photos',
+      direct: choice == 'direct',
+    );
+  }
+
+  Future<void> _messageActions(ChatMessage message) async {
+    final c = widget.controller;
+    if (!c.allowsMessage(message) || message.delivery != Delivery.sent) return;
+    _cancelReadDwell();
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            title: const Text('引用'),
+            leading: const Icon(Icons.reply),
+            onTap: () => Navigator.pop(ctx, 'reply'),
+          ),
+          if (message.fromUserId == c.session?.userId)
+            ListTile(
+              title: const Text('撤回'),
+              leading: const Icon(Icons.undo),
+              onTap: () => Navigator.pop(ctx, 'recall'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted ||
+        !c.allowsMessage(message) ||
+        c.active?.id != message.conversationId) {
+      return;
+    }
+    if (action == 'reply') setState(() => _reply = message);
+    if (action == 'recall') {
+      final yes = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('撤回这条消息？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('撤回'),
+            ),
+          ],
+        ),
+      );
+      if (yes == true && mounted) c.requestRecall(message);
+    }
+  }
+
+  Future<void> _mention() async {
+    final c = widget.controller, api = widget.controller.api;
+    final conversation = c.active;
+    if (api == null ||
+        conversation?.id != _conversationId ||
+        conversation?.kind != 'group') {
+      return;
+    }
+    _cancelReadDwell();
+    try {
+      final members = await api.groupMembers(conversation!.targetId);
+      if (!mounted || c.api != api || c.active?.id != conversation.id) return;
+      final selected = await showModalBottomSheet<int>(
+        context: context,
+        useSafeArea: true,
+        builder: (ctx) => ListView(
+          shrinkWrap: true,
+          children: [
+            for (final member in members.where(
+              (m) => m.userId != c.session?.userId,
+            ))
+              ListTile(
+                title: Text(member.displayName),
+                onTap: () => Navigator.pop(ctx, member.userId),
+              ),
+          ],
+        ),
+      );
+      if (selected == null ||
+          !mounted ||
+          c.api != api ||
+          c.active?.id != conversation.id) {
+        return;
+      }
+      setState(
+        () => _mentions[selected] = members
+            .firstWhere((m) => m.userId == selected)
+            .displayName,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(c.describe(e))));
       }
     }
+  }
+
+  void _send() {
+    final c = widget.controller;
+    if (c.active?.id != _conversationId) return;
+    final reply = _reply != null && c.allowsMessage(_reply!)
+        ? _reply!.messageId
+        : null;
+    if (c.send(
+      _input.text,
+      replyToId: reply,
+      mentions: _mentions.keys.toSet(),
+      burn: _burn,
+    )) {
+      setState(() {
+        _reply = null;
+        _burn = false;
+        _mentions.clear();
+      });
+      _input.clear();
+      _scrollToLatest();
+    }
+  }
+
+  void _scrollToLatest() {
+    if (!_scroll.hasClients) return;
+    if (MediaQuery.of(context).disableAnimations) {
+      _scroll.jumpTo(0);
+      return;
+    }
+    unawaited(
+      _scroll.animateTo(
+        0,
+        duration: meshXDurations['motion.duration.fast']!,
+        curve: Curves.easeOut,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final c = widget.controller,
         colors = palette(context),
-        messages = c.messages;
+        messages = c.messages
+            .where(
+              (m) =>
+                  c.focusedSequence == null || m.sequence <= c.focusedSequence!,
+            )
+            .toList();
     final terminals = c.recoveryTerminals;
+    if (_lastFocus != c.focusedMessageId) {
+      _lastFocus = c.focusedMessageId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+      });
+    }
     final rows =
         <({ChatMessage? message, RecoveryTerminal? terminal, int sequence})>[
           for (final message in messages)
@@ -1008,221 +1355,338 @@ class _MessagePaneState extends State<MessagePane> with RouteAware {
                   ? message.sequence
                   : 9007199254740991,
             ),
-          for (final terminal in terminals)
+          for (final terminal in terminals.where(
+            (t) =>
+                c.focusedSequence == null || t.sequence <= c.focusedSequence!,
+          ))
             (message: null, terminal: terminal, sequence: terminal.sequence),
         ];
     if (terminals.isNotEmpty) {
       rows.sort((a, b) => a.sequence.compareTo(b.sequence));
     }
-    return Column(
-      children: [
-        if (MediaQuery.sizeOf(context).width >= 760)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                c.active!.title,
-                style: Theme.of(context).textTheme.titleMedium,
+    return MeshXMessageLayout(
+      composerKey: _composerViewport,
+      threadBuilder: (context, composerHeight) => Column(
+        children: [
+          if (c.focusedMessageId != null)
+            TextButton(
+              onPressed: c.clearMessageFocus,
+              child: const Text('已定位搜索消息 · 返回最新消息'),
+            ),
+          if (MediaQuery.sizeOf(context).width >= 760)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  c.active!.title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
               ),
             ),
-          ),
-        Expanded(
-          key: _viewport,
-          child: c.recoveryStatus.isNotEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Semantics(
-                      liveRegion: true,
-                      child: Text(
-                        c.recoveryStatus,
-                        textAlign: TextAlign.center,
+          Expanded(
+            key: _viewport,
+            child: c.recoveryStatus.isNotEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          c.recoveryStatus,
+                          textAlign: TextAlign.center,
+                        ),
                       ),
                     ),
-                  ),
-                )
-              : messages.isEmpty && c.loadingHistory
-              ? const Center(child: CircularProgressIndicator())
-              : SelectionArea(
-                  child: ListView.builder(
-                    key: const Key('message-list'),
-                    controller: _scroll,
-                    reverse: true,
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                    itemCount: rows.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == rows.length) {
-                        return Center(
-                          child: c.hasOlder
-                              ? TextButton(
-                                  key: const Key('load-older'),
-                                  onPressed: c.loadingHistory
-                                      ? null
-                                      : c.loadOlder,
-                                  child: Text(
-                                    c.loadingHistory ? '正在加载…' : '加载更早的消息',
+                  )
+                : messages.isEmpty && c.loadingHistory
+                ? const Center(child: CircularProgressIndicator())
+                : SelectionArea(
+                    child: ListView.builder(
+                      key: const Key('message-list'),
+                      controller: _scroll,
+                      reverse: true,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        16,
+                        16,
+                        composerHeight + 12,
+                      ),
+                      itemCount: rows.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == rows.length) {
+                          return Center(
+                            child: c.hasOlder
+                                ? TextButton(
+                                    key: const Key('load-older'),
+                                    onPressed: c.loadingHistory
+                                        ? null
+                                        : c.loadOlder,
+                                    child: Text(
+                                      c.loadingHistory ? '正在加载…' : '加载更早的消息',
+                                    ),
+                                  )
+                                : Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 16,
+                                    ),
+                                    child: Text(
+                                      rows.isEmpty ? '发送第一条消息，开始交流' : '会话从这里开始',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: colors['ink-faint'],
+                                      ),
+                                    ),
                                   ),
-                                )
-                              : Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  child: Text(
-                                    rows.isEmpty ? '发送第一条消息，开始交流' : '会话从这里开始',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: colors['ink-faint'],
+                          );
+                        }
+                        final row = rows[rows.length - 1 - index];
+                        if (row.terminal != null) {
+                          _visibleSequences[row.terminal!.messageId] =
+                              row.sequence;
+                          return Padding(
+                            key: _visibleKeys.putIfAbsent(
+                              row.terminal!.messageId,
+                              GlobalKey.new,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 16,
+                            ),
+                            child: Text(
+                              row.terminal!.label,
+                              key: ValueKey(
+                                'terminal-${row.terminal!.messageId}',
+                              ),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: colors['ink-soft'],
+                                fontSize: 12,
+                              ),
+                            ),
+                          );
+                        }
+                        final message = row.message!;
+                        _visibleSequences[message.key] = message.sequence;
+                        return KeyedSubtree(
+                          key: _visibleKeys.putIfAbsent(
+                            message.key,
+                            GlobalKey.new,
+                          ),
+                          child: MessageBubble(
+                            key: ValueKey('message-${message.key}'),
+                            message: message,
+                            onLongPress: () => _messageActions(message),
+                            api: c.api,
+                            avatar: c.senderAvatar(message.fromUserId),
+                            own: message.fromUserId == c.session!.userId,
+                            sender: message.nickname.isEmpty
+                                ? c.senderName(message.fromUserId)
+                                : message.nickname,
+                            onReadBurn: () async {
+                              _cancelReadDwell();
+                              await showDialog<void>(
+                                context: context,
+                                barrierDismissible: false,
+                                builder: (_) =>
+                                    BurnReader(chat: c, message: message),
+                              );
+                            },
+                            onRetry: () => c.send('', retry: message),
+                            attachments: _attachments,
+                            onBroadcast: (broadcastId) =>
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => BroadcastDetailLoaderPage(
+                                      chat: c,
+                                      platform: widget.platform,
+                                      broadcastId: broadcastId,
                                     ),
                                   ),
                                 ),
-                        );
-                      }
-                      final row = rows[rows.length - 1 - index];
-                      if (row.terminal != null) {
-                        return Padding(
-                          key: _visibleKeys.putIfAbsent(
-                            row.terminal!.messageId,
-                            GlobalKey.new,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 12,
-                            horizontal: 16,
-                          ),
-                          child: Text(
-                            row.terminal!.label,
-                            key: ValueKey(
-                              'terminal-${row.terminal!.messageId}',
-                            ),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: colors['ink-soft'],
-                              fontSize: 12,
-                            ),
                           ),
                         );
-                      }
-                      final message = row.message!;
-                      return KeyedSubtree(
-                        key: _visibleKeys.putIfAbsent(
-                          message.key,
-                          GlobalKey.new,
+                      },
+                    ),
+                  ),
+          ),
+        ],
+      ),
+      composer: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_attachments != null)
+            AnimatedBuilder(
+              animation: _attachments!,
+              builder: (context, _) => Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final task in _attachments!.pending)
+                    ListTile(
+                      title: Text(
+                        '待传：${task['fileName']}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: Wrap(
+                        children: [
+                          IconButton(
+                            tooltip: '继续上传',
+                            onPressed: _attachments!.busy
+                                ? null
+                                : () => _attachments!.resumePending(task),
+                            icon: const Icon(Icons.play_arrow),
+                          ),
+                          IconButton(
+                            tooltip: '删除待传文件',
+                            onPressed: _attachments!.busy
+                                ? null
+                                : () => _attachments!.discardPending(task),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_attachments!.busy)
+                    LinearProgressIndicator(value: _attachments!.progress),
+                  if (_attachments!.preparing)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(
+                        vertical: 8,
+                        horizontal: 12,
+                      ),
+                      child: Text('正在准备文件；大尺寸图片会自动缩小，可点击取消'),
+                    ),
+                  if (_attachments!.error != null)
+                    MaterialBanner(
+                      content: Text(_attachments!.error!),
+                      actions: [
+                        TextButton(
+                          onPressed: () {
+                            _attachments!.clearError();
+                          },
+                          child: const Text('关闭'),
                         ),
-                        child: MessageBubble(
-                          key: ValueKey('message-${message.key}'),
-                          message: message,
-                          own: message.fromUserId == c.session!.userId,
-                          sender: message.nickname.isEmpty
-                              ? c.senderName(message.fromUserId)
-                              : message.nickname,
-                          onRetry: () => c.send('', retry: message),
-                          attachments: _attachments,
-                          onBroadcast: (broadcastId) =>
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => BroadcastDetailLoaderPage(
-                                    chat: c,
-                                    platform: widget.platform,
-                                    broadcastId: broadcastId,
-                                  ),
-                                ),
-                              ),
-                        ),
-                      );
-                    },
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          if (c.typingLabel.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(6),
+              child: Text(c.typingLabel),
+            ),
+          Row(
+            children: [
+              FilterChip(
+                label: const Text('阅后即焚'),
+                selected: _burn,
+                onSelected: (value) => setState(() => _burn = value),
+              ),
+              if (_burn)
+                const Flexible(
+                  child: Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Text('接收者点击阅读后销毁', style: TextStyle(fontSize: 12)),
                   ),
                 ),
-        ),
-        if (_attachments != null)
-          AnimatedBuilder(
-            animation: _attachments!,
-            builder: (context, _) => Column(
-              mainAxisSize: MainAxisSize.min,
+            ],
+          ),
+          if (_reply != null && c.allowsMessage(_reply!))
+            ListTile(
+              dense: true,
+              title: Text('引用 ${c.senderName(_reply!.fromUserId)} 的消息'),
+              trailing: IconButton(
+                tooltip: '取消引用',
+                onPressed: () => setState(() => _reply = null),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          if (_mentions.isNotEmpty)
+            Wrap(
               children: [
-                if (_attachments!.busy)
-                  LinearProgressIndicator(value: _attachments!.progress),
-                if (_attachments!.preparing)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                    child: Text('正在准备文件；大尺寸图片会自动缩小，可点击取消'),
-                  ),
-                if (_attachments!.error != null)
-                  MaterialBanner(
-                    content: Text(_attachments!.error!),
-                    actions: [
-                      TextButton(
-                        onPressed: () {
-                          _attachments!.clearError();
-                        },
-                        child: const Text('关闭'),
-                      ),
-                    ],
+                for (final entry in _mentions.entries)
+                  InputChip(
+                    label: Text('@${entry.value}'),
+                    onDeleted: () =>
+                        setState(() => _mentions.remove(entry.key)),
                   ),
               ],
             ),
-          ),
-        Container(
-          color: colors['panel'],
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (_attachments != null)
-                AnimatedBuilder(
-                  animation: _attachments!,
-                  builder: (context, _) => IconButton(
-                    key: const Key('attach-file'),
-                    tooltip: _attachments!.busy ? '取消文件操作' : '发送文件或图片',
-                    onPressed: _attachments!.busy
-                        ? _attachments!.cancel
-                        : c.canSendInActiveConversation
-                        ? () => _attachments!.pickAndSend()
-                        : null,
-                    icon: Icon(
-                      _attachments!.busy
-                          ? CupertinoIcons.xmark_circle
-                          : CupertinoIcons.paperclip,
+          MeshXComposerSurface(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (_attachments != null)
+                  AnimatedBuilder(
+                    animation: _attachments!,
+                    builder: (context, _) => MeshXGlassButton(
+                      nativeSymbol: _attachments!.busy
+                          ? 'xmark.circle'
+                          : 'plus',
+                      key: const Key('attach-file'),
+                      tooltip: _attachments!.busy ? '取消文件操作' : '发送文件或图片',
+                      onPressed: _attachments!.busy
+                          ? _attachments!.cancel
+                          : c.canSendInActiveConversation
+                          ? _chooseAttachment
+                          : null,
+                      icon: Icon(
+                        _attachments!.busy
+                            ? CupertinoIcons.xmark_circle
+                            : CupertinoIcons.plus,
+                      ),
+                    ),
+                  ),
+                if (c.active?.kind == 'group')
+                  IconButton(
+                    tooltip: '提及群成员',
+                    onPressed: c.online ? _mention : null,
+                    icon: const Icon(Icons.alternate_email),
+                  ),
+                Expanded(
+                  child: TextField(
+                    key: const Key('composer'),
+                    controller: _input,
+                    minLines: 1,
+                    maxLines: 5,
+                    maxLength: 4000,
+                    textCapitalization: TextCapitalization.sentences,
+                    textInputAction: TextInputAction.newline,
+                    style: const TextStyle(fontSize: 16),
+                    decoration: const InputDecoration(
+                      filled: false,
+                      hintText: '发送消息…',
+                      counterText: '',
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 11,
+                      ),
                     ),
                   ),
                 ),
-              Expanded(
-                child: TextField(
-                  key: const Key('composer'),
-                  controller: _input,
-                  minLines: 1,
-                  maxLines: 5,
-                  maxLength: 4000,
-                  textCapitalization: TextCapitalization.sentences,
-                  textInputAction: TextInputAction.newline,
-                  style: const TextStyle(fontSize: 16),
-                  decoration: const InputDecoration(
-                    hintText: '发送消息…',
-                    counterText: '',
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 11,
-                    ),
-                  ),
+                const SizedBox(width: 8),
+                MeshXGlassButton(
+                  nativeSymbol: 'arrow.up',
+                  prominent: true,
+                  key: const Key('send-message'),
+                  tooltip: '发送消息',
+                  onPressed:
+                      c.session != null &&
+                          c.canSendInActiveConversation &&
+                          _input.text.trim().isNotEmpty
+                      ? _send
+                      : null,
+                  icon: const Icon(CupertinoIcons.arrow_up, size: 22),
                 ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                key: const Key('send-message'),
-                tooltip: '发送消息',
-                onPressed:
-                    c.session != null &&
-                        c.canSendInActiveConversation &&
-                        _input.text.trim().isNotEmpty
-                    ? _send
-                    : null,
-                icon: const Icon(CupertinoIcons.arrow_up, size: 22),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1236,7 +1700,14 @@ class MessageBubble extends StatelessWidget {
     required this.onRetry,
     this.attachments,
     this.onBroadcast,
+    this.api,
+    this.avatar = '',
+    this.onLongPress,
+    this.onReadBurn,
   });
+  final MeshXApi? api;
+  final String avatar;
+  final VoidCallback? onLongPress, onReadBurn;
   final ChatMessage message;
   final bool own;
   final String sender;
@@ -1246,100 +1717,138 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = palette(context), date = message.createdAt;
+    final radius = meshXSizes['shape.radius.message']!;
+    final tailRadius = meshXSizes['component.message.tail-radius']!;
+    final messageLineHeight = meshXNumbers['component.message.line-height']!;
+    final messageFontSize = meshXSizes['typography.body-large.size']!;
     final time =
         '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: own
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
-        children: [
-          if (!own) ...[
-            Avatar(name: sender, small: true),
-            const SizedBox(width: 8),
-          ],
-          Flexible(
-            child: Column(
-              crossAxisAlignment: own
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.start,
-              children: [
-                if (!own)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      sender,
-                      style: TextStyle(fontSize: 11, color: colors['ink-soft']),
-                    ),
-                  ),
-                Container(
-                  constraints: BoxConstraints(
-                    maxWidth: (MediaQuery.sizeOf(context).width * .73).clamp(
-                      160,
-                      560,
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: own ? colors['action-bg'] : colors['panel'],
-                    borderRadius:
-                        BorderRadius.circular(
-                          meshXSizes['radius-bubble']!,
-                        ).copyWith(
-                          topLeft: Radius.circular(own ? 18 : 5),
-                          topRight: Radius.circular(own ? 5 : 18),
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: own
+              ? MainAxisAlignment.end
+              : MainAxisAlignment.start,
+          children: [
+            if (!own) ...[
+              _ConversationAvatar(
+                name: sender,
+                small: true,
+                api: api,
+                avatar: avatar,
+              ),
+              const SizedBox(width: 8),
+            ],
+            Flexible(
+              child: Column(
+                crossAxisAlignment: own
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  if (!own)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        sender,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: colors['ink-soft'],
                         ),
-                  ),
-                  child: message.contentType == 'text' || message.recalled
-                      ? Text(
-                          message.displayContent,
-                          style: TextStyle(
-                            fontSize: 16,
-                            height: 1.45,
-                            color: own ? colors['on-accent'] : colors['ink'],
+                      ),
+                    ),
+                  if (message.replyToId != null)
+                    const Text('↪ 引用消息', style: TextStyle(fontSize: 12)),
+                  if (message.mentionUserIds?.isNotEmpty == true)
+                    const Text('@ 提及成员', style: TextStyle(fontSize: 12)),
+                  Container(
+                    constraints: BoxConstraints(
+                      maxWidth: (MediaQuery.sizeOf(context).width * .73).clamp(
+                        160,
+                        560,
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: own
+                          ? colors['color.message.own']
+                          : colors['color.message.peer'],
+                      borderRadius:
+                          BorderRadius.circular(radius).copyWith(
+                            topLeft: Radius.circular(
+                              own ? radius : tailRadius,
+                            ),
+                            topRight: Radius.circular(
+                              own ? tailRadius : radius,
+                            ),
                           ),
-                        )
-                      : message.contentType == 'broadcast'
-                      ? _BroadcastMessageCard(
-                          content: message.content,
-                          onOpen: onBroadcast,
-                        )
-                      : AttachmentMessage(
-                          message: message,
-                          own: own,
-                          controller: attachments,
-                        ),
-                ),
-                const SizedBox(height: 4),
-                if (own && message.delivery == Delivery.failed)
-                  TextButton(
-                    onPressed: onRetry,
-                    child: Text(
-                      '未确认送达 · 点击重试',
-                      style: TextStyle(fontSize: 12, color: colors['danger']),
                     ),
-                  )
-                else
-                  Text(
-                    time +
-                        (own
-                            ? message.delivery == Delivery.queued
-                                  ? ' · 等待联网'
-                                  : message.delivery == Delivery.sending
-                                  ? ' · 发送中'
-                                  : ' · 已发送'
-                            : ''),
-                    style: TextStyle(fontSize: 10, color: colors['ink-faint']),
+                    child:
+                        message.isBurn && !message.recalled && !message.burned
+                        ? own
+                              ? const Text('阅后即焚消息 · 等待阅读')
+                              : TextButton(
+                                  onPressed: onReadBurn,
+                                  child: const Text('点击阅读 · 阅后即焚'),
+                                )
+                        : message.contentType == 'text' ||
+                              message.recalled ||
+                              message.burned
+                        ? Text(
+                            message.displayContent,
+                            style: TextStyle(
+                              fontSize: messageFontSize,
+                              height: messageLineHeight,
+                              color: own
+                                  ? colors['color.message.on-own']
+                                  : colors['color.message.on-peer'],
+                            ),
+                          )
+                        : message.contentType == 'broadcast'
+                        ? _BroadcastMessageCard(
+                            content: message.content,
+                            onOpen: onBroadcast,
+                          )
+                        : AttachmentMessage(
+                            message: message,
+                            own: own,
+                            controller: attachments,
+                          ),
                   ),
-              ],
+                  const SizedBox(height: 4),
+                  if (own && message.delivery == Delivery.failed)
+                    TextButton(
+                      onPressed: onRetry,
+                      child: Text(
+                        '未确认送达 · 点击重试',
+                        style: TextStyle(fontSize: 12, color: colors['danger']),
+                      ),
+                    )
+                  else
+                    Text(
+                      time +
+                          (own
+                              ? message.delivery == Delivery.queued
+                                    ? ' · 等待联网'
+                                    : message.delivery == Delivery.sending
+                                    ? ' · 发送中'
+                                    : ' · 已发送'
+                              : ''),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: colors['ink-faint'],
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

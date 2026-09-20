@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import '../core/platform_ports.dart';
@@ -46,10 +47,13 @@ class NativeSystemCapabilities
     implements
         NotificationPort,
         FilePickerPort,
+        PhotoPickerPort,
         SharePort,
         NetworkChangePort,
         PermissionSettingsPort,
-        RuntimeInfoPort {
+        RuntimeInfoPort,
+        LocationPort,
+        PushPort {
   static const _events = EventChannel('com.meshx.mobile/capabilities/events');
   final _tapEvents = StreamController<NotificationRoute>.broadcast(sync: true);
   final _networkEvents = StreamController<CapabilityResult<void>>.broadcast(
@@ -141,9 +145,28 @@ class NativeSystemCapabilities
   @override
   Future<CapabilityResult<SelectedFile>> pick({
     int maxBytes = 25 * 1024 * 1024,
+  }) => _pick(maxBytes: maxBytes, photos: false);
+
+  @override
+  Future<CapabilityResult<SelectedFile>> pickPhoto({
+    int maxBytes = 25 * 1024 * 1024,
+  }) => _pick(maxBytes: maxBytes, photos: true);
+
+  Future<CapabilityResult<SelectedFile>> _pick({
+    required int maxBytes,
+    required bool photos,
   }) async {
+    if (photos &&
+        defaultTargetPlatform != TargetPlatform.iOS &&
+        defaultTargetPlatform != TargetPlatform.android) {
+      return const CapabilityResult(
+        CapabilityStatus.unsupported,
+        reason: 'photoPickerUnavailable',
+      );
+    }
     final result = await invokeCapability(capabilityChannel, 'pickFile', {
       'maxBytes': maxBytes,
+      if (photos) 'photos': true,
     });
     if (!result.ok) {
       if (result.status == CapabilityStatus.timeout) await releaseAll();
@@ -297,6 +320,67 @@ class NativeSystemCapabilities
     });
     if (result.status == CapabilityStatus.timeout) await releaseAll();
     return withoutValue(result);
+  }
+
+  @override
+  Future<CapabilityResult<Map<String, dynamic>>> registerPush(
+    String owner,
+    Map<String, dynamic> firebase,
+  ) async {
+    final result = await invokeCapability(capabilityChannel, 'registerPush', {
+      'owner': owner,
+      'firebase': firebase,
+    });
+    return CapabilityResult(
+      result.status,
+      reason: result.reason,
+      value: result.value?.cast<String, dynamic>(),
+    );
+  }
+
+  @override
+  Future<CapabilityResult<Map<String, dynamic>>> pushState() async {
+    final result = await invokeCapability(capabilityChannel, 'pushState');
+    return CapabilityResult(
+      result.status,
+      reason: result.reason,
+      value: result.value?.cast<String, dynamic>(),
+    );
+  }
+
+  @override
+  Future<CapabilityResult<void>> clearPush() async =>
+      withoutValue(await invokeCapability(capabilityChannel, 'clearPush'));
+  @override
+  Future<CapabilityResult<LocationProof>> currentLocation() async {
+    final result = await invokeCapability(capabilityChannel, 'currentLocation');
+    if (!result.ok) {
+      return CapabilityResult(result.status, reason: result.reason);
+    }
+    final raw = result.value!;
+    if ([
+      'latitude',
+      'longitude',
+      'accuracyMeters',
+      'timestamp',
+    ].any((k) => raw[k] is! num)) {
+      return const CapabilityResult(
+        CapabilityStatus.failed,
+        reason: 'invalidLocation',
+      );
+    }
+    final proof = LocationProof(
+      (raw['latitude'] as num).toDouble(),
+      (raw['longitude'] as num).toDouble(),
+      (raw['accuracyMeters'] as num).toDouble(),
+      DateTime.fromMillisecondsSinceEpoch((raw['timestamp'] as num).toInt()),
+    );
+    return proof.fresh
+        ? CapabilityResult(CapabilityStatus.success, value: proof)
+        : const CapabilityResult(
+            CapabilityStatus.failed,
+            reason: 'staleLocation',
+          );
   }
 
   @override

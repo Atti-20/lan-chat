@@ -4,8 +4,37 @@ import UserNotifications
 import Network
 import MobileCoreServices
 import ImageIO
+import PhotosUI
+import CoreLocation
 
-final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, UNUserNotificationCenterDelegate, UIDocumentPickerDelegate {
+final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, UNUserNotificationCenterDelegate, UIDocumentPickerDelegate, CLLocationManagerDelegate {
+    private static weak var pushPlugin: MobileCapabilities?
+    private var pushResult: FlutterResult?
+    private var pushTimeout: DispatchWorkItem?
+    static func pushRegistered(_ token: Data) {
+        UserDefaults.standard.set(token.map { String(format: "%02x", $0) }.joined(), forKey: "meshx-apns-token")
+        pushPlugin?.finishPush(success: true)
+    }
+    static func pushFailed() { pushPlugin?.finishPush(success: false) }
+    private func finishPush(success: Bool) {
+        guard let result = pushResult else { return }
+        pushResult = nil; pushTimeout?.cancel(); pushTimeout = nil
+        let defaults = UserDefaults.standard
+        guard success, defaults.string(forKey: "meshx-push-owner") == owner,
+              let token = defaults.string(forKey: "meshx-apns-token"),
+              let scope = defaults.string(forKey: "meshx-push-scope") else { reply(result, "FAILED", "apnsRegistrationFailed"); return }
+        result(["status": "SUCCESS", "platform": "APNS", "endpoint": token, "scope": scope])
+    }
+    private func clearPush() {
+        UserDefaults.standard.removeObject(forKey: "meshx-push-owner")
+        UserDefaults.standard.removeObject(forKey: "meshx-push-scope")
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        UIApplication.shared.unregisterForRemoteNotifications()
+        finishPush(success: false)
+    }
+    private let locationManager = CLLocationManager()
+    private var locationResult: FlutterResult?
+    private var locationTimeout: DispatchWorkItem?
     private var sink: FlutterEventSink?
     private let monitor = NWPathMonitor()
     private var hasPath = false
@@ -14,6 +43,9 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
     private var pendingTap: [String: String]?
     private var pickerResult: FlutterResult?
     private weak var picker: UIDocumentPickerViewController?
+    private weak var photoPicker: UIViewController?
+    private var photoImporting = false
+    private var photoProgress: Progress?
     private var shareResult: FlutterResult?
     private weak var shareController: UIActivityViewController?
     private let fileLock = NSLock()
@@ -24,6 +56,7 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
     private var folder: URL { FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("meshx-selected", isDirectory: true) }
     static func register(with registrar: FlutterPluginRegistrar) {
         let plugin = MobileCapabilities()
+        pushPlugin = plugin
         registrar.addMethodCallDelegate(plugin, channel: FlutterMethodChannel(name: "com.meshx.mobile/capabilities", binaryMessenger: registrar.messenger()))
         FlutterEventChannel(name: "com.meshx.mobile/capabilities/events", binaryMessenger: registrar.messenger()).setStreamHandler(plugin)
         UNUserNotificationCenter.current().delegate = plugin
@@ -61,10 +94,62 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
         default: return "UNSUPPORTED"
         }
     }
+    private func finishLocation(_ status: String, _ location: CLLocation? = nil) {
+        guard let result = locationResult else { return }
+        locationResult = nil
+        locationTimeout?.cancel(); locationTimeout = nil
+        locationManager.stopUpdatingLocation()
+        if let location {
+            result(["status": "SUCCESS", "latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude, "accuracyMeters": location.horizontalAccuracy, "timestamp": Int64(location.timestamp.timeIntervalSince1970 * 1000)])
+        } else { reply(result, status) }
+    }
+    private func acquireLocation() {
+        guard locationResult != nil else { return }
+        switch locationManager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse: locationManager.requestLocation()
+        case .denied, .restricted: finishLocation("PERMISSION_DENIED")
+        default: break
+        }
+    }
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) { acquireLocation() }
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last, location.horizontalAccuracy >= 0, abs(location.timestamp.timeIntervalSinceNow) <= 60 else { finishLocation("FAILED"); return }
+        finishLocation("SUCCESS", location)
+    }
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) { finishLocation("FAILED") }
     func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
         let notifications = UNUserNotificationCenter.current()
         switch call.method {
+        case "pushState":
+            result(["status": "SUCCESS", "owner": UserDefaults.standard.string(forKey: "meshx-push-owner") as Any? ?? NSNull()])
+        case "clearPush":
+            clearPush(); reply(result, "SUCCESS")
+        case "registerPush":
+            guard pushResult == nil else { reply(result, "TEMPORARILY_UNAVAILABLE"); return }
+            guard let target = args["owner"] as? String, target == owner else { reply(result, "CANCELLED"); return }
+            let defaults = UserDefaults.standard
+            if defaults.string(forKey: "meshx-push-owner") != target || defaults.string(forKey: "meshx-push-scope") == nil {
+                defaults.set(UUID().uuidString, forKey: "meshx-push-scope")
+            }
+            defaults.set(target, forKey: "meshx-push-owner")
+            pushResult = result
+            let timeout = DispatchWorkItem { [weak self] in self?.finishPush(success: false) }
+            pushTimeout = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: timeout)
+            UIApplication.shared.registerForRemoteNotifications()
+
+        case "currentLocation":
+            guard locationResult == nil else { reply(result, "TEMPORARILY_UNAVAILABLE"); return }
+            locationResult = result
+            locationManager.delegate = self
+            locationManager.desiredAccuracy = kCLLocationAccuracyBest
+            let timeout = DispatchWorkItem { [weak self] in self?.finishLocation("TIMEOUT") }
+            locationTimeout = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeout)
+            if locationManager.authorizationStatus == .notDetermined { locationManager.requestWhenInUseAuthorization() }
+            else { acquireLocation() }
+
         case "runtimeInfo":
             let bundle = Bundle.main.infoDictionary ?? [:]
             result([
@@ -84,6 +169,7 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
                 } else { DispatchQueue.main.async { self.reply(result, self.permission(settings)) } }
             }
         case "notificationOwner":
+            if let saved = UserDefaults.standard.string(forKey: "meshx-push-owner"), saved != args["owner"] as? String { clearPush() }
             owner = args["owner"] as? String; notificationEpoch = UUID().uuidString
             notifications.removeAllPendingNotificationRequests(); notifications.removeAllDeliveredNotifications()
             reply(result, "SUCCESS")
@@ -125,6 +211,11 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
             guard pickerResult == nil, shareResult == nil else { reply(result, "TEMPORARILY_UNAVAILABLE", "pickerBusy"); return }
             guard let view = presenter else { reply(result, "TEMPORARILY_UNAVAILABLE", "background"); return }
             fileLimit = min(25 * 1024 * 1024, max(1, args["maxBytes"] as? Int ?? 25 * 1024 * 1024))
+            if args["photos"] as? Bool == true {
+                if #available(iOS 14.0, *) { beginPhotoPicker(from: view, result: result) }
+                else { reply(result, "UNSUPPORTED", "photoPickerUnavailable") }
+                return
+            }
             let picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .open)
             picker.delegate = self; picker.allowsMultipleSelection = false
             self.picker = picker; pickerResult = result
@@ -241,6 +332,13 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completion: @escaping () -> Void) {
         defer { completion() }
+        if let scope = response.notification.request.content.userInfo["meshxScope"] as? String,
+           scope == UserDefaults.standard.string(forKey: "meshx-push-scope"),
+           let target = UserDefaults.standard.string(forKey: "meshx-push-owner") {
+            let event = ["type": "notificationTap", "owner": target, "conversationId": "push-inbox"]
+            if sink != nil { sink?(event) } else { pendingTap = event }
+            return
+        }
         guard let target = response.notification.request.content.userInfo["meshx_owner"] as? String,
               let conversation = response.notification.request.content.userInfo["meshx_conversation"] as? String else { return }
         var event = ["type": "notificationTap", "owner": target, "conversationId": conversation]
@@ -262,15 +360,22 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
     private func advanceEpoch() { fileLock.lock(); fileEpoch += 1; fileLock.unlock() }
     private func cancelPicker(status: String) {
         advanceEpoch(); pickerTimer?.cancel(); picker?.dismiss(animated: false)
+        photoPicker?.dismiss(animated: false); photoPicker = nil
+        photoProgress?.cancel(); photoProgress = nil; photoImporting = false
         if let result = pickerResult { pickerResult = nil; reply(result, status) }
     }
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { cancelPicker(status: "CANCELLED") }
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard pickerResult != nil, let source = urls.first else { cancelPicker(status: "FAILED"); return }
+        copySelectedSource(source)
+    }
+    private func copySelectedSource(_ source: URL, cleanup: URL? = nil) {
+        guard pickerResult != nil else { if let cleanup { try? FileManager.default.removeItem(at: cleanup) }; return }
         let expected = currentEpoch(), maxBytes = fileLimit
         let token = UUID().uuidString
         let directory = folder.appendingPathComponent(token, isDirectory: true)
         worker.async {
+            defer { if let cleanup { try? FileManager.default.removeItem(at: cleanup) } }
             let scoped = source.startAccessingSecurityScopedResource()
             defer { if scoped { source.stopAccessingSecurityScopedResource() } }
             var outcome: [String: Any] = ["status": "FAILED", "reason": "fileUnreadable"]
@@ -365,5 +470,99 @@ final class MobileCapabilities: NSObject, FlutterPlugin, FlutterStreamHandler, U
         return (name, png ? "image/png" : "image/jpeg", size)
     }
     private enum SelectedError: Error { case tooLarge, unreadable, cancelled, timeout }
-    deinit { monitor.cancel(); advanceEpoch(); pickerTimer?.cancel() }
+    deinit { monitor.cancel(); advanceEpoch(); pickerTimer?.cancel(); photoProgress?.cancel() }
+}
+
+// MARK: - System photo selection; reuses the existing opaque-file pipeline.
+@available(iOS 14.0, *)
+extension MobileCapabilities: PHPickerViewControllerDelegate {
+    private func beginPhotoPicker(from presenter: UIViewController, result: @escaping FlutterResult) {
+        var config = PHPickerConfiguration(photoLibrary: .shared())
+        config.filter = .images
+        config.selectionLimit = 1
+        config.preferredAssetRepresentationMode = .current
+        let controller = PHPickerViewController(configuration: config)
+        controller.delegate = self
+        photoPicker = controller; photoImporting = false; pickerResult = result
+        presenter.present(controller, animated: true)
+        let timeout = DispatchWorkItem { [weak self] in self?.cancelPicker(status: "TIMEOUT") }
+        pickerTimer = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(90), execute: timeout)
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        guard picker === photoPicker, pickerResult != nil, !photoImporting else { return }
+        guard let item = results.first else { cancelPicker(status: "CANCELLED"); return }
+        photoImporting = true
+        let expected = currentEpoch(), limit = fileLimit
+        let provider = item.itemProvider
+        guard let type = provider.registeredTypeIdentifiers.first(where: {
+            UTTypeConformsTo($0 as CFString, kUTTypeImage)
+        }) else { cancelPicker(status: "FAILED"); return }
+        // Dismiss before importing. A provider URL is valid only during its
+        // completion callback; copy it synchronously there, never queue the URL.
+        picker.dismiss(animated: true)
+        let ext = (UTTypeCopyPreferredTagWithClass(type as CFString, kUTTagClassFilenameExtension)?.takeRetainedValue() as String?) ?? "image"
+        photoProgress = provider.loadFileRepresentation(forTypeIdentifier: type) { [weak self] url, error in
+            guard let self else { return }
+            let staging = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("meshx-photo-import", isDirectory: true)
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            do {
+                guard error == nil, let url else { throw SelectedError.unreadable }
+                guard self.currentEpoch() == expected else { throw SelectedError.cancelled }
+                let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                guard values.isRegularFile == true else { throw SelectedError.unreadable }
+                if let size = values.fileSize, size > limit { throw SelectedError.tooLarge }
+                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true,
+                    attributes: [.protectionKey: FileProtectionType.complete])
+                let safeExt = ext.filter { $0.isLetter || $0.isNumber }
+                let destination = staging.appendingPathComponent("photo." + String(safeExt.prefix(12)))
+                guard let input = InputStream(url: url), let output = OutputStream(url: destination, append: false) else { throw SelectedError.unreadable }
+                input.open(); output.open()
+                defer { input.close(); output.close() }
+                var bytes = [UInt8](repeating: 0, count: 32768), size = 0
+                let deadline = Date().addingTimeInterval(30)
+                while true {
+                    guard self.currentEpoch() == expected else { throw SelectedError.cancelled }
+                    guard Date() < deadline else { throw SelectedError.timeout }
+                    let count = input.read(&bytes, maxLength: bytes.count)
+                    if count < 0 { throw SelectedError.unreadable }
+                    if count == 0 { break }
+                    size += count
+                    guard size <= limit else { throw SelectedError.tooLarge }
+                    try bytes.withUnsafeBufferPointer { buffer in
+                        var offset = 0
+                        while offset < count {
+                            let wrote = output.write(buffer.baseAddress!.advanced(by: offset), maxLength: count - offset)
+                            guard wrote > 0 else { throw SelectedError.unreadable }
+                            offset += wrote
+                        }
+                    }
+                }
+                guard size > 0 else { throw SelectedError.unreadable }
+                input.close(); output.close()
+                DispatchQueue.main.async {
+                    guard self.currentEpoch() == expected, self.pickerResult != nil else {
+                        try? FileManager.default.removeItem(at: staging); return
+                    }
+                    self.photoProgress = nil
+                    self.copySelectedSource(destination, cleanup: staging)
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: staging)
+                DispatchQueue.main.async {
+                    guard self.currentEpoch() == expected, let pending = self.pickerResult else { return }
+                    self.pickerTimer?.cancel(); self.pickerResult = nil
+                    self.photoProgress = nil; self.photoImporting = false
+                    switch error {
+                    case SelectedError.cancelled: self.reply(pending, "CANCELLED")
+                    case SelectedError.timeout: self.reply(pending, "TIMEOUT")
+                    case SelectedError.tooLarge: self.reply(pending, "FAILED", "fileTooLarge")
+                    default: self.reply(pending, "FAILED", "photoUnavailable")
+                    }
+                }
+            }
+        }
+    }
 }

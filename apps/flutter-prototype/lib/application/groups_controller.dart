@@ -33,7 +33,27 @@ class GroupsController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  Future<void> start() => refresh();
+  StreamSubscription<String>? _changes;
+  Future<void> start() {
+    _changes ??= chat.conversationChanges.listen((id) {
+      if (!_current) return;
+      if (!chat.conversationAccessible(id)) {
+        groups = groups.where((g) => 'group:${g.id}' != id).toList();
+        if ('group:${detail?.id}' == id) {
+          detail = null;
+          members = [];
+          loadingDetails = false;
+        }
+        _notify();
+      } else {
+        final group = detail;
+        if (group != null && 'group:${group.id}' == id && !managing) {
+          unawaited(loadDetails(group));
+        }
+      }
+    });
+    return refresh();
+  }
 
   Future<void> refresh() async {
     if (loading || !_current) return;
@@ -57,6 +77,7 @@ class GroupsController extends ChangeNotifier {
 
   Future<void> loadDetails(MeshXGroup group) async {
     if (loadingDetails || !_current) return;
+    final revision = chat.conversationRevision('group:${group.id}');
     loadingDetails = true;
     error = null;
     detail = group;
@@ -67,7 +88,12 @@ class GroupsController extends ChangeNotifier {
         api.groupInfo(group.id),
         api.groupMembers(group.id),
       ]);
-      if (!_current || detail?.id != group.id) return;
+      if (!_current ||
+          detail?.id != group.id ||
+          !chat.conversationAccessible('group:${group.id}') ||
+          revision != chat.conversationRevision('group:${group.id}')) {
+        return;
+      }
       detail = values[0] as MeshXGroup;
       members = values[1] as List<GroupMemberInfo>;
     } catch (failure) {
@@ -124,6 +150,92 @@ class GroupsController extends ChangeNotifier {
     if (!_current) return false;
     await chat.openGroupConversation(group);
     return _current;
+  }
+
+  int get role =>
+      members.where((m) => m.userId == currentUserId).firstOrNull?.role ?? -1;
+  bool get canManage => role >= 1;
+  bool get isOwner => role == 2;
+  bool managing = false;
+
+  Future<bool> manage(
+    String action, {
+    GroupMemberInfo? member,
+    String? name,
+    String? announcement,
+    List<int> invite = const [],
+  }) async {
+    final group = detail;
+    if (!_current || group == null || busy || managing) return false;
+    if (!canManage) return _reject('需要群管理员权限');
+    if ({'admin', 'transfer', 'dissolve'}.contains(action) && !isOwner) {
+      return _reject('需要群主权限');
+    }
+    if (member != null &&
+        (member.userId == currentUserId || member.role >= role)) {
+      return _reject('不能操作自己或同级/更高权限成员');
+    }
+    if (action == 'update' &&
+        ((name?.trim().length ?? 0) < 2 ||
+            name!.trim().length > 20 ||
+            (announcement?.length ?? 0) > 500)) {
+      return _reject('群名称需2-20字，公告最多500字');
+    }
+    managing = true;
+    error = null;
+    _notify();
+    try {
+      switch (action) {
+        case 'update':
+          await api.updateGroup(
+            group.id,
+            name: name!,
+            announcement: announcement ?? '',
+          );
+        case 'invite':
+          final allowed = friends.map((f) => f.userId).toSet();
+          if (invite.isEmpty || !allowed.containsAll(invite)) {
+            throw const FormatException('请选择当前好友');
+          }
+          await api.addGroupMembers(group.id, invite);
+        case 'remove':
+          await api.removeGroupMember(group.id, member!.userId);
+        case 'admin':
+          await api.setGroupAdmin(group.id, member!.userId, member.role != 1);
+        case 'transfer':
+          await api.transferGroup(group.id, member!.userId);
+        case 'mute':
+          await api.muteGroupMember(group.id, member!.userId, 60);
+        case 'unmute':
+          await api.muteGroupMember(group.id, member!.userId, 0);
+        case 'dissolve':
+          await api.dissolveGroup(group.id);
+        default:
+          throw const FormatException('未知群操作');
+      }
+      if (!_current) return false;
+      if (action == 'dissolve') {
+        await chat.confirmOwnGroupLeave(group.id);
+        groups = groups.where((g) => g.id != group.id).toList();
+        detail = null;
+        members = [];
+      } else {
+        await loadDetails(group);
+        if (!_current) return false;
+        await chat.refreshConversations();
+      }
+      if (!_current) return false;
+      notice = '群设置已更新';
+      return true;
+    } catch (failure) {
+      if (_current) error = _describe(failure);
+      return false;
+    } finally {
+      if (_current) {
+        managing = false;
+        _notify();
+      }
+    }
   }
 
   Future<bool> leave(MeshXGroup group) async {
@@ -183,6 +295,7 @@ class GroupsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_changes?.cancel());
     _disposed = true;
     super.dispose();
   }

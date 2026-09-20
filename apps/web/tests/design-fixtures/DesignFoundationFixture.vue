@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { shallowRef } from 'vue'
 import UserAvatar from '../../src/components/base/UserAvatar.vue'
-import UiIcon from '../../src/components/base/UiIcon.vue'
+import UiBadge from '../../src/components/base/UiBadge.vue'
+import UiIconButton from '../../src/components/base/UiIconButton.vue'
 import ConversationSidebar from '../../src/components/chat/ConversationSidebar.vue'
 import ChatWorkspace from '../../src/components/chat/ChatWorkspace.vue'
 import ConnectionStatusBar from '../../src/components/chat/ConnectionStatusBar.vue'
@@ -38,7 +39,8 @@ function retry(clientMsgId: string) {
         <button class="primary-button" type="button" @click="event = 'primary'">发送消息</button>
         <button class="secondary-button" type="button" disabled @click="event = 'disabled'">暂不可用</button>
         <button class="primary-button" type="button" disabled aria-busy="true">正在发送…</button>
-        <button class="icon-button" type="button" aria-label="添加"><UiIcon name="plus" :size="20" /></button>
+        <UiIconButton name="plus" label="添加" />
+        <UiBadge tone="unread" :value="128" label="128 条未读消息" />
       </div>
       <label>昵称<input class="field" placeholder="请输入昵称" value="中文 English" /></label>
       <label>说明<input class="field" disabled value="不可编辑" /></label>

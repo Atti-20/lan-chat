@@ -30,7 +30,8 @@ ThemeData meshXTheme(Brightness brightness) {
       systemOverlayStyle: brightness == Brightness.dark
           ? SystemUiOverlayStyle.light
           : SystemUiOverlayStyle.dark,
-      backgroundColor: colors['panel'],
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
       foregroundColor: colors['ink'],
       elevation: 0,
       scrolledUnderElevation: 0,
@@ -75,7 +76,9 @@ ThemeData meshXTheme(Brightness brightness) {
       ),
     ),
     iconButtonTheme: IconButtonThemeData(
-      style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
+      style: IconButton.styleFrom(
+        minimumSize: Size.square(meshXSizes['component.glass.control-size']!),
+      ),
     ),
   );
 }

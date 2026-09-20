@@ -1,3 +1,6 @@
+import 'platform/transfer_storage.dart';
+import 'platform/webrtc_peer.dart';
+import 'application/direct_transfer_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'chat_controller.dart';
@@ -15,9 +18,16 @@ void runMeshX({bool allowLocalHttp = kDebugMode}) {
     discovery: NativeNodeDiscovery(),
     allowLocalHttp: allowLocalHttp,
     store: FileChatStore(),
+    draftStore: FileChatStore(),
     credentials: NativeCredentialStore(),
   );
   final system = NativeSystemCapabilities();
+  final transfers = FileTransferStore();
+  final direct = DirectTransferController(
+    chat: controller,
+    peers: WebRtcPeerPort(),
+    store: transfers,
+  );
   final platform = PlatformCoordinator(
     chat: controller,
     lifecycle: FlutterLifecyclePort(),
@@ -27,7 +37,14 @@ void runMeshX({bool allowLocalHttp = kDebugMode}) {
     network: system,
     settings: system,
     runtimeInfo: system,
-    disposeAdapters: system.dispose,
+    location: system,
+    transfers: transfers,
+    direct: direct,
+    push: system,
+    disposeAdapters: () async {
+      direct.dispose();
+      await system.dispose();
+    },
   );
   platform.start();
   system.start();

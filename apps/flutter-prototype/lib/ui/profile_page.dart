@@ -9,6 +9,10 @@ import '../data/meshx_api.dart';
 import '../data/profile_models.dart';
 import 'capabilities_page.dart';
 import 'support_info_page.dart';
+import 'components/meshx_avatar.dart';
+import 'glass_chrome.dart';
+import 'theme.dart';
+import 'tokens.g.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -34,6 +38,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final oldPassword = TextEditingController();
   final newPassword = TextEditingController();
   final confirmation = TextEditingController();
+  final _nicknameFocus = FocusNode();
   bool _profileSeeded = false;
   String? _themeError;
   late ThemeMode _selectedTheme;
@@ -55,6 +60,7 @@ class _ProfilePageState extends State<ProfilePage> {
     oldPassword.dispose();
     newPassword.dispose();
     confirmation.dispose();
+    _nicknameFocus.dispose();
     controller.dispose();
     super.dispose();
   }
@@ -86,9 +92,12 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  void _focusProfileEditor() {
+    FocusScope.of(context).requestFocus(_nicknameFocus);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('个人资料与设置')),
     body: SafeArea(
       child: AnimatedBuilder(
         animation: Listenable.merge([
@@ -102,99 +111,116 @@ class _ProfilePageState extends State<ProfilePage> {
             _profileSeeded = true;
           }
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
+            padding: EdgeInsets.fromLTRB(
+              meshXSizes['spacing.5']!,
+              meshXSizes['spacing.2']!,
+              meshXSizes['spacing.5']!,
+              meshXSizes['spacing.8']!,
+            ),
             children: [
+              _ProfileHeader(
+                spaceName: widget.chat.node?.name ?? 'MeshX',
+                online: widget.chat.online,
+                onBack: () => Navigator.maybePop(context),
+                onEdit: profile == null ? null : _focusProfileEditor,
+              ),
+              SizedBox(height: meshXSizes['spacing.5']!),
               if (controller.loading && profile == null)
-                const Center(child: CircularProgressIndicator())
+                const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                )
               else if (profile != null) ...[
-                Center(
-                  child: ProfileAvatar(
-                    api: widget.chat.api!,
-                    nickname: nickname.text.isEmpty
-                        ? profile.nickname
-                        : nickname.text,
-                    avatar: controller.draftAvatar,
-                    size: 88,
-                  ),
+                _ProfileIdentityCard(
+                  api: widget.chat.api!,
+                  nickname: nickname.text.isEmpty
+                      ? profile.nickname
+                      : nickname.text,
+                  username: profile.username,
+                  signature: profile.signature,
+                  avatar: controller.draftAvatar,
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  '@${profile.username}',
-                  textAlign: TextAlign.center,
-                  key: const Key('profile-username'),
-                ),
-                if (profile.signature.isNotEmpty)
-                  Text(
-                    profile.signature,
-                    textAlign: TextAlign.center,
-                    key: const Key('profile-signature'),
-                  ),
-                const SizedBox(height: 20),
-                TextField(
-                  key: const Key('profile-nickname'),
-                  controller: nickname,
-                  maxLength: 16,
-                  textInputAction: TextInputAction.done,
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(labelText: '昵称'),
-                ),
-                const SizedBox(height: 8),
-                Text('文字头像', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final color in textAvatarColors)
-                      Semantics(
-                        label: '选择文字头像颜色 $color',
-                        button: true,
-                        child: InkWell(
-                          key: ValueKey('avatar-color-$color'),
-                          borderRadius: BorderRadius.circular(24),
-                          onTap: controller.busy
-                              ? null
-                              : () => controller.chooseTextAvatar(
-                                  nickname.text,
-                                  color,
+                SizedBox(height: meshXSizes['spacing.6']!),
+                const _ProfileSectionTitle('编辑资料'),
+                SizedBox(height: meshXSizes['spacing.3']!),
+                _ProfileCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        key: const Key('profile-nickname'),
+                        controller: nickname,
+                        focusNode: _nicknameFocus,
+                        maxLength: 16,
+                        textInputAction: TextInputAction.done,
+                        onChanged: (_) => setState(() {}),
+                        decoration: const InputDecoration(labelText: '昵称'),
+                      ),
+                      SizedBox(height: meshXSizes['spacing.2']!),
+                      Text(
+                        '文字头像',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      SizedBox(height: meshXSizes['spacing.2']!),
+                      Wrap(
+                        spacing: meshXSizes['spacing.2']!,
+                        runSpacing: meshXSizes['spacing.2']!,
+                        children: [
+                          for (final color in textAvatarColors)
+                            Semantics(
+                              label: '选择文字头像颜色 $color',
+                              button: true,
+                              child: InkWell(
+                                key: ValueKey('avatar-color-$color'),
+                                borderRadius: BorderRadius.circular(
+                                  meshXSizes['size.control.default']! / 2,
                                 ),
-                          child: Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: _hex(color),
-                              shape: BoxShape.circle,
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              _initial(nickname.text),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
+                                onTap: controller.busy
+                                    ? null
+                                    : () => controller.chooseTextAvatar(
+                                        nickname.text,
+                                        color,
+                                      ),
+                                child: Container(
+                                  width: meshXSizes['size.control.default']!,
+                                  height: meshXSizes['size.control.default']!,
+                                  decoration: BoxDecoration(
+                                    color: _hex(color),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    _initial(nickname.text),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
+                        ],
+                      ),
+                      SizedBox(height: meshXSizes['spacing.3']!),
+                      OutlinedButton.icon(
+                        key: const Key('upload-avatar'),
+                        onPressed: widget.platform == null || controller.busy
+                            ? null
+                            : controller.chooseImageAvatar,
+                        icon: const Icon(Icons.photo_outlined),
+                        label: Text(
+                          controller.uploading ? '正在上传…' : '选择图片头像（最大 5MB）',
                         ),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  key: const Key('upload-avatar'),
-                  onPressed: widget.platform == null || controller.busy
-                      ? null
-                      : controller.chooseImageAvatar,
-                  icon: const Icon(Icons.photo_outlined),
-                  label: Text(
-                    controller.uploading ? '正在上传…' : '选择图片头像（最大 5MB）',
+                      FilledButton(
+                        key: const Key('save-profile'),
+                        onPressed: controller.busy
+                            ? null
+                            : () => controller.save(nickname.text),
+                        child: Text(controller.saving ? '正在保存…' : '保存个人资料'),
+                      ),
+                    ],
                   ),
-                ),
-                FilledButton(
-                  key: const Key('save-profile'),
-                  onPressed: controller.busy
-                      ? null
-                      : () => controller.save(nickname.text),
-                  child: Text(controller.saving ? '正在保存…' : '保存个人资料'),
                 ),
               ],
               if (controller.error != null)
@@ -210,114 +236,195 @@ class _ProfilePageState extends State<ProfilePage> {
                     key: const Key('profile-notice'),
                   ),
                 ),
-              const SizedBox(height: 28),
-              Text('外观', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              SegmentedButton<ThemeMode>(
-                key: const Key('theme-mode'),
-                segments: const [
-                  ButtonSegment(value: ThemeMode.system, label: Text('跟随系统')),
-                  ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
-                  ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
-                ],
-                selected: {_selectedTheme},
-                onSelectionChanged: (value) => _setTheme(value.single),
+              SizedBox(height: meshXSizes['spacing.6']!),
+              const _ProfileSectionTitle('外观'),
+              SizedBox(height: meshXSizes['spacing.3']!),
+              _ProfileCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SegmentedButton<ThemeMode>(
+                      key: const Key('theme-mode'),
+                      segments: const [
+                        ButtonSegment(
+                          value: ThemeMode.system,
+                          label: Text('跟随系统'),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.light,
+                          label: Text('浅色'),
+                        ),
+                        ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
+                      ],
+                      selected: {_selectedTheme},
+                      onSelectionChanged: (value) => _setTheme(value.single),
+                    ),
+                    if (_themeError != null) ...[
+                      SizedBox(height: meshXSizes['spacing.2']!),
+                      Text(
+                        _themeError!,
+                        style: TextStyle(
+                          color: palette(context)['color.status.danger'],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              if (_themeError != null) Text(_themeError!),
-              const SizedBox(height: 28),
-              Text('节点与通知', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.dns_outlined),
-                title: Text(widget.chat.node?.name ?? '未知节点'),
-                subtitle: Text(widget.chat.api?.origin.origin ?? '未连接'),
+              SizedBox(height: meshXSizes['spacing.6']!),
+              const _ProfileSectionTitle('节点与通知'),
+              SizedBox(height: meshXSizes['spacing.3']!),
+              _ProfileCard(
+                child: _ProfileSettingsRow(
+                  icon: Icons.dns_outlined,
+                  title: '节点与连接',
+                  subtitle:
+                      '${widget.chat.api?.origin.origin ?? '未连接'} · ${widget.chat.online ? '已连接' : '离线'}',
+                ),
               ),
               if (widget.platform case final platform?) ...[
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.notifications_outlined),
-                  title: const Text('消息提醒'),
-                  subtitle: Text(
-                    capabilityMessage(platform.notificationStatus.status),
-                    key: const Key('profile-notification-status'),
-                  ),
-                ),
-                OutlinedButton(
-                  key: const Key('profile-capabilities'),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => CapabilitiesPage(platform: platform),
+                SizedBox(height: meshXSizes['spacing.2']!),
+                _ProfileCard(
+                  child: _ProfileSettingsRow(
+                    key: const Key('profile-capabilities'),
+                    icon: Icons.notifications_outlined,
+                    title: '通知与系统权限',
+                    subtitle: capabilityMessage(
+                      platform.notificationStatus.status,
                     ),
-                  ),
-                  child: const Text('管理设备权限'),
-                ),
-                OutlinedButton.icon(
-                  key: const Key('profile-support-info'),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => SupportInfoPage(
-                        chat: widget.chat,
-                        platform: platform,
+                    subtitleKey: const Key('profile-notification-status'),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CapabilitiesPage(platform: platform),
                       ),
                     ),
                   ),
-                  icon: const Icon(Icons.support_agent_outlined),
-                  label: const Text('查看支持信息'),
+                ),
+                SizedBox(height: meshXSizes['spacing.2']!),
+                _ProfileCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '后台推送',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      SizedBox(height: meshXSizes['spacing.1']!),
+                      Text(
+                        capabilityMessage(platform.pushStatus.status),
+                        style: TextStyle(
+                          color: palette(context)['color.text.secondary'],
+                          fontSize: meshXSizes['typography.caption.size']!,
+                        ),
+                      ),
+                      if (platform.pushStatus.reason.isNotEmpty) ...[
+                        SizedBox(height: meshXSizes['spacing.2']!),
+                        const Text('需要节点配置 FCM/APNs 和有效设备权限；未配置时不会启用。'),
+                      ],
+                      SizedBox(height: meshXSizes['spacing.3']!),
+                      Wrap(
+                        spacing: meshXSizes['spacing.2']!,
+                        runSpacing: meshXSizes['spacing.2']!,
+                        children: [
+                          OutlinedButton(
+                            onPressed: platform.pushBusy
+                                ? null
+                                : () => platform.configurePush(),
+                            child: const Text('启用后台推送'),
+                          ),
+                          TextButton(
+                            onPressed: platform.pushBusy
+                                ? null
+                                : platform.disablePush,
+                            child: const Text('关闭后台推送'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: meshXSizes['spacing.2']!),
+                _ProfileCard(
+                  child: _ProfileSettingsRow(
+                    key: const Key('profile-support-info'),
+                    icon: Icons.support_agent_outlined,
+                    title: '设备与支持信息',
+                    subtitle: '当前设备 / 脱敏诊断',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => SupportInfoPage(
+                          chat: widget.chat,
+                          platform: platform,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
-              const SizedBox(height: 28),
-              Text('安全', style: Theme.of(context).textTheme.titleLarge),
-              const Text('修改密码后，服务端会撤销所有设备会话并要求重新登录。'),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('old-password'),
-                controller: oldPassword,
-                obscureText: true,
-                enableSuggestions: false,
-                autocorrect: false,
-                decoration: const InputDecoration(labelText: '当前密码'),
+              SizedBox(height: meshXSizes['spacing.6']!),
+              const _ProfileSectionTitle('安全'),
+              SizedBox(height: meshXSizes['spacing.3']!),
+              _ProfileCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('修改密码后，服务端会撤销所有设备会话并要求重新登录。'),
+                    SizedBox(height: meshXSizes['spacing.3']!),
+                    TextField(
+                      key: const Key('old-password'),
+                      controller: oldPassword,
+                      obscureText: true,
+                      enableSuggestions: false,
+                      autocorrect: false,
+                      decoration: const InputDecoration(labelText: '当前密码'),
+                    ),
+                    SizedBox(height: meshXSizes['spacing.3']!),
+                    TextField(
+                      key: const Key('new-password'),
+                      controller: newPassword,
+                      obscureText: true,
+                      enableSuggestions: false,
+                      autocorrect: false,
+                      maxLength: 20,
+                      decoration: const InputDecoration(labelText: '新密码'),
+                    ),
+                    SizedBox(height: meshXSizes['spacing.3']!),
+                    TextField(
+                      key: const Key('confirm-password'),
+                      controller: confirmation,
+                      obscureText: true,
+                      enableSuggestions: false,
+                      autocorrect: false,
+                      maxLength: 20,
+                      decoration: const InputDecoration(labelText: '确认新密码'),
+                    ),
+                    FilledButton(
+                      key: const Key('change-password'),
+                      onPressed: controller.busy ? null : _changePassword,
+                      child: Text(
+                        controller.changingPassword ? '正在修改…' : '修改密码',
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('new-password'),
-                controller: newPassword,
-                obscureText: true,
-                enableSuggestions: false,
-                autocorrect: false,
-                maxLength: 20,
-                decoration: const InputDecoration(labelText: '新密码'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('confirm-password'),
-                controller: confirmation,
-                obscureText: true,
-                enableSuggestions: false,
-                autocorrect: false,
-                maxLength: 20,
-                decoration: const InputDecoration(labelText: '确认新密码'),
-              ),
-              FilledButton(
-                key: const Key('change-password'),
-                onPressed: controller.busy ? null : _changePassword,
-                child: Text(controller.changingPassword ? '正在修改…' : '修改密码'),
-              ),
-              const SizedBox(height: 20),
-              OutlinedButton.icon(
-                key: const Key('profile-logout'),
-                onPressed: controller.busy
-                    ? null
-                    : () async {
-                        await widget.chat.logout();
-                        if (context.mounted) {
-                          Navigator.of(
-                            context,
-                          ).popUntil((route) => route.isFirst);
-                        }
-                      },
-                icon: const Icon(Icons.logout),
-                label: const Text('退出登录'),
+              SizedBox(height: meshXSizes['spacing.3']!),
+              _ProfileCard(
+                child: OutlinedButton.icon(
+                  key: const Key('profile-logout'),
+                  onPressed: controller.busy
+                      ? null
+                      : () async {
+                          await widget.chat.logout();
+                          if (context.mounted) {
+                            Navigator.of(
+                              context,
+                            ).popUntil((route) => route.isFirst);
+                          }
+                        },
+                  icon: const Icon(Icons.logout),
+                  label: const Text('退出登录'),
+                ),
               ),
             ],
           );
@@ -325,6 +432,240 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     ),
   );
+}
+
+class _ProfileHeader extends StatelessWidget {
+  const _ProfileHeader({
+    required this.spaceName,
+    required this.online,
+    required this.onBack,
+    this.onEdit,
+  });
+
+  final String spaceName;
+  final bool online;
+  final VoidCallback onBack;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = palette(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MeshXGlassButton(
+          tooltip: '返回',
+          nativeSymbol: 'chevron.left',
+          onPressed: onBack,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        SizedBox(width: meshXSizes['spacing.3']!),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                label: online ? '$spaceName，已连接' : '$spaceName，离线',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        spaceName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors['color.text.secondary'],
+                          fontSize: meshXSizes['typography.caption.size']!,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: meshXSizes['spacing.2']!,
+                      height: meshXSizes['spacing.2']!,
+                      margin: EdgeInsets.only(left: meshXSizes['spacing.2']!),
+                      decoration: BoxDecoration(
+                        color:
+                            colors[online
+                                ? 'color.presence.online'
+                                : 'color.status.warning'],
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: meshXSizes['spacing.1']!),
+              Text('我的', style: Theme.of(context).textTheme.headlineMedium),
+            ],
+          ),
+        ),
+        if (onEdit != null)
+          MeshXGlassButton(
+            key: const Key('profile-focus-editor'),
+            tooltip: '编辑个人资料',
+            nativeSymbol: 'pencil',
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit_outlined),
+          ),
+      ],
+    );
+  }
+}
+
+class _ProfileIdentityCard extends StatelessWidget {
+  const _ProfileIdentityCard({
+    required this.api,
+    required this.nickname,
+    required this.username,
+    required this.signature,
+    required this.avatar,
+  });
+
+  final MeshXApi api;
+  final String nickname;
+  final String username;
+  final String signature;
+  final String avatar;
+
+  @override
+  Widget build(BuildContext context) => _ProfileCard(
+    child: Row(
+      children: [
+        ProfileAvatar(
+          api: api,
+          nickname: nickname,
+          avatar: avatar,
+          size: meshXSizes['size.control.default']! * 1.5,
+        ),
+        SizedBox(width: meshXSizes['spacing.4']!),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(nickname, style: Theme.of(context).textTheme.titleLarge),
+              SizedBox(height: meshXSizes['spacing.1']!),
+              Text(
+                '@$username',
+                key: const Key('profile-username'),
+                style: TextStyle(
+                  color: palette(context)['color.text.secondary'],
+                  fontSize: meshXSizes['typography.body.size']!,
+                ),
+              ),
+              if (signature.isNotEmpty) ...[
+                SizedBox(height: meshXSizes['spacing.1']!),
+                Text(
+                  signature,
+                  key: const Key('profile-signature'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette(context)['color.text.secondary'],
+                    fontSize: meshXSizes['typography.caption.size']!,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ProfileSectionTitle extends StatelessWidget {
+  const _ProfileSectionTitle(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) =>
+      Text(text, style: Theme.of(context).textTheme.titleLarge);
+}
+
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = palette(context);
+    final radius = BorderRadius.circular(meshXSizes['shape.radius.large']!);
+    return Material(
+      color: colors['color.background.muted'],
+      borderRadius: radius,
+      child: Ink(
+        padding: EdgeInsets.all(meshXSizes['spacing.4']!),
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          border: Border.all(color: colors['color.border.default']!),
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _ProfileSettingsRow extends StatelessWidget {
+  const _ProfileSettingsRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.subtitleKey,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Key? subtitleKey;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = palette(context);
+    final row = Row(
+      children: [
+        Icon(icon, color: colors['color.text.secondary']),
+        SizedBox(width: meshXSizes['spacing.3']!),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              SizedBox(height: meshXSizes['spacing.1']!),
+              Text(
+                subtitle,
+                key: subtitleKey,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors['color.text.tertiary'],
+                  fontSize: meshXSizes['typography.caption.size']!,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (onTap != null)
+          Icon(
+            Icons.chevron_right,
+            color: colors['color.text.tertiary'],
+            size: meshXSizes['size.icon.medium']!,
+          ),
+      ],
+    );
+    if (onTap == null) return row;
+    return Semantics(
+      button: true,
+      label: title,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(meshXSizes['shape.radius.medium']!),
+        child: row,
+      ),
+    );
+  }
 }
 
 class ProfileAvatar extends StatefulWidget {
@@ -370,12 +711,13 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
   @override
   Widget build(BuildContext context) {
     final avatar = widget.avatar;
-    Widget child;
     if (isTextAvatar(avatar)) {
       final parts = avatar.split(':');
       final color = parts.length >= 3 ? _hex(parts[2]) : _hex('#5856D6');
-      child = ColoredBox(
-        color: color,
+      return MeshXAvatar(
+        label: widget.nickname,
+        size: widget.size,
+        backgroundColor: color,
         child: Center(
           child: Text(
             _initial(widget.nickname),
@@ -387,23 +729,21 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
           ),
         ),
       );
-    } else {
-      child = FutureBuilder<Uint8List>(
+    }
+    return MeshXAvatar(
+      label: widget.nickname,
+      size: widget.size,
+      child: FutureBuilder<Uint8List>(
+        key: ValueKey((widget.api, widget.api.session?.userId, avatar)),
         future: bytes,
         builder: (context, snapshot) => snapshot.hasData
             ? Image.memory(
                 snapshot.data!,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const Icon(Icons.person_outline),
+                errorBuilder: (_, _, _) =>
+                    const Center(child: Icon(Icons.person_outline)),
               )
             : const Center(child: Icon(Icons.person_outline)),
-      );
-    }
-    return Semantics(
-      image: true,
-      label: '${widget.nickname}的头像',
-      child: ClipOval(
-        child: SizedBox(width: widget.size, height: widget.size, child: child),
       ),
     );
   }

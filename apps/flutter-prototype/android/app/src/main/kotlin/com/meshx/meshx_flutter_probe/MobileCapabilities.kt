@@ -1,5 +1,8 @@
 package com.meshx.meshx_flutter_probe
 
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
@@ -74,6 +77,9 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
     private val prefs = activity.getSharedPreferences("meshx-capabilities", Context.MODE_PRIVATE)
     private val folder = File(activity.cacheDir, "meshx-selected")
     private var sink: EventChannel.EventSink? = null
+    private var locationResult: MethodChannel.Result? = null
+    private var locationListener: LocationListener? = null
+    private var locationTimeout: Runnable? = null
     private var notificationPermission: MethodChannel.Result? = null
     private var picker: MethodChannel.Result? = null
     private var pickerCode = 7400
@@ -114,6 +120,11 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
             val args = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
             try {
                 when (call.method) {
+                    "pushState" -> result.success(mapOf("status" to "SUCCESS", "owner" to activity.getSharedPreferences("meshx-push", Context.MODE_PRIVATE).getString("owner", null)))
+                    "registerPush" -> MeshXPush.register(activity, args, result)
+                    "clearPush" -> { MeshXPush.clear(activity); reply(result, "SUCCESS") }
+
+                    "currentLocation" -> startLocation(result)
                     "runtimeInfo" -> {
                         val packageInfo = activity.packageManager.getPackageInfo(activity.packageName, 0)
                         @Suppress("DEPRECATION")
@@ -137,7 +148,9 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
                             }
                         } else reply(result, status)
                     }
-                    "notificationOwner" -> { owner = args["owner"] as? String; manager.cancelAll(); pendingTap = null; reply(result, "SUCCESS") }
+                    "notificationOwner" -> {
+                        MeshXPush.ownerChanged(activity, args["owner"] as? String)
+                        owner = args["owner"] as? String; manager.cancelAll(); pendingTap = null; reply(result, "SUCCESS") }
                     "notificationShow" -> {
                         val target = args["owner"] as? String
                         val conversation = args["conversationId"] as? String
@@ -165,15 +178,27 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
                     }
                     "notificationCancel" -> { manager.cancel(args["id"] as? String, 0); reply(result, "SUCCESS") }
                     "notificationCancelAll" -> { if (args["owner"] != null && args["owner"] != owner) reply(result, "CANCELLED", "sessionChanged") else { manager.cancelAll(); reply(result, "SUCCESS") } }
-                    "pickFile" -> {
+                    "pickFile", "pickPhoto" -> {
                         if (picker != null) reply(result, "TEMPORARILY_UNAVAILABLE", "pickerBusy")
                         else {
                             pickerMax = ((args["maxBytes"] as? Number)?.toLong() ?: pickerMax).coerceIn(1, 25L * 1024 * 1024)
                             pickerCode = 7400 + ((pickerCode - 7400 + 1) % 10000)
                             picker = result
                             try {
-                                activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*")
-                                    .addCategory(Intent.CATEGORY_OPENABLE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), pickerCode)
+                                val photos = call.method == "pickPhoto" || args["photos"] == true
+                                val document = Intent(Intent.ACTION_OPEN_DOCUMENT)
+                                    .setType(if (photos) "image/*" else "*/*")
+                                    .addCategory(Intent.CATEGORY_OPENABLE)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                val photo = Intent("android.provider.action.PICK_IMAGES").setType("image/*")
+                                // Documents provide a fallback without Google Play services.
+                                val intent = if (photos && (Build.VERSION.SDK_INT >= 33 || photo.resolveActivity(activity.packageManager) != null)) photo else document
+                                try {
+                                    activity.startActivityForResult(intent, pickerCode)
+                                } catch (missing: android.content.ActivityNotFoundException) {
+                                    if (intent === document) throw missing
+                                    activity.startActivityForResult(document, pickerCode)
+                                }
                             } catch (_: android.content.ActivityNotFoundException) { picker = null; reply(result, "UNSUPPORTED") }
                         }
                     }
@@ -288,7 +313,48 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
         }
         return if (manager.areNotificationsEnabled() && manager.getNotificationChannel("meshx_messages")?.importance != NotificationManager.IMPORTANCE_NONE) "AVAILABLE" else "PERMISSION_DENIED"
     }
+    private fun finishLocation(status: String, location: Location? = null) {
+        val pending = locationResult ?: return
+        locationResult = null
+        locationTimeout?.let { handler.removeCallbacks(it) }; locationTimeout = null
+        locationListener?.let { activity.getSystemService(LocationManager::class.java).removeUpdates(it) }; locationListener = null
+        if (location == null) reply(pending, status) else pending.success(mapOf("status" to "SUCCESS", "latitude" to location.latitude, "longitude" to location.longitude, "accuracyMeters" to location.accuracy.toDouble(), "timestamp" to location.time))
+    }
+    private fun startLocation(result: MethodChannel.Result) {
+        if (locationResult != null) { reply(result, "TEMPORARILY_UNAVAILABLE"); return }
+        locationResult = result
+        val timeout = Runnable { finishLocation("TIMEOUT") }
+        locationTimeout = timeout; handler.postDelayed(timeout, 30000)
+        if (activity.checkSelfPermission("android.permission.ACCESS_COARSE_LOCATION") != PackageManager.PERMISSION_GRANTED) {
+            activity.requestPermissions(arrayOf("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"), 7303)
+        } else acquireLocation()
+    }
+    @Suppress("DEPRECATION", "MissingPermission")
+    private fun acquireLocation() {
+        val manager = activity.getSystemService(LocationManager::class.java)
+        val fine = activity.checkSelfPermission("android.permission.ACCESS_FINE_LOCATION") == PackageManager.PERMISSION_GRANTED
+        val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER).filter { manager.isProviderEnabled(it) && (it != LocationManager.GPS_PROVIDER || fine) }
+        if (providers.isEmpty()) { finishLocation("TEMPORARILY_UNAVAILABLE"); return }
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                if (location.hasAccuracy() && System.currentTimeMillis() - location.time in 0..60000) finishLocation("SUCCESS", location)
+            }
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+        }
+        locationListener = listener
+        try { providers.forEach { manager.requestSingleUpdate(it, listener, Looper.getMainLooper()) } }
+        catch (_: SecurityException) { finishLocation("PERMISSION_DENIED") }
+        catch (_: Exception) { finishLocation("FAILED") }
+    }
     fun permissionResult(code: Int, grants: IntArray) {
+        if (code == 7303) {
+            if (locationResult == null) return
+            if (activity.checkSelfPermission("android.permission.ACCESS_COARSE_LOCATION") == PackageManager.PERMISSION_GRANTED) acquireLocation()
+            else finishLocation("PERMISSION_DENIED")
+            return
+        }
+
         if (code != 7302) return
         notificationPermission?.let { reply(it, if (grants.isEmpty()) "CANCELLED" else permissionStatus()) }; notificationPermission = null
     }
@@ -416,6 +482,7 @@ internal class MobileCapabilities(private val activity: Activity, messenger: Bin
     }
     private class TooLarge: IOException()
     fun dispose() {
+        finishLocation("CANCELLED")
         disposed = true; epoch++
         picker?.let { reply(it, "CANCELLED", "disposed") }; picker = null
         notificationPermission?.let { reply(it, "CANCELLED", "disposed") }; notificationPermission = null

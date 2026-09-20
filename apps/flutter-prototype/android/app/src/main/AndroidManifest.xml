@@ -5,14 +5,21 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <application
         android:label="MeshX 体验版"
         android:usesCleartextTraffic="false"
-        android:name="${applicationName}"
+        android:name=".MeshXApplication"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">
         <provider android:name=".MeshXShareProvider" android:authorities="${applicationId}.selected"
             android:exported="false" android:grantUriPermissions="true" />
+        <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <service android:name=".MeshXMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -1,0 +1,8 @@
+# Load existing DNS-01 certificates; see docs/runbooks/mobile-node-and-push.md.
+{$MESHX_TLS_DOMAIN} {
+    tls {$MESHX_TLS_CERT} {$MESHX_TLS_KEY}
+    request_body {
+        max_size 110MB
+    }
+    reverse_proxy {$MESHX_UPSTREAM:127.0.0.1:8080}
+}

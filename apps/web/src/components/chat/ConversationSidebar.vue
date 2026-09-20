@@ -4,6 +4,8 @@ import type { ChatSection } from '../../composables/useChat'
 import type { ChatMessage, Conversation, FriendRequest } from '../../types'
 import { conversationPreview, formatMessageTime, formatTime } from '../../utils/format'
 import UserAvatar from '../base/UserAvatar.vue'
+import UiBadge from '../base/UiBadge.vue'
+import UiIconButton from '../base/UiIconButton.vue'
 import UiIcon, { type IconName } from '../base/UiIcon.vue'
 
 interface Props {
@@ -36,6 +38,7 @@ const emit = defineEmits<{
   joinTemporaryRoom: []
 }>()
 const moreOpen = shallowRef(false)
+const messageFilter = shallowRef<'all' | 'unread'>('all')
 const headerActionsRef = useTemplateRef<HTMLElement>('headerActions')
 
 function closeMoreMenu(): void {
@@ -55,7 +58,10 @@ function handleDocumentPointerDown(event: PointerEvent): void {
   closeMoreMenu()
 }
 
-watch(() => props.section, closeMoreMenu)
+watch(() => props.section, () => {
+  closeMoreMenu()
+  messageFilter.value = 'all'
+})
 onMounted(() => document.addEventListener('pointerdown', handleDocumentPointerDown))
 onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocumentPointerDown))
 
@@ -90,6 +96,7 @@ const emptyIcons: Record<ChatSection, IconName> = {
 const emptyIcon = computed(() => emptyIcons[props.section])
 const emptyCopy = computed(() => {
   if (query.value.trim()) return '没有匹配的结果'
+  if (props.section === 'messages' && messageFilter.value === 'unread') return '暂时没有未读消息'
   if (props.section === 'admin') return '管理控制台已打开'
   if (props.section === 'groups') return '还没有加入群聊'
   if (props.section === 'contacts') return '搜索并添加第一位好友'
@@ -97,6 +104,7 @@ const emptyCopy = computed(() => {
 })
 const emptyDetail = computed(() => {
   if (query.value.trim()) return '调整关键词后再试一次。'
+  if (props.section === 'messages' && messageFilter.value === 'unread') return '已读状态由服务端同步后更新。'
   if (props.section === 'groups') return '使用右上角按钮创建新的群聊。'
   if (props.section === 'contacts') return '使用右上角按钮搜索并添加好友。'
   return '使用右上角按钮开始新的连接。'
@@ -148,6 +156,10 @@ const messageSearchItems = computed<ConversationListItem[]>(() => {
 const searchConversationKeys = computed(() => new Set(
   matchingConversationItems.value.map((item) => `${item.conversation.kind}-${item.conversation.id}`),
 ))
+const unreadConversationCount = computed(() => props.conversations.filter((conversation) => (conversation.unreadCount ?? 0) > 0).length)
+const filteredConversations = computed(() => messageFilter.value === 'unread'
+  ? props.conversations.filter((conversation) => (conversation.unreadCount ?? 0) > 0)
+  : props.conversations)
 const listItems = computed<ConversationListItem[]>(() => {
   if (messageSearchMode.value) {
     return [
@@ -157,7 +169,7 @@ const listItems = computed<ConversationListItem[]>(() => {
       )),
     ]
   }
-  return props.conversations.map((conversation) => ({
+  return filteredConversations.value.map((conversation) => ({
     key: `conversation-${conversation.kind}-${conversation.id}`,
     conversation,
     preview: conversation.lastMessage || '还没有消息',
@@ -188,16 +200,15 @@ function itemTime(item: ConversationListItem): string {
         <h1>{{ title }}</h1>
       </div>
       <div ref="headerActions" class="header-actions">
-        <button
+        <UiIconButton
           class="mini-button"
-          type="button"
-          aria-label="更多操作"
+          name="plus"
+          label="更多操作"
+          size="compact"
           :aria-expanded="moreOpen"
           aria-haspopup="menu"
           @click="moreOpen = !moreOpen"
-        >
-          <UiIcon name="plus" :size="18" />
-        </button>
+        />
         <div v-if="moreOpen" class="action-menu" role="menu" aria-label="更多操作">
           <button type="button" role="menuitem" @click="chooseMoreAction('searchPeople')">添加好友</button>
           <button type="button" role="menuitem" @click="chooseMoreAction('createGroup')">创建群聊</button>
@@ -214,6 +225,23 @@ function itemTime(item: ConversationListItem): string {
       <UiIcon name="search" :size="17" />
       <input v-model="query" type="search" :placeholder="searchPlaceholder" />
     </label>
+
+    <div v-if="section === 'messages' && !messageSearchMode" class="conversation-filters" role="group" aria-label="消息筛选">
+      <button
+        class="filter-chip"
+        :class="{ 'filter-chip--active': messageFilter === 'all' }"
+        type="button"
+        :aria-pressed="messageFilter === 'all'"
+        @click="messageFilter = 'all'"
+      >全部</button>
+      <button
+        class="filter-chip"
+        :class="{ 'filter-chip--active': messageFilter === 'unread' }"
+        type="button"
+        :aria-pressed="messageFilter === 'unread'"
+        @click="messageFilter = 'unread'"
+      >未读 <UiBadge v-if="unreadConversationCount" class="filter-count" tone="pending" :value="unreadConversationCount" :label="`${unreadConversationCount} 个有未读消息的会话`" /></button>
+    </div>
 
     <div v-if="loading" class="sidebar-loading" aria-label="正在载入">
       <span v-for="index in 5" :key="index" />
@@ -253,12 +281,20 @@ function itemTime(item: ConversationListItem): string {
           </span>
           <span class="conversation-line conversation-preview">
             <span>{{ item.preview }}</span>
-            <span v-if="!item.messageHit && item.conversation.unreadCount" class="unread-badge" :aria-label="`${item.conversation.unreadCount} 条未读消息`">
-              {{ item.conversation.unreadCount > 99 ? '99+' : item.conversation.unreadCount }}
-            </span>
-            <i v-if="!item.messageHit && item.conversation.pendingCount" class="pending" :aria-label="`${item.conversation.pendingCount} 条待发送`">
-              {{ item.conversation.pendingCount }}
-            </i>
+            <UiBadge
+              v-if="!item.messageHit && item.conversation.unreadCount"
+              class="unread-badge"
+              tone="unread"
+              :value="item.conversation.unreadCount > 99 ? '99+' : item.conversation.unreadCount"
+              :label="`${item.conversation.unreadCount} 条未读消息`"
+            />
+            <UiBadge
+              v-if="!item.messageHit && item.conversation.pendingCount"
+              class="pending"
+              tone="pending"
+              :value="item.conversation.pendingCount"
+              :label="`${item.conversation.pendingCount} 条待发送`"
+            />
             <i v-if="!item.messageHit && item.conversation.muted" aria-label="已免打扰">⌁</i>
           </span>
         </span>
@@ -270,7 +306,7 @@ function itemTime(item: ConversationListItem): string {
       <p v-if="messageSearchWaiting" class="search-state">正在搜索消息…</p>
       <p v-else-if="messageSearchTooShort" class="search-state">请输入至少 2 个字符。</p>
       <p v-else-if="messageSearchError" class="search-state search-state--error">{{ messageSearchError }}</p>
-      <div v-else-if="messageSearchEmpty || (!messageSearchMode && conversations.length === 0)" class="empty-list">
+      <div v-else-if="messageSearchEmpty || (!messageSearchMode && listItems.length === 0)" class="empty-list">
         <span class="empty-icon">
           <UiIcon :name="emptyIcon" :size="24" />
         </span>
@@ -316,13 +352,18 @@ function itemTime(item: ConversationListItem): string {
 .action-menu button:hover,
 .action-menu button:focus-visible { color: var(--mx-color-action-text); background: var(--mx-color-interaction-hover); }
 .action-menu button:focus-visible { outline: 2px solid color-mix(in srgb, var(--mx-color-brand-blue) 45%, transparent); outline-offset: -2px; }
-.mini-button { display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border: 1px solid rgba(255,255,255,.75); cursor: pointer; }
+.mini-button { border: 1px solid rgba(255,255,255,.75); }
 .mini-button .ui-icon { width: 18px; }
 .sidebar-search { display: flex; min-height: 42px; padding: 0 12px; align-items: center; gap: var(--mx-spacing-2); border: 1px solid rgba(144,169,194,.17); }
 .sidebar-search .ui-icon { width: 17px; color: var(--mx-color-text-tertiary); }
 .sidebar-search input { width: 100%; min-width: 0; border: 0; outline: none; color: var(--mx-color-text-primary); background: none; }
 .sidebar-search input::-webkit-search-cancel-button { display: none; }
 .sidebar-search kbd { padding: 3px 5px; border: 1px solid rgba(138,163,188,.2); border-radius: 5px; color: #8293a5; font-family: inherit; font-size: var(--mx-typography-micro-size); }
+.conversation-filters { display: flex; padding: 10px 18px 8px; gap: var(--mx-spacing-2); }
+.filter-chip { display: inline-flex; min-height: var(--mx-size-control-compact); padding: 0 var(--mx-spacing-2); align-items: center; gap: var(--mx-spacing-1); border: 0; border-radius: var(--mx-shape-radius-pill); color: var(--mx-color-text-secondary); font: inherit; font-size: var(--mx-typography-caption-size); font-weight: 650; background: var(--mx-color-background-fill); cursor: pointer; }
+.filter-chip--active { color: var(--mx-color-action-text); background: var(--mx-color-interaction-selected); }
+.filter-chip:focus-visible { outline: 2px solid var(--mx-color-focus-ring); outline-offset: 2px; }
+.filter-count { min-width: 0; min-height: 0; padding-inline: 0; color: inherit; background: transparent; }
 .conversation-list { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(92,124,156,.22) transparent; }
 .conversation-item { display: flex; width: 100%; min-height: 74px; align-items: center; border: 1px solid transparent; text-align: left; background: transparent; cursor: pointer; transition: 200ms var(--mx-motion-easing-standard); }
 .conversation-item:hover { transform: translateX(2px); }
@@ -333,8 +374,8 @@ function itemTime(item: ConversationListItem): string {
 .conversation-line time { color: var(--mx-color-text-tertiary); }
 .conversation-preview > span { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-preview i { font-style: normal; }
-.conversation-preview .unread-badge { display: inline-flex; width: 20px; height: 20px; padding: 0; align-items: center; justify-content: center; flex: 0 0 20px; box-sizing: border-box; border-radius: 50%; color: white; font-size: 9px; font-weight: 750; font-style: normal; font-variant-numeric: tabular-nums; letter-spacing: -.06em; line-height: 1; white-space: nowrap; background: var(--mx-color-decorative-coral); }
-.conversation-preview .pending { min-width: 17px; padding: 1px 5px; border-radius: var(--mx-shape-radius-pill); color: var(--mx-color-action-text); font-size: var(--mx-typography-micro-size); font-style: normal; text-align: center; background: rgba(0,122,255,.1); }
+.conversation-preview .unread-badge { flex: 0 0 auto; font-style: normal; }
+.conversation-preview .pending { flex: 0 0 auto; font-style: normal; text-align: center; }
 .conversation-pin { display: grid; width: 20px; height: 20px; margin-left: auto; place-items: center; color: var(--mx-color-action-text); }
 .conversation-pin .ui-icon { width: 15px; height: 15px; }
 .request-section { margin-bottom: 4px; }
@@ -435,7 +476,7 @@ function itemTime(item: ConversationListItem): string {
 @media (max-width: 760px) {
   .conversation-sidebar {
     width: 100%;
-    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+    padding-bottom: 0;
     border: 0;
     border-radius: 0;
     background: var(--mx-color-background-surface);
@@ -448,7 +489,9 @@ function itemTime(item: ConversationListItem): string {
     min-height: 44px;
     margin: 0 max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
   }
+  .conversation-filters { padding-right: max(12px, env(safe-area-inset-right)); padding-left: max(12px, env(safe-area-inset-left)); }
   .conversation-list {
+    padding-bottom: var(--mx-runtime-nav-occlusion, calc(88px + env(safe-area-inset-bottom)));
     padding-right: max(8px, env(safe-area-inset-right));
     padding-left: max(8px, env(safe-area-inset-left));
     overscroll-behavior: contain;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
 import type { ChatMessage, Conversation, GroupMember } from '../../types'
 import { clipboardContainsTable, clipboardTableToImage } from '../../utils/clipboard'
 import UiIcon from '../base/UiIcon.vue'
+import UiIconButton from '../base/UiIconButton.vue'
 
 interface Props {
   conversation: Conversation
@@ -34,6 +35,29 @@ const emit = defineEmits<{
   file: [file: File]
   cancelReply: []
 }>()
+const attachmentMenuRef = useTemplateRef<HTMLDetailsElement>('attachmentMenu')
+function closeAttachmentMenu(): void {
+  if (attachmentMenuRef.value) attachmentMenuRef.value.open = false
+}
+function dismissAttachmentMenu(event: PointerEvent): void {
+  if (event.target instanceof Node && !attachmentMenuRef.value?.contains(event.target)) closeAttachmentMenu()
+}
+function escapeAttachmentMenu(event: KeyboardEvent): void {
+  if (event.isComposing || event.key !== 'Escape' || !attachmentMenuRef.value?.open) return
+  event.preventDefault()
+  event.stopPropagation()
+  closeAttachmentMenu()
+  attachmentMenuRef.value?.querySelector('summary')?.focus()
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', dismissAttachmentMenu)
+  document.addEventListener('keydown', escapeAttachmentMenu, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', dismissAttachmentMenu)
+  document.removeEventListener('keydown', escapeAttachmentMenu, true)
+})
+watch(() => props.conversation.conversationId, closeAttachmentMenu)
 const content = shallowRef('')
 const burn = shallowRef(false)
 const fileRef = useTemplateRef<HTMLInputElement>('fileInput')
@@ -265,12 +289,17 @@ function onFileChange(event: Event): void {
             >@{{ member.nickname }}</button>
           </div>
         </div>
+        <details ref="attachmentMenu" class="attachment-menu">
+          <summary class="tool-button" aria-label="添加照片或文件"><UiIcon name="plus" :size="24" /></summary>
+          <div class="attachment-panel" role="group" aria-label="附件来源" @click="closeAttachmentMenu">
         <button class="tool-button" type="button" aria-label="发送图片" :disabled="uploading || pasting || !connected || !writable || !fileAllowed" :title="!fileAllowed ? '房间不允许上传附件' : connected ? '' : '连接节点后可上传图片'" @click="chooseFile(imageRef)">
-          <UiIcon name="image" :size="20" />
+          <UiIcon name="image" :size="20" /><span>照片</span>
         </button>
         <button class="tool-button" type="button" aria-label="发送文件" :disabled="uploading || pasting || !connected || !writable || !fileAllowed" :title="!fileAllowed ? '房间不允许上传附件' : connected ? '' : '连接节点后可上传文件'" @click="chooseFile(fileRef)">
-          <UiIcon name="paperclip" :size="20" />
+          <UiIcon name="paperclip" :size="20" /><span>文件</span>
         </button>
+          </div>
+        </details>
         <button class="tool-button burn-button" :class="{ 'burn-button--active': burn }" type="button" :disabled="!writable" :aria-pressed="burn" aria-label="切换阅后即焚" @click="burn = !burn">
           <UiIcon name="flame" :size="20" />
         </button>
@@ -288,9 +317,14 @@ function onFileChange(event: Event): void {
         @paste="onPaste"
       />
 
-      <button class="send-button" type="button" :disabled="!writable || !content.trim()" aria-label="发送消息" @click="submit">
-        <UiIcon name="send" :size="22" />
-      </button>
+      <UiIconButton
+        class="send-button"
+        name="send"
+        label="发送消息"
+        variant="accent"
+        :disabled="!writable || !content.trim()"
+        @click="submit"
+      />
 
       <input ref="imageInput" class="sr-only" type="file" accept="image/*" @change="onFileChange" />
       <input ref="fileInput" class="sr-only" type="file" @change="onFileChange" />
@@ -305,11 +339,11 @@ function onFileChange(event: Event): void {
   position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  min-height: 54px;
+  min-height: var(--mx-component-composer-min-height);
   padding: 6px 8px;
   align-items: end;
   gap: 7px;
-  border-radius: 18px;
+  border-radius: var(--mx-component-composer-radius);
   transition: border-color 200ms ease, box-shadow 200ms ease;
   background: var(--surface-tint);
   box-shadow: 0 5px 18px var(--shadow-color), inset 0 1px 0 var(--highlight);
@@ -326,7 +360,7 @@ function onFileChange(event: Event): void {
 .mention-option { min-height: 40px; padding: 0 10px; border: 0; border-radius: 9px; color: var(--ink); font: inherit; font-size: var(--font-caption); text-align: left; background: transparent; cursor: pointer; }
 .mention-option:hover, .mention-option--selected { color: var(--accent-text); background: var(--active); }
 .mention-option--all { font-weight: 750; }
-.tool-button { display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border: 0; border-radius: var(--radius-control); color: var(--ink-soft); background: transparent; cursor: pointer; }
+.tool-button { display: grid; width: var(--mx-size-control-compact); height: var(--mx-size-control-compact); padding: 0; place-items: center; border: 0; border-radius: var(--radius-control); color: var(--ink-soft); background: transparent; cursor: pointer; }
 .tool-button:hover { color: var(--accent-text); background: rgba(0, 122, 255, 0.08); }
 .tool-button:disabled { cursor: not-allowed; opacity: .42; }
 .tool-button .ui-icon { width: 20px; }
@@ -335,10 +369,8 @@ function onFileChange(event: Event): void {
 .composer textarea::placeholder { color: color-mix(in srgb, var(--ink-faint) 86%, transparent); font-size: .92em; font-weight: 400; }
 .composer textarea:placeholder-shown { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer textarea:disabled { cursor: not-allowed; opacity: .72; }
-.send-button { display: grid; width: 40px; height: 40px; padding: 0; align-self: end; place-items: center; border: 0; border-radius: 50%; color: #fff; cursor: pointer; transition: 180ms var(--ease-liquid); flex: 0 0 auto; background: var(--action-bg); box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.28); }
-.send-button:hover { transform: translateY(-1px); background: color-mix(in srgb, var(--action-bg) 88%, #000); }
-.send-button:disabled { opacity: .36; filter: grayscale(.5); cursor: not-allowed; transform: none; }
-.send-button .ui-icon { width: 22px; }
+.send-button { align-self: end; flex: 0 0 auto; border-radius: 50%; }
+.send-button:disabled { filter: grayscale(.5); }
 .composer-hint { margin: 6px 8px 0; color: var(--ink-faint); font-size: var(--font-micro); text-align: right; }
 .reply-bar { display: flex; min-height: 42px; padding: 7px 12px; margin: 0 8px 7px; align-items: center; gap: 10px; border: 1px solid var(--separator); border-radius: var(--radius-control); color: var(--ink-soft); background: var(--fill); }
 .reply-mark { color: var(--accent-text); font-size: var(--font-title-sm); }
@@ -353,9 +385,27 @@ function onFileChange(event: Event): void {
   }
   .composer { padding: 5px 6px; gap: 3px; border-radius: 17px; }
   .composer-tools { gap: 0; }
-  .tool-button { width: 32px; height: 36px; }
+  .tool-button { width: var(--mx-size-control-compact); height: var(--mx-size-control-compact); }
   .composer textarea { min-height: 38px; padding-inline: 3px; font-size: var(--font-subtitle); }
-  .send-button { width: 38px; height: 38px; }
   .composer-hint { display: none; }
 }
+
+.attachment-menu { position: relative; }
+.attachment-menu summary { list-style: none; }
+.attachment-menu summary::-webkit-details-marker { display: none; }
+.attachment-menu summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.attachment-panel {
+  position: absolute; bottom: calc(100% + 12px); left: 0; z-index: 50;
+  display: grid; width: min(220px, calc(100vw - 48px)); gap: 4px; padding: 8px;
+  border: 1px solid var(--mx-color-glass-rim); border-radius: var(--radius-sheet);
+  background: var(--mx-color-glass-readable); box-shadow: 0 8px 28px var(--shadow-color);
+  -webkit-backdrop-filter: blur(var(--mx-component-glass-fallback-blur));
+  backdrop-filter: blur(var(--mx-component-glass-fallback-blur));
+}
+.attachment-panel .tool-button { width: 100%; min-height: 48px; height: auto; padding: 8px 12px; grid-template-columns: 24px 1fr; gap: 12px; text-align: left; justify-items: start; color: var(--ink); font-size: 1rem; }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .attachment-panel { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--mx-color-glass-accessible-border); }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .attachment-panel { background: var(--surface); } }
+@media (forced-colors: active) { .attachment-panel { background: Canvas; border: 1px solid CanvasText; } .attachment-panel .tool-button { color: ButtonText; } }
 </style>

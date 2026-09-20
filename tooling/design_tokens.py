@@ -234,9 +234,9 @@ def check(root=None):
     components = load(root / 'packages/design-tokens/components.json')
     events = load(root / 'contracts/websocket/events.schema.json')['x-events']
     errors = []
-    required = {'button', 'input', 'avatar', 'conversation', 'message', 'connection'}
+    required = {'button', 'badge', 'iconButton', 'input', 'avatar', 'conversation', 'message', 'composer', 'connection'}
     if components.get('schemaVersion') != 2 or not required.issubset(components['components']):
-        errors.append('Design component catalog requires version 2 and all six foundation components')
+        errors.append('Design component catalog requires version 2 and all nine foundation components')
     for name, component in components['components'].items():
         for token in component['tokens']:
             if token not in known:

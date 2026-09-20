@@ -107,13 +107,16 @@ test('the broadcast refresh event does not create a second native alert beside i
   assert.match(broadcasts, /technical notification account's CHAT_DELIVER is the canonical/)
 })
 
-test('selected but hidden conversations keep unread counts and cannot start read or burn side effects', async () => {
+test('a delivered message stays unread until the visible-read tracker receives server authority', async () => {
   const chat = await source('../src/composables/useChat.ts')
   const bridge = await source('../src/platform/nativeBridge.ts')
-  assert.match(chat, /updateConversationPreview\(delivered, isCurrentConversation && canReadSelectedConversation\(conversationId\)\)/)
-  assert.match(chat, /updateConversationPreview\(message, isCurrentConversation && canReadSelectedConversation\(message.conversationId\)\)/)
+  assert.match(chat, /updateConversationPreview\(delivered, false\)/)
+  assert.match(chat, /updateConversationPreview\(message, false\)/)
   assert.match(chat, /if \(isIncomingMessage && canReadSelectedConversation\(conversationId\)\) \{\s*startBurnCountdown/)
-  assert.match(chat, /function sendReadPosition[^]*?if \(!canReadSelectedConversation\(conversationId\)\) return/)
+  assert.match(chat, /function observeOrdinaryRead[^]*?new VisibleReadTracker/)
+  assert.match(chat, /pendingReadPositions\.set\(conversationId, position\)/)
+  assert.match(chat, /Keep the position until the matching CHAT_READ event arrives/)
+  assert.doesNotMatch(chat, /selected\.value = \{ \.\.\.conversation, conversationId, unreadCount: 0 \}/)
   assert.match(chat, /function scheduleBurnCountdowns[^]*?if \(!canReadSelectedConversation\(\)\) return/)
   assert.match(chat, /document.addEventListener\('visibilitychange', acknowledgeVisibleConversation\)/)
   assert.match(bridge, /initializeMobileNotification\(\{ requestPermission: false \}\)/)

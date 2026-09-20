@@ -56,6 +56,9 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('attach-file')));
     await tester.pumpAndSettle();
+    expect(find.text('照片'), findsOneWidget);
+    await tester.tap(find.text('文件'));
+    await tester.pumpAndSettle();
     expect(api.uploads, 1);
     expect(wire.frames.single['payload']['contentType'], 'image');
     expect(find.text('meshx.png'), findsOneWidget);

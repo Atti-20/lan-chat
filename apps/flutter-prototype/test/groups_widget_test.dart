@@ -29,6 +29,29 @@ class WidgetGroupsApi extends FakeGroupsApi {
 
 void main() {
   testWidgets(
+    'group directory search filters existing groups without changing membership',
+    (tester) async {
+      final api = WidgetGroupsApi(), chat = ChatController()..api = api;
+      addTearDown(chat.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: meshXTheme(Brightness.light),
+          home: GroupsPage(chat: chat),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('group-search')), findsOneWidget);
+      expect(find.byKey(const Key('group-8')), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('group-search')), '不存在');
+      await tester.pump();
+      expect(find.byKey(const Key('group-8')), findsNothing);
+      expect(find.byKey(const Key('group-search-empty')), findsOneWidget);
+      expect(api.groupList, [memberGroup]);
+    },
+  );
+
+  testWidgets(
     'group page creates from friends and opens the new conversation',
     (tester) async {
       final api = WidgetGroupsApi(), chat = ChatController()..api = api;

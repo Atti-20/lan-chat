@@ -39,7 +39,6 @@ function fixture() {
     updateConversationPreview: (message, visible) => events.push(['preview', visible]),
     mergeCurrentMessages: messages => events.push(['merge', messages[0].conversationId]),
     startBurnCountdown: () => events.push(['burn']),
-    sendReadPosition: () => events.push(['read']),
     toast: { push: () => undefined }, playNotificationSound: () => undefined,
     conversationPreview: () => '', scheduleIncomingNotification: () => events.push(['notify']),
     ws: { sendEvent: () => undefined }, createRequestId: () => 'test',
@@ -61,10 +60,10 @@ test('background, loading and modal-covered conversations do not clear unread or
   }
 })
 
-test('a selected visible loaded conversation is read and starts its burn countdown', async () => {
+test('a selected visible loaded conversation starts its burn countdown without faking a read receipt', async () => {
   const f = fixture()
   await f.deliver()
-  assert.deepEqual(f.events, [['preview', true], ['merge', 'group:7'], ['burn'], ['read'], ['notify']])
+  assert.deepEqual(f.events, [['preview', false], ['merge', 'group:7'], ['burn'], ['notify']])
 })
 
 test('switching conversation during a delayed cache write cannot merge A into B or clear A unread', async () => {

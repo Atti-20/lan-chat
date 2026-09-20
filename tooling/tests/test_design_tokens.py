@@ -148,7 +148,7 @@ class DesignTokenTests(unittest.TestCase):
             self.assertEqual(valid.returncode, 0, valid.stderr)
             catalog_path = root/'packages/design-tokens/components.json'
             for mutate, message in [
-                (lambda c: c['components'].pop('avatar'), 'six foundation'),
+                (lambda c: c['components'].pop('avatar'), 'nine foundation'),
                 (lambda c: c['components']['message']['stateCoverage'].pop('selected'), 'state coverage'),
                 (lambda c: c['components']['button'].update(spec='missing.md'), 'Missing component specification'),
                 (lambda c: c['iconSemantics']['send'].update(asset='invented-icon'), 'Unknown icon asset'),

@@ -91,9 +91,27 @@ class Conversation {
     required this.title,
     this.preview = '',
     this.unread = 0,
+    this.lastSequence = 0,
+    this.lastReadSequence = 0,
+    this.avatar = '',
   });
-  final String id, kind, title, preview;
-  final int targetId, unread;
+  final String id, kind, title, preview, avatar;
+  final int targetId, unread, lastSequence, lastReadSequence;
+  Conversation withReadState({
+    required int lastSequence,
+    required int lastReadSequence,
+    required int unread,
+  }) => Conversation(
+    id: id,
+    targetId: targetId,
+    kind: kind,
+    title: title,
+    preview: preview,
+    avatar: avatar,
+    lastSequence: lastSequence,
+    lastReadSequence: lastReadSequence,
+    unread: unread,
+  );
   Json toJson() => {
     'id': id,
     'targetId': targetId,
@@ -101,6 +119,9 @@ class Conversation {
     'title': title,
     'preview': preview,
     'unread': unread,
+    'lastSequence': lastSequence,
+    'lastReadSequence': lastReadSequence,
+    'avatar': avatar,
   };
   factory Conversation.restore(Json j) => Conversation(
     id: j['id'],
@@ -109,6 +130,9 @@ class Conversation {
     title: j['title'],
     preview: j['preview'],
     unread: j['unread'],
+    lastSequence: integer(j['lastSequence']),
+    lastReadSequence: integer(j['lastReadSequence']),
+    avatar: j['avatar'] as String? ?? '',
   );
 }
 
@@ -129,6 +153,7 @@ class ChatMessage {
     this.contentType = 'text',
     this.delivery = Delivery.sent,
     this.recalled = false,
+    this.burned = false,
     this.recoveryDisposition,
     this.isBurn = false,
     this.burnDuration,
@@ -144,13 +169,15 @@ class ChatMessage {
   final int fromUserId, sequence;
   final DateTime createdAt;
   final Delivery delivery;
-  final bool recalled;
+  final bool recalled, burned;
   final bool isBurn;
   final int? burnDuration;
   final String? replyToId, mentionUserIds;
   final RecoveryDisposition? recoveryDisposition;
   String get key => messageId.isNotEmpty ? messageId : clientMsgId;
-  String get displayContent => recalled
+  String get displayContent => burned
+      ? '这条消息已焚毁'
+      : recalled
       ? '这条消息已撤回'
       : contentType == 'text'
       ? content
@@ -162,10 +189,17 @@ class ChatMessage {
     conversationId: j['conversationId'] as String,
     fromUserId: integer(j['fromUserId']),
     nickname: j['fromNickname'] as String? ?? '',
-    content: j['content'] as String? ?? '',
-    contentType: j['contentType'] as String? ?? j['type'] as String? ?? 'text',
+    content:
+        j.containsKey('status') && !{0, 1, 2}.contains(integer(j['status']))
+        ? ''
+        : j['content'] as String? ?? '',
+    contentType:
+        j.containsKey('status') && !{0, 1, 2}.contains(integer(j['status']))
+        ? 'unsupported'
+        : j['contentType'] as String? ?? j['type'] as String? ?? 'text',
     // REST entity and WS payload use integer flags; keep legacy bool tolerance.
     recalled: j['isRecalled'] == true || integer(j['isRecalled']) == 1,
+    burned: j['burned'] == true || integer(j['status']) == 2,
     isBurn: j['isBurn'] == true || integer(j['isBurn']) == 1,
     burnDuration: j['burnDuration'] == null ? null : integer(j['burnDuration']),
     replyToId: j['replyToId'] as String?,
@@ -186,6 +220,7 @@ class ChatMessage {
     'sequence': sequence,
     'createTime': createdAt.toIso8601String(),
     'isRecalled': recalled,
+    'burned': burned,
     'delivery': delivery.name,
     if (isBurn) 'isBurn': 1,
     if (burnDuration != null) 'burnDuration': burnDuration,
@@ -221,6 +256,7 @@ class ChatMessage {
         replyToId: replyToId,
         mentionUserIds: mentionUserIds,
         recalled: recalled,
+        burned: burned,
         sequence: serverSequence ?? sequence,
         createdAt: createdAt,
         delivery: recoveryDisposition == null ? value : Delivery.failed,
@@ -244,6 +280,7 @@ class ChatMessage {
       createdAt: createdAt,
       nickname: nickname,
       recalled: recalled,
+      burned: burned,
       delivery: Delivery.failed,
       recoveryDisposition: effective,
       isBurn: effective == RecoveryDisposition.dropBodyRevoked ? false : isBurn,
@@ -258,6 +295,20 @@ class ChatMessage {
           : mentionUserIds,
     );
   }
+
+  ChatMessage terminal({required bool burned}) => ChatMessage(
+    messageId: messageId,
+    clientMsgId: clientMsgId,
+    conversationId: conversationId,
+    fromUserId: fromUserId,
+    content: '',
+    sequence: sequence,
+    createdAt: createdAt,
+    nickname: nickname,
+    delivery: Delivery.sent,
+    recalled: !burned,
+    burned: burned,
+  );
 
   ChatMessage withoutRecoveryBody({required bool isRecalled}) => ChatMessage(
     messageId: messageId,
@@ -293,7 +344,9 @@ List<ChatMessage> mergeMessages(
       result.add(message);
     } else {
       final previous = result[index];
-      result[index] = previous.recoveryDisposition == null
+      result[index] = previous.burned || previous.recalled
+          ? previous
+          : previous.recoveryDisposition == null
           ? message
           : message.recoveryDisposition == RecoveryDisposition.dropBodyRevoked
           ? previous.withRecoveryDisposition(

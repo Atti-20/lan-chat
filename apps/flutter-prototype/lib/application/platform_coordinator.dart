@@ -6,6 +6,8 @@ import '../chat_controller.dart';
 import '../core/models.dart';
 import '../core/platform_ports.dart';
 import '../core/store.dart';
+import '../core/transfer_store.dart';
+import 'direct_transfer_controller.dart';
 
 /// Application ownership and policy. OS APIs and plugin DTOs stay in adapters.
 class PlatformCoordinator extends ChangeNotifier {
@@ -18,6 +20,10 @@ class PlatformCoordinator extends ChangeNotifier {
     required this.network,
     required this.settings,
     this.runtimeInfo,
+    this.location,
+    this.transfers,
+    this.direct,
+    this.push,
     this.disposeAdapters,
   });
   final Future<void> Function()? disposeAdapters;
@@ -29,10 +35,107 @@ class PlatformCoordinator extends ChangeNotifier {
   final NetworkChangePort network;
   final PermissionSettingsPort settings;
   final RuntimeInfoPort? runtimeInfo;
+  final LocationPort? location;
+  final TransferStore? transfers;
+  final DirectTransferController? direct;
+  final PushPort? push;
   CapabilityResult<void> lifecycleStatus = const CapabilityResult(
     CapabilityStatus.available,
   );
+  CapabilityResult<void> pushStatus = const CapabilityResult(
+    CapabilityStatus.unsupported,
+    reason: 'notEnabled',
+  );
+  bool pushBusy = false;
+  Future<void> configurePush({bool restore = false}) async {
+    final current = chat.api, target = owner, port = push;
+    if (pushBusy ||
+        _disposed ||
+        current == null ||
+        target == null ||
+        port == null) {
+      return;
+    }
+    pushBusy = true;
+    _notify();
+    try {
+      await _ownerBarrier;
+      if (restore) {
+        final saved = await port.pushState();
+        if (saved.value?['owner'] != target) return;
+      }
+      final configuration = await current.pushConfiguration();
+      if (_disposed || owner != target || chat.api != current) return;
+      if (configuration['enabled'] != true) {
+        pushStatus = const CapabilityResult(
+          CapabilityStatus.unsupported,
+          reason: 'nodePushNotConfigured',
+        );
+        return;
+      }
+      final permission = await notifications.permission(request: !restore);
+      if (!permission.ok) {
+        pushStatus = permission;
+        return;
+      }
+      final result = await port.registerPush(
+        target,
+        (configuration['firebase'] as Json?) ?? {},
+      );
+      if (_disposed || owner != target || chat.api != current) return;
+      if (!result.ok || result.value == null) {
+        pushStatus = CapabilityResult(result.status, reason: result.reason);
+        return;
+      }
+      final value = result.value!;
+      await current.registerPush({
+        for (final key in ['platform', 'endpoint', 'scope']) key: value[key],
+      });
+      if (!_disposed && owner == target && chat.api == current) {
+        pushStatus = const CapabilityResult(CapabilityStatus.success);
+      }
+    } catch (_) {
+      if (!_disposed && owner == target) {
+        pushStatus = const CapabilityResult(
+          CapabilityStatus.failed,
+          reason: 'pushBindingFailed',
+        );
+      }
+    } finally {
+      pushBusy = false;
+      _notify();
+    }
+  }
+
+  Future<void> disablePush() async {
+    if (pushBusy || push == null) return;
+    final target = owner, api = chat.api;
+    pushBusy = true;
+    try {
+      await api?.unregisterPush();
+      if (!_disposed && owner == target && chat.api == api) {
+        await push!.clearPush();
+        pushStatus = const CapabilityResult(
+          CapabilityStatus.cancelled,
+          reason: 'disabled',
+        );
+      }
+    } catch (_) {
+      if (!_disposed && owner == target && chat.api == api) {
+        await push!.clearPush();
+        pushStatus = const CapabilityResult(
+          CapabilityStatus.failed,
+          reason: 'pushUnbindFailed',
+        );
+      }
+    } finally {
+      pushBusy = false;
+      _notify();
+    }
+  }
+
   final NotificationPolicy _notificationPolicy = NotificationPolicy();
+  final _ordinaryNotifications = <String, ChatMessage>{};
   final List<StreamSubscription<Object?>> _subscriptions = [];
   Future<void> _lifecycleTail = Future.value(),
       _notificationTail = Future.value();
@@ -72,6 +175,16 @@ class PlatformCoordinator extends ChangeNotifier {
     chat.onLiveMessage = _liveMessage;
     chat.addListener(_accountChanged);
     _subscriptions.add(
+      chat.invalidations.listen((event) {
+        for (final m in _ordinaryNotifications.values.toList()) {
+          if (m.conversationId == event.conversationId &&
+              (event.messageId == null || event.messageId == m.messageId)) {
+            _cancelOrdinaryNotification(m.messageId);
+          }
+        }
+      }),
+    );
+    _subscriptions.add(
       lifecycle.changes.listen((state) {
         visibility = state;
         _notify();
@@ -81,6 +194,7 @@ class PlatformCoordinator extends ChangeNotifier {
           lifecycleTransitions++;
           if (state == AppVisibility.foreground) {
             await chat.resume();
+            unawaited(configurePush(restore: true));
             unawaited(requestNotifications(request: false));
           } else {
             await chat.pause();
@@ -136,12 +250,16 @@ class PlatformCoordinator extends ChangeNotifier {
       ++_generation;
       selectedFile = null;
       _notificationPolicy.reset(next);
+      _ordinaryNotifications.clear();
       final generation = _generation;
       _ownerReady = false;
       // Invalidate native ownership immediately, before any old asynchronous show completes.
       _ownerBarrier = notifications.setOwner(next).then((result) {
         if (!_disposed && generation == _generation) {
           _ownerReady = result.ok;
+          if (result.ok && next != null) {
+            unawaited(configurePush(restore: true));
+          }
           if (!result.ok) notificationStatus = result;
         }
       });
@@ -152,8 +270,29 @@ class PlatformCoordinator extends ChangeNotifier {
         }
       });
     }
+    for (final m in _ordinaryNotifications.values.toList()) {
+      final summary = chat.conversations
+          .where((c) => c.id == m.conversationId)
+          .firstOrNull;
+      if (summary != null && summary.lastReadSequence >= m.sequence) {
+        _cancelOrdinaryNotification(m.messageId);
+      }
+    }
     _consumeTap();
     _drainRecoveryNotifications();
+  }
+
+  void _cancelOrdinaryNotification(String id) {
+    if (_ordinaryNotifications.remove(id) == null) return;
+    final generation = _generation;
+    _notificationTail = _notificationTail.then((_) async {
+      if (_disposed || generation != _generation) return;
+      final result = await notifications.cancel(id);
+      if (!_disposed && generation == _generation && !result.ok) {
+        notificationStatus = result;
+        _notify();
+      }
+    });
   }
 
   void _drainRecoveryNotifications() {
@@ -272,6 +411,13 @@ class PlatformCoordinator extends ChangeNotifier {
       _pendingTap = null;
       return;
     }
+    if (route.conversationId == 'push-inbox') {
+      _pendingTap = null;
+      chat.leaveConversation();
+      _conversationNavigation?.call();
+      unawaited(chat.refreshConversations());
+      return;
+    }
     if (chat.usesMutationRecovery &&
         !chat.recoveryNotificationAllows(
           route.messageId,
@@ -332,6 +478,7 @@ class PlatformCoordinator extends ChangeNotifier {
     )) {
       return;
     }
+    _ordinaryNotifications[message.messageId] = message;
     final generation = _generation;
     _notificationTail = _notificationTail.then((_) async {
       await _ownerBarrier;
@@ -341,6 +488,7 @@ class PlatformCoordinator extends ChangeNotifier {
           current != owner) {
         return;
       }
+      if (!_ordinaryNotifications.containsKey(message.messageId)) return;
       liveNotificationAttempts++;
       final result = await notifications.show(
         message.messageId,
@@ -391,14 +539,25 @@ class PlatformCoordinator extends ChangeNotifier {
         reason: 'runtimeInfoUnavailable',
       );
 
-  Future<void> pickFile({int maxBytes = 25 * 1024 * 1024}) async {
+  Future<void> pickFile({
+    int maxBytes = 25 * 1024 * 1024,
+    bool photos = false,
+  }) async {
     if (busy || _disposed) return;
     busy = true;
     _notify();
     final generation = _generation;
     try {
       await _fileBarrier; // Account cleanup must precede selection.
-      final result = await files.pick(maxBytes: maxBytes);
+      final media = files;
+      final CapabilityResult<SelectedFile> result = photos
+          ? media is PhotoPickerPort
+                ? await (media as PhotoPickerPort).pickPhoto(maxBytes: maxBytes)
+                : const CapabilityResult(
+                    CapabilityStatus.unsupported,
+                    reason: 'photoPickerUnavailable',
+                  )
+          : await files.pick(maxBytes: maxBytes);
       if (_disposed || generation != _generation) {
         if (result.value != null) await files.release(result.value!);
         return;

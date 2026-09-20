@@ -49,6 +49,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(find.text('我的'), findsOneWidget);
+      expect(find.text('Alice'), findsNWidgets(2));
+      expect(find.text('LAN first'), findsOneWidget);
+      expect(find.byKey(const Key('profile-focus-editor')), findsOneWidget);
       expect(find.byKey(const Key('profile-username')), findsOneWidget);
       await tester.scrollUntilVisible(
         find.byKey(const Key('save-profile')),

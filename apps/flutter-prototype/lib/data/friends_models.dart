@@ -19,10 +19,11 @@ class FriendContact {
     required this.remark,
     required this.signature,
     required this.online,
+    this.avatar = '',
   });
 
   final int userId;
-  final String username, nickname, remark, signature;
+  final String username, nickname, remark, signature, avatar;
   final bool online;
 
   String get displayName => remark.isNotEmpty
@@ -37,6 +38,7 @@ class FriendContact {
     nickname: _text(value['nickname']),
     remark: _text(value['remark']),
     signature: _text(value['signature']),
+    avatar: _text(value['avatar']),
     online: value['online'] == true || value['online'] == 1,
   );
 }
@@ -90,10 +92,11 @@ class UserSearchResult {
     required this.username,
     required this.nickname,
     required this.signature,
+    this.avatar = '',
   });
 
   final int userId;
-  final String username, nickname, signature;
+  final String username, nickname, signature, avatar;
   String get displayName => nickname.isNotEmpty ? nickname : username;
 
   factory UserSearchResult.fromJson(Json value) => UserSearchResult(
@@ -101,5 +104,6 @@ class UserSearchResult {
     username: _text(value['username']),
     nickname: _text(value['nickname']),
     signature: _text(value['signature']),
+    avatar: _text(value['avatar']),
   );
 }

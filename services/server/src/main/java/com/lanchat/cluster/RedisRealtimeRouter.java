@@ -29,6 +29,9 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class RedisRealtimeRouter implements RealtimeRouter {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.lanchat.push.MobilePushService> mobilePush;
+
     private static final Logger log = LoggerFactory.getLogger(RedisRealtimeRouter.class);
     private static final int MAX_ROUTE_BYTES = 128 * 1024;
     private static final long MAX_EVENT_AGE_MILLIS = Duration.ofMinutes(10).toMillis();
@@ -70,6 +73,7 @@ public class RedisRealtimeRouter implements RealtimeRouter {
     @Override
     public void sendToUser(Long userId, WebSocketEnvelope envelope) {
         if (userId == null || envelope == null) return;
+        if (mobilePush != null) mobilePush.ifAvailable(service -> service.enqueue(userId, envelope));
         route(newEvent(RealtimeRouteScope.USER, List.of(userId), null, false, envelope), null);
     }
 

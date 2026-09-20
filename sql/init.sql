@@ -829,3 +829,26 @@ WHERE organization.organization_key = @meshx_organization_key AND user.username 
 -- 不在结构脚本中写入任何默认账号或口令。
 -- 私有部署由 LANCHAT_BOOTSTRAP_ADMIN_PASSWORD 首次创建 admin；
 -- 其他账号由管理员创建，或在允许自助注册的开发环境中注册。
+
+-- Optional mobile push. Apply explicitly before enabling meshx.push.enabled.
+CREATE TABLE IF NOT EXISTS mobile_push_subscription (
+    device_id BIGINT NOT NULL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    platform VARCHAR(16) CHARACTER SET ascii NOT NULL,
+    endpoint VARCHAR(1000) NOT NULL,
+    scope VARCHAR(80) CHARACTER SET ascii NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_mobile_push_user (user_id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS mobile_push_delivery (
+    device_id BIGINT NOT NULL,
+    event_key VARCHAR(160) CHARACTER SET ascii NOT NULL,
+    conversation_id VARCHAR(128) NULL,
+    scope VARCHAR(80) CHARACTER SET ascii NOT NULL,
+    lease_token VARCHAR(36) CHARACTER SET ascii NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (device_id, event_key),
+    KEY idx_mobile_push_due (next_attempt_at)
+) ENGINE=InnoDB;

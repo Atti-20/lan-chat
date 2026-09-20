@@ -201,7 +201,7 @@ void main() {
         await render(Brightness.dark);
         expect(
           find.descendant(of: nav, matching: find.byType(Badge)),
-          findsNothing,
+          findsOneWidget,
         );
         chat.online = true;
         chat.conversations = const [
@@ -333,7 +333,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('联系人'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('搜索'));
+    await tester.tap(find.byKey(const Key('friends-open-search')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('friend-search-input')),

@@ -177,7 +177,7 @@ function adjustColor(hex: string, amount: number): string {
 
 .avatar {
   border-color: var(--mx-color-highlight-default);
-  border-radius: 50%;
+  border-radius: var(--mx-shape-radius-pill);
   box-shadow: inset 0 1px 0 var(--mx-color-highlight-default), 0 2px 7px var(--mx-color-shadow-default);
 }
 .online-dot { border-color: var(--mx-color-background-surface); background: var(--mx-color-presence-online); box-shadow: none; }

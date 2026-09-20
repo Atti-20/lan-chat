@@ -1248,6 +1248,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/push/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["mobilePushConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/push/subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["registerDevicePush"];
+        post?: never;
+        delete: operations["unregisterDevicePush"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms": {
         parameters: {
             query?: never;
@@ -2420,6 +2452,11 @@ export interface components {
             confirmationPhrase?: string;
             /** Format: int64 */
             targetUserId?: number;
+        };
+        PushSubscriptionRequest: {
+            endpoint?: string;
+            platform?: string;
+            scope?: string;
         };
         Ready: {
             acceptedCursor?: string;
@@ -7500,6 +7537,151 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ResultNodePublicInfo"] | components["schemas"]["ResultError"];
+                };
+            };
+            /** @description JSON application error, including 409/503; inspect HTTP and Result.code. Binary disconnects may have no body. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
+                };
+            };
+        };
+    };
+    mobilePushConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ResultMapStringObject"] | components["schemas"]["ResultError"];
+                };
+            };
+            /** @description Missing or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
+                };
+            };
+            /** @description Permission denied by the security filter */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
+                };
+            };
+            /** @description JSON application error, including 409/503; inspect HTTP and Result.code. Binary disconnects may have no body. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
+                };
+            };
+        };
+    };
+    registerDevicePush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushSubscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ResultVoid"] | components["schemas"]["ResultError"];
+                };
+            };
+            /** @description Missing or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
+                };
+            };
+            /** @description Permission denied by the security filter */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
+                };
+            };
+            /** @description JSON application error, including 409/503; inspect HTTP and Result.code. Binary disconnects may have no body. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
+                };
+            };
+        };
+    };
+    unregisterDevicePush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ResultVoid"] | components["schemas"]["ResultError"];
+                };
+            };
+            /** @description Missing or expired access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
+                };
+            };
+            /** @description Permission denied by the security filter */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultError"];
                 };
             };
             /** @description JSON application error, including 409/503; inspect HTTP and Result.code. Binary disconnects may have no body. */

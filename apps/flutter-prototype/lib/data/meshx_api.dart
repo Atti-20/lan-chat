@@ -8,6 +8,7 @@ import 'attachments_models.dart';
 import 'models.dart';
 import 'friends_models.dart';
 import 'groups_models.dart';
+import 'temporary_rooms.dart';
 import 'profile_models.dart';
 import 'broadcast_models.dart';
 import 'rest_contract.g.dart';
@@ -109,7 +110,7 @@ class MeshXApi {
   Future<dynamic> _request(
     String method,
     String path, {
-    Json? body,
+    Object? body,
     Map<String, String>? query,
     bool authorized = true,
     bool retry = true,
@@ -410,6 +411,16 @@ class MeshXApi {
             '会话 $target',
         preview: j['lastMessage'] as String? ?? '',
         unread: integer(j['unreadCount']),
+        lastSequence: integer(j['lastSequence']),
+        lastReadSequence: integer(j['lastReadSequence']),
+        avatar: kind == 'private'
+            ? (cachedFriends
+                      ?.where((f) => f.userId == target)
+                      .firstOrNull
+                      ?.avatar ??
+                  '')
+            : (cachedGroups?.where((g) => g.id == target).firstOrNull?.avatar ??
+                  ''),
       );
     }).toList();
   }
@@ -573,10 +584,11 @@ class MeshXApi {
   Future<BroadcastReceiverState> completeBroadcast(
     int broadcastId, {
     List<int> imageFileIds = const [],
+    Json? location,
   }) => _broadcastAction(
     broadcastId,
     'complete',
-    body: {'imageFileIds': imageFileIds},
+    body: {'imageFileIds': imageFileIds, 'location': ?location},
   );
 
   Future<BroadcastReceiverState> _broadcastAction(
@@ -625,6 +637,148 @@ class MeshXApi {
     onProgress: onProgress,
     retry: true,
   );
+
+  Future<FileUploadResult> resumeAttachment({
+    required Json task,
+    required Future<List<int>> Function(int offset, int length) readChunk,
+    required bool Function() cancelled,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    void check() {
+      if (_closed || cancelled()) throw const AttachmentCancelledException();
+    }
+
+    check();
+    final size = integer(task['fileSize']);
+    if (size <= 0 || size > attachmentByteLimit) {
+      throw const FormatException('附件大小无效');
+    }
+    // Revalidate the retained private copy before resuming any remote parts.
+    final digest = await sha256.bind(() async* {
+      for (var offset = 0; offset < size; offset += 1024 * 1024) {
+        check();
+        final count = min(1024 * 1024, size - offset);
+        final bytes = await readChunk(offset, count);
+        if (bytes.length != count) throw const FormatException('附件副本不完整');
+        yield bytes;
+      }
+    }()).first;
+    if (digest.toString() != task['fileHash']) {
+      throw const FormatException('附件副本校验失败');
+    }
+    check();
+    final status =
+        await _request(
+              'POST',
+              '${node!.apiPath}/file/uploads',
+              body: {
+                for (final key in [
+                  'clientUploadId',
+                  'conversationId',
+                  'fileName',
+                  'fileSize',
+                  'fileType',
+                  'fileHash',
+                ])
+                  key: task[key],
+              },
+            )
+            as Json;
+    check();
+    if (status['status'] == 'COMPLETED') {
+      return FileUploadResult.fromJson(status['completedFile'] as Json);
+    }
+    final id = status['uploadId'] as String;
+    if (!RegExp(r'^[a-zA-Z0-9-]{16,80}$').hasMatch(id)) {
+      throw const FormatException('上传任务标识无效');
+    }
+    final chunkSize = integer(status['chunkSize']),
+        parts = integer(status['totalParts']);
+    if (chunkSize <= 0 ||
+        chunkSize > 8 * 1024 * 1024 ||
+        parts != (size + chunkSize - 1) ~/ chunkSize) {
+      throw const FormatException('上传分块信息无效');
+    }
+    final uploaded = (status['uploadedParts'] as List)
+        .map((n) => integer(n))
+        .toSet();
+    var sent = 0;
+    for (var part = 1; part <= parts; part++) {
+      check();
+      final count = min(chunkSize, size - (part - 1) * chunkSize);
+      if (!uploaded.contains(part)) {
+        final bytes = await readChunk((part - 1) * chunkSize, count);
+        check();
+        if (bytes.length != count) throw const FormatException('附件副本不完整');
+        await _uploadPart(id, part, bytes, cancelled, retry: true);
+      }
+      sent += count;
+      onProgress?.call(sent, size);
+    }
+    check();
+    final result =
+        await _request('POST', '${node!.apiPath}/file/uploads/$id/complete')
+            as Json;
+    check();
+    return FileUploadResult.fromJson(result);
+  }
+
+  Future<void> _uploadPart(
+    String id,
+    int part,
+    List<int> bytes,
+    bool Function() cancelled, {
+    required bool retry,
+  }) async {
+    if (cancelled() || _closed) throw const AttachmentCancelledException();
+    final request = await _http
+        .putUrl(
+          origin.replace(
+            path: '${node!.apiPath}/file/uploads/$id/parts/$part',
+            queryParameters: {'sha256': sha256.convert(bytes).toString()},
+          ),
+        )
+        .timeout(const Duration(seconds: 10));
+    final token = session?.token;
+    request.followRedirects = false;
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    request.headers.contentType = ContentType.binary;
+    request.contentLength = bytes.length;
+    Timer? cancellation;
+    try {
+      if (cancelled() || _closed) throw const AttachmentCancelledException();
+      cancellation = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        if (cancelled() || _closed) {
+          request.abort(const AttachmentCancelledException());
+        }
+      });
+      request.add(bytes);
+      final response = await request.close().timeout(
+        const Duration(seconds: 30),
+      );
+      final body = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 15));
+      if (cancelled() || _closed) throw const AttachmentCancelledException();
+      if (response.statusCode == 401 && retry) {
+        await refresh(rejectedToken: token);
+        return _uploadPart(id, part, bytes, cancelled, retry: false);
+      }
+      final envelope = jsonDecode(body) as Json;
+      if (response.statusCode != 200 || envelope['code'] != 200) {
+        throw ApiException(
+          envelope['message'] as String? ?? '分块上传失败',
+          code: response.statusCode,
+        );
+      }
+    } catch (_) {
+      request.abort();
+      rethrow;
+    } finally {
+      cancellation?.cancel();
+    }
+  }
 
   Future<FileUploadResult> uploadAttachmentStream({
     required String conversationId,
@@ -1173,6 +1327,161 @@ class MeshXApi {
     query: {'remark': remark},
   );
 
+  Future<Json> pushConfiguration() async =>
+      await _request('GET', '${node!.apiPath}/push/config') as Json;
+  Future<void> registerPush(Json registration) async =>
+      _request('PUT', '${node!.apiPath}/push/subscription', body: registration);
+  Future<void> unregisterPush() async =>
+      _request('DELETE', '${node!.apiPath}/push/subscription');
+
+  Future<List<int>> exportBroadcast(int id, {bool retry = true}) async {
+    if (_closed || session == null || id <= 0) throw const ApiException('请先登录');
+    final token = session!.token;
+    final request = await _http
+        .getUrl(origin.resolve('${node!.apiPath}/broadcast/$id/export.xlsx'))
+        .timeout(const Duration(seconds: 10));
+    request.followRedirects = false;
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    final response = await request.close().timeout(const Duration(seconds: 30));
+    if (response.statusCode == 401 && retry && _refreshCookie != null) {
+      await response.drain<void>();
+      await refresh(rejectedToken: token);
+      return exportBroadcast(id, retry: false);
+    }
+    if (response.statusCode != 200 ||
+        response.contentLength > 25 * 1024 * 1024) {
+      request.abort();
+      throw const ApiException('广播导出失败或文件过大');
+    }
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in response.timeout(const Duration(seconds: 30))) {
+      if (_closed || bytes.length + chunk.length > 25 * 1024 * 1024) {
+        request.abort();
+        throw const ApiException('导出中断或文件过大');
+      }
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
+  }
+
+  Future<BroadcastSummary> publishBroadcast(Json draft) async =>
+      BroadcastSummary.fromJson(
+        await _request('POST', '${node!.apiPath}/broadcast', body: draft)
+            as Json,
+      );
+  Future<Json> broadcastStats(int id) async =>
+      await _request('GET', '${node!.apiPath}/broadcast/$id/stats') as Json;
+  Future<List<Json>> broadcastRecipients(int id) async =>
+      (await _request('GET', '${node!.apiPath}/broadcast/$id/receivers')
+              as List)
+          .cast<Json>();
+  Future<void> cancelBroadcast(int id) async =>
+      _request('POST', '${node!.apiPath}/broadcast/$id/cancel');
+  Future<void> deleteBroadcast(int id) async =>
+      _request('DELETE', '${node!.apiPath}/broadcast/$id');
+  Future<void> remindBroadcast(int id, int userId) async => _request(
+    'POST',
+    '${node!.apiPath}/broadcast/$id/receivers/$userId/remind',
+  );
+  Future<void> updateBroadcastTargets(
+    int id, {
+    List<int> add = const [],
+    List<int> remove = const [],
+  }) async => _request(
+    'PATCH',
+    '${node!.apiPath}/broadcast/$id/receivers',
+    body: {'addUserIds': add, 'removeUserIds': remove},
+  );
+
+  Future<List<ChatMessage>> searchMessages(String keyword) async {
+    if (keyword.trim().length < 2) throw const FormatException('搜索关键词至少2个字符');
+    final result = await _request(
+      'GET',
+      '${node!.apiPath}/chat/search',
+      query: {'keyword': keyword.trim(), 'limit': '50'},
+    );
+    return (result as List)
+        .map((j) => ChatMessage.fromJson(Map<String, dynamic>.from(j as Map)))
+        .toList();
+  }
+
+  Future<void> updateGroup(
+    int id, {
+    required String name,
+    required String announcement,
+  }) async => _request(
+    'PUT',
+    '${node!.apiPath}/group/$id',
+    body: {'groupName': name.trim(), 'announcement': announcement.trim()},
+  );
+  Future<void> addGroupMembers(int id, List<int> members) async =>
+      _request('POST', '${node!.apiPath}/group/$id/members', body: members);
+  Future<void> removeGroupMember(int id, int member) async =>
+      _request('DELETE', '${node!.apiPath}/group/$id/members/$member');
+  Future<void> setGroupAdmin(int id, int member, bool admin) async => _request(
+    'PUT',
+    '${node!.apiPath}/group/$id/admin',
+    query: {'userId': '$member', 'isAdmin': '$admin'},
+  );
+  Future<void> transferGroup(int id, int member) async => _request(
+    'PUT',
+    '${node!.apiPath}/group/$id/transfer',
+    query: {'newOwnerId': '$member'},
+  );
+  Future<void> muteGroupMember(int id, int member, int minutes) async =>
+      _request(
+        'PUT',
+        '${node!.apiPath}/group/$id/mute',
+        body: {'userId': member, 'muteMinutes': minutes},
+      );
+  Future<void> dissolveGroup(int id) async =>
+      _request('DELETE', '${node!.apiPath}/group/$id/dissolve');
+
+  Future<List<TemporaryRoom>> temporaryRooms() async =>
+      ((await _request('GET', '${node!.apiPath}/rooms')) as List)
+          .map((j) => TemporaryRoom.fromJson(j as Json))
+          .toList();
+  Future<TemporaryRoom> temporaryRoom(int id) async => TemporaryRoom.fromJson(
+    await _request('GET', '${node!.apiPath}/rooms/$id') as Json,
+  );
+  Future<TemporaryRoom> createTemporaryRoom(
+    String name, {
+    bool files = false,
+  }) async => TemporaryRoom.fromJson(
+    await _request(
+          'POST',
+          '${node!.apiPath}/rooms',
+          body: {
+            'roomName': name.trim(),
+            'purpose': '',
+            'expiresAt': DateTime.now()
+                .add(const Duration(hours: 8))
+                .toIso8601String(),
+            'maxMembers': 20,
+            'allowGuests': false,
+            'allowMemberInvite': true,
+            'allowFileUpload': files,
+            'allowFileDownload': files,
+            'allowForward': false,
+            'messageRetentionDays': 1,
+            'allowExternalSync': false,
+            'expireAction': 'FREEZE',
+          },
+        )
+        as Json,
+  );
+  Future<TemporaryRoom> joinTemporaryRoom(String code) async =>
+      TemporaryRoom.fromJson(
+        await _request(
+              'POST',
+              '${node!.apiPath}/rooms/join',
+              body: {'roomCode': code.trim()},
+            )
+            as Json,
+      );
+  Future<void> leaveTemporaryRoom(int id) async =>
+      _request('POST', '${node!.apiPath}/rooms/$id/leave');
+
   Future<List<ChatMessage>> history(
     String conversationId, {
     int? before,
@@ -1227,6 +1536,24 @@ class RealtimeConnection {
   Completer<void>? _authenticated;
   bool _closed = false;
   final Map<String, Completer<Json>> _requests = {};
+  final _commandEvents = <String, String>{};
+  Future<Json> command(
+    String event,
+    Json payload, {
+    required String conversationId,
+  }) async {
+    final id = requestId(), done = Completer<Json>();
+    _requests[id] = done;
+    _commandEvents[id] = event;
+    try {
+      _sendFrame(event, payload, id, conversationId: conversationId);
+      return await done.future.timeout(const Duration(seconds: 12));
+    } finally {
+      _requests.remove(id);
+      _commandEvents.remove(id);
+    }
+  }
+
   Future<Json> synchronize(Map<String, int> positions) async {
     final id = requestId(), done = Completer<Json>();
     _requests[id] = done;
@@ -1268,6 +1595,20 @@ class RealtimeConnection {
               pending.complete(event['payload'] as Json);
             }
             return;
+          }
+          final command = _commandEvents[event['requestId']];
+          final pending = _requests[event['requestId']];
+          if (command != null && pending != null && !pending.isCompleted) {
+            if (event['event'] == command) {
+              pending.complete(event);
+            } else if (event['event'] == 'ERROR') {
+              pending.completeError(
+                ApiException(
+                  (event['payload'] as Json?)?['message'] as String? ??
+                      '操作未获确认',
+                ),
+              );
+            }
           }
           if (event['event'] == 'AUTH_OK' && !_authenticated!.isCompleted) {
             _authenticated!.complete();

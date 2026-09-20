@@ -37,3 +37,6 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+// Explicit FCM integration; public options arrive from the configured node.
+dependencies { implementation("com.google.firebase:firebase-messaging:25.1.3") }

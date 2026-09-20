@@ -90,6 +90,30 @@ class LongWidgetFriendsApi extends WidgetFriendsApi {
 }
 
 void main() {
+  testWidgets(
+    'back from inline friend search returns to the contact directory',
+    (tester) async {
+      final api = WidgetFriendsApi();
+      final chat = ChatController()..api = api;
+      addTearDown(chat.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: meshXTheme(Brightness.light),
+          home: FriendsPage(chat: chat),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('friends-open-search')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('friend-search-list')), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('friends-list')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('friends page exposes contacts, requests, and search actions', (
     tester,
   ) async {
@@ -105,7 +129,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('friend-2')), findsOneWidget);
 
-    await tester.tap(find.text('申请'));
+    await tester.tap(find.byKey(const Key('friend-requests-shortcut')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('friend-request-9')), findsOneWidget);
     await tester.tap(find.byKey(const Key('accept-request-9')));
@@ -113,7 +137,7 @@ void main() {
     expect(api.handled, 1);
     expect(find.text('暂无待处理申请'), findsOneWidget);
 
-    await tester.tap(find.text('搜索'));
+    await tester.tap(find.byKey(const Key('friends-open-search')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('friend-search-input')), 'Bob');
     await tester.tap(find.byKey(const Key('friend-search-submit')));
@@ -151,7 +175,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('friend-22')), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.text('申请'));
+    await tester.tap(find.byKey(const Key('friend-requests-shortcut')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('accept-request-19')), findsOneWidget);
     expect(find.byKey(const Key('reject-request-19')), findsOneWidget);

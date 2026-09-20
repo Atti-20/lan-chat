@@ -9,6 +9,7 @@ import 'data/attachments_models.dart';
 import 'data/models.dart';
 import 'data/friends_models.dart';
 import 'data/groups_models.dart';
+import 'data/temporary_rooms.dart';
 import 'data/profile_models.dart';
 import 'data/ws_contract.g.dart' show ChatSendPayload, WsEvents;
 import 'core/platform_ports.dart';
@@ -24,6 +25,7 @@ class ChatController extends ChangeNotifier {
   ChatController({
     DiscoveryPort? discovery,
     this.store,
+    this.draftStore,
     this.credentials,
     this.enableRecovery = const bool.fromEnvironment('MESHX_MUTATION_RECOVERY'),
     this.recoveryTransportFactory = ApiRecoveryTransport.new,
@@ -33,7 +35,7 @@ class ChatController extends ChangeNotifier {
   }) : discovery = discovery ?? const UnsupportedDiscovery();
   final MeshXApi Function(Uri) apiFactory;
   final RealtimeConnection Function(MeshXApi) connectionFactory;
-  final ChatStore? store;
+  final ChatStore? store, draftStore;
   final CredentialStore? credentials;
   final bool enableRecovery;
   final RecoveryTransport Function(MeshXApi) recoveryTransportFactory;
@@ -96,11 +98,359 @@ class ChatController extends ChangeNotifier {
     await operation;
   }
 
+  final _removed = <String>{};
+  final _revalidateIds = <String, String>{};
+  final _unavailableIds = <String>{};
+  bool conversationAccessible(String id) => !_removed.contains(id);
+  int conversationRevision(String id) => _accessRevisions[id] ?? 0;
+  String get connectionScope => '$_owner|$_generation|$_socketEpoch';
+  final _accessRevisions = <String, int>{};
+  final _terminals = <String, Map<String, bool>>{};
+  final _memberAvatars = <int, String>{};
+  final _conversationChanges = StreamController<String>.broadcast();
+  Stream<String> get conversationChanges => _conversationChanges.stream;
+  final _invalidations =
+      StreamController<
+        ({String conversationId, String? messageId})
+      >.broadcast();
+  Stream<({String conversationId, String? messageId})> get invalidations =>
+      _invalidations.stream;
+  bool get canUploadAttachment =>
+      active != null &&
+      canSendInActiveConversation &&
+      (active!.kind != 'temporary' ||
+          _rooms[active!.targetId]?.allowFileUpload == true);
+  bool canDownloadAttachment(ChatMessage message) =>
+      allowsMessage(message) &&
+      (!message.conversationId.startsWith('temporary:') ||
+          _rooms[int.tryParse(message.conversationId.split(':').last)]
+                  ?.allowFileDownload ==
+              true);
+  bool allowsMessage(ChatMessage message) =>
+      session != null &&
+      online &&
+      !_unavailableIds.contains(message.messageId) &&
+      !_removed.contains(message.conversationId) &&
+      !(_terminals[message.conversationId]?.containsKey(message.messageId) ??
+          false) &&
+      !message.recalled &&
+      !message.burned &&
+      (!message.isBurn || _recoveryMode);
+
+  final _transferEvents = StreamController<Json>.broadcast();
+  Stream<Json> get transferEvents => _transferEvents.stream;
+  void sendTransferEvent(String event, Json payload, String conversationId) {
+    if (!online ||
+        !conversationId.startsWith('private:') ||
+        !conversationAccessible(conversationId)) {
+      throw const ApiException('直传会话不可用');
+    }
+    _realtime!.send(event, payload, conversationId: conversationId);
+  }
+
+  final _typing = <String, Map<int, DateTime>>{};
+  Timer? _typingExpiry, _typingStop;
+  DateTime? _lastTyping;
+  String? _typingConversation;
+  String get typingLabel {
+    final users = _typing[active?.id]?.keys.toList() ?? [];
+    if (!online || users.isEmpty) return '';
+    return users.length == 1
+        ? '${senderName(users.first)}正在输入…'
+        : '${users.length}人正在输入…';
+  }
+
+  void sendTyping(bool typing) {
+    if (!typing && _typingConversation == null) return;
+    final id = active?.id;
+    if (!online || !canSendInActiveConversation || id == null) return;
+    final now = DateTime.now();
+    if (typing &&
+        _typingConversation == id &&
+        _lastTyping != null &&
+        now.difference(_lastTyping!).inSeconds < 3) {
+      return;
+    }
+    try {
+      _realtime!.send(
+        typing ? 'TYPING_START' : 'TYPING_STOP',
+        {},
+        conversationId: id,
+      );
+      _typingConversation = typing ? id : null;
+      _lastTyping = typing ? now : null;
+      _typingStop?.cancel();
+      if (typing) {
+        _typingStop = Timer(
+          const Duration(seconds: 4),
+          () => sendTyping(false),
+        );
+      }
+    } catch (_) {
+      /* Ephemeral hints do not alter message delivery. */
+    }
+  }
+
+  void _clearTyping() {
+    _typing.clear();
+    _typingExpiry?.cancel();
+    _typingExpiry = null;
+    _typingStop?.cancel();
+    _typingConversation = null;
+    _lastTyping = null;
+  }
+
+  /// Reveal only after the server confirms terminal destruction. No plaintext
+  /// copy is persisted by the reading view; interruption discards it forever.
+  Future<String?> consumeBurn(ChatMessage message) async {
+    final scope = connectionScope, current = _realtime;
+    if (!online ||
+        current == null ||
+        active?.id != message.conversationId ||
+        !conversationAccessible(message.conversationId) ||
+        !message.isBurn ||
+        message.burned ||
+        message.recalled ||
+        message.contentType != 'text' ||
+        message.fromUserId == session?.userId ||
+        _unavailableIds.contains(message.messageId) ||
+        (_terminals[message.conversationId]?.containsKey(message.messageId) ??
+            false)) {
+      return null;
+    }
+    final body = message.content;
+    final response = await current.command('CHAT_BURN', {
+      'messageId': message.messageId,
+    }, conversationId: message.conversationId);
+    if (_recoveryMode) {
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      while (!_disposed &&
+          connectionScope == scope &&
+          active?.id == message.conversationId &&
+          (!online ||
+              _recoveryState?.messages[message.messageId]?.state !=
+                  MessageRecoveryState.burned) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      if (_recoveryState?.messages[message.messageId]?.state !=
+          MessageRecoveryState.burned) {
+        return null;
+      }
+    }
+    if (_disposed ||
+        !online ||
+        connectionScope != scope ||
+        active?.id != message.conversationId ||
+        !conversationAccessible(message.conversationId) ||
+        response['conversationId'] != message.conversationId ||
+        (response['payload'] as Json?)?['messageId'] != message.messageId) {
+      return null;
+    }
+    if (!_recoveryMode) {
+      _terminalEvent(message.conversationId, message.messageId, true);
+      await _persist();
+      if (_disposed || connectionScope != scope || !online) return null;
+    }
+    return body;
+  }
+
+  void _merge(String id, Iterable<ChatMessage> incoming) {
+    if (_removed.contains(id)) return;
+    _messages[id] = mergeMessages(
+      _messages[id] ?? [],
+      incoming.map((m) {
+        final terminal = _terminals[id]?[m.messageId];
+        return terminal == null ? m : m.terminal(burned: terminal);
+      }),
+    );
+  }
+
+  void _removeConversation(String id) {
+    _removed.add(id);
+    _accessRevisions[id] = (_accessRevisions[id] ?? 0) + 1;
+    ++_summaryRevision;
+    for (final m in _messages[id] ?? <ChatMessage>[]) {
+      _ackTimers.remove(m.clientMsgId)?.cancel();
+    }
+    _messages.remove(id);
+    _positions.remove(id);
+    _hasOlder.remove(id);
+    _pendingReads.remove(id);
+    _readAttempts.remove(id);
+    drafts.remove(id);
+    conversations = conversations.where((c) => c.id != id).toList();
+    if (active?.id == id) active = null;
+    _readTracker = null;
+    _invalidations.add((conversationId: id, messageId: null));
+    _conversationChanges.add(id);
+  }
+
+  void _terminalEvent(String id, String messageId, bool burned) {
+    final previous = _terminals[id]?[messageId];
+    (_terminals[id] ??= {})[messageId] = burned || previous == true;
+    _messages[id] = (_messages[id] ?? [])
+        .map(
+          (m) => m.messageId == messageId
+              ? m.terminal(burned: burned || previous == true)
+              : m,
+        )
+        .toList();
+    ++_summaryRevision;
+    _invalidations.add((conversationId: id, messageId: messageId));
+    _scheduleListRefresh();
+  }
+
+  String? focusedMessageId;
+  int? focusedSequence;
+  void clearMessageFocus() {
+    focusedMessageId = null;
+    focusedSequence = null;
+    _notify();
+  }
+
+  Future<bool> focusMessage(ChatMessage message) async {
+    final current = api, scope = connectionScope;
+    if (current == null ||
+        active?.id != message.conversationId ||
+        !allowsMessage(message)) {
+      return false;
+    }
+    if (!_recoveryMode) {
+      final nearby = await current.history(
+        message.conversationId,
+        before: message.sequence + 1,
+        limit: 50,
+      );
+      if (_disposed ||
+          scope != connectionScope ||
+          active?.id != message.conversationId ||
+          !allowsMessage(message)) {
+        return false;
+      }
+      _merge(message.conversationId, nearby);
+    }
+    final found = _messages[message.conversationId]
+        ?.where((m) => m.messageId == message.messageId && allowsMessage(m))
+        .firstOrNull;
+    if (found == null) return false;
+    focusedMessageId = found.messageId;
+    focusedSequence = found.sequence;
+    _notify();
+    return true;
+  }
+
+  Timer? _draftTimer;
+  void updateDraft(String id, String text) {
+    if (_removed.contains(id) ||
+        session == null ||
+        (drafts[id] ?? '') == text) {
+      return;
+    }
+    drafts[id] = text;
+    if ((store == null && draftStore == null) ||
+        (_recoveryMode && draftStore == null)) {
+      return;
+    }
+    _draftTimer?.cancel();
+    final generation = _generation;
+    _draftTimer = Timer(const Duration(milliseconds: 300), () {
+      unawaited(
+        (_recoveryMode ? _persistDrafts() : _persist()).catchError((
+          Object failure,
+        ) {
+          if (_disposed || generation != _generation) return;
+          error = describe(failure);
+          _notify();
+        }),
+      );
+    });
+  }
+
+  // Reading, receiving and recovery cursors have separate ownership.
+  final _pendingReads = <String, int>{};
+  final _readAttempts = <String, int>{};
+  Timer? _readRetry;
+  int _summaryRevision = 0;
+  String get _ordinaryReadScope => !_recoveryMode && active != null && online
+      ? '$_owner|$_generation|$_socketEpoch|${active!.id}|${_positions[active!.id]}|${_messages[active!.id]?.length ?? 0}|${conversations.where((c) => c.id == active!.id).firstOrNull?.lastReadSequence}'
+      : '';
+
+  void _observeOrdinaryRead(
+    String scope,
+    Set<int> visible,
+    int now,
+    bool foreground,
+  ) {
+    final conversation = conversations
+        .where((c) => c.id == active?.id)
+        .firstOrNull;
+    if (scope.isEmpty ||
+        scope != _ordinaryReadScope ||
+        !foreground ||
+        _paused ||
+        !online ||
+        conversation == null) {
+      _readTracker?.cancel();
+      return;
+    }
+    if (_readTracker?.scope != scope) {
+      _readTracker = VisibleReadTracker(scope, conversation.lastReadSequence, [
+        for (final m in messages.where(
+          (m) => m.delivery == Delivery.sent && m.sequence > 0,
+        ))
+          ReadRow(m.sequence, m.fromUserId == session?.userId),
+      ], _positions[conversation.id] ?? 0);
+    }
+    final position = _readTracker!.sample(scope, now, visible, true);
+    if (position >
+        max(
+          conversation.lastReadSequence,
+          _pendingReads[conversation.id] ?? 0,
+        )) {
+      _pendingReads[conversation.id] = position;
+      _readAttempts.remove(conversation.id);
+      unawaited(
+        _persist().then((_) => _flushReads()).catchError((Object failure) {
+          error = describe(failure);
+          _notify();
+        }),
+      );
+    }
+  }
+
+  void _flushReads() {
+    if (_disposed || _recoveryMode || !online || _paused || _realtime == null) {
+      return;
+    }
+    for (final entry in _pendingReads.entries.toList()) {
+      final c = conversations.where((c) => c.id == entry.key).firstOrNull;
+      if (c == null || c.lastReadSequence >= entry.value) {
+        _pendingReads.remove(entry.key);
+        continue;
+      }
+      if ((_readAttempts[entry.key] ?? 0) >= 3) continue;
+      _readAttempts[entry.key] = (_readAttempts[entry.key] ?? 0) + 1;
+      try {
+        _realtime!.send('CHAT_READ', {
+          'lastReadSequence': entry.value,
+        }, conversationId: entry.key);
+      } catch (_) {
+        /* Retain the durable position for reconnect. */
+      }
+    }
+    _readRetry?.cancel();
+    if (_pendingReads.keys.any((id) => (_readAttempts[id] ?? 0) < 3)) {
+      _readRetry = Timer(const Duration(seconds: 2), _flushReads);
+    }
+  }
+
   final _recoveryReadBaselines = <String, int>{};
   VisibleReadTracker? _readTracker;
   int _lastReadSent = 0;
-  String get recoveryReadScope =>
-      _recoveryState?.phase == RecoveryPhase.onlineSafe && active != null
+  String get recoveryReadScope => !_recoveryMode
+      ? _ordinaryReadScope
+      : _recoveryState?.phase == RecoveryPhase.onlineSafe && active != null
       ? '$_owner|$_generation|$_socketEpoch|${_recoveryState!.context.streamEpoch}|${_recoveryState!.cursor}|${active!.id}'
       : '';
   void observeRecoveryRead(
@@ -109,6 +459,10 @@ class ChatController extends ChangeNotifier {
     int now, {
     required bool foreground,
   }) {
+    if (!_recoveryMode) {
+      _observeOrdinaryRead(scope, visible, now, foreground);
+      return;
+    }
     final cid = active?.id, state = _recoveryState;
     if (scope.isEmpty ||
         scope != recoveryReadScope ||
@@ -153,10 +507,11 @@ class ChatController extends ChangeNotifier {
             .toList();
 
   bool get canSendInActiveConversation =>
-      !_recoveryMode ||
-      (online &&
-          _recoveryState?.phase == RecoveryPhase.onlineSafe &&
-          _recoveryState?.access[active?.id]?.sendAllowed == true);
+      !_removed.contains(active?.id) &&
+      (!_recoveryMode ||
+          (online &&
+              _recoveryState?.phase == RecoveryPhase.onlineSafe &&
+              _recoveryState?.access[active?.id]?.sendAllowed == true));
   String get recoveryStatus {
     if (!_recoveryMode || _recoveryState?.phase == RecoveryPhase.onlineSafe) {
       return '';
@@ -205,6 +560,20 @@ class ChatController extends ChangeNotifier {
     return operation;
   }
 
+  Future<void> _draftWrites = Future.value();
+  Future<void> _persistDrafts() {
+    final owner = _owner;
+    if (owner == null || draftStore == null) return Future.value();
+    final snapshot = <String, dynamic>{
+      'drafts': Map<String, String>.from(drafts),
+    };
+    final next = _draftWrites.then(
+      (_) => draftStore!.save('$owner|drafts', snapshot),
+    );
+    _draftWrites = next.catchError((Object _) {});
+    return next;
+  }
+
   Future<void> _persist() async {
     final owner = _owner;
     if (owner == null) return;
@@ -234,6 +603,7 @@ class ChatController extends ChangeNotifier {
         }
         rethrow;
       }
+      await _persistDrafts();
       return;
     }
     await store?.save(owner, {
@@ -243,12 +613,24 @@ class ChatController extends ChangeNotifier {
           entry.key: entry.value.map((m) => m.toJson()).toList(),
       },
       'positions': Map<String, int>.from(_positions),
+      'pendingReads': Map<String, int>.from(_pendingReads),
+      'drafts': Map<String, String>.from(drafts),
     });
+    await _persistDrafts();
   }
 
   Future<void> _restoreSnapshot(int generation) async {
     final owner = _owner;
     if (owner == null) return;
+    final savedDrafts = await draftStore?.load('$owner|drafts');
+    if (_disposed || generation != _generation) return;
+    for (final entry in (savedDrafts?['drafts'] as Map? ?? {}).entries) {
+      if (entry.key is String &&
+          entry.value is String &&
+          (entry.value as String).length <= 4000) {
+        drafts[entry.key as String] = entry.value as String;
+      }
+    }
     final recoveryStore = store;
     final migrated = recoveryStore is RecoveryChatStore
         ? await (recoveryStore as RecoveryChatStore).loadRecovery(owner)
@@ -265,6 +647,19 @@ class ChatController extends ChangeNotifier {
     if (_disposed || generation != _generation || value == null) return;
     _messages.clear();
     _positions.clear();
+    drafts.addAll({
+      for (final e in (value['drafts'] as Map? ?? {}).entries)
+        if (!drafts.containsKey(e.key) &&
+            e.key is String &&
+            e.value is String &&
+            (e.value as String).length <= 4000)
+          e.key as String: e.value as String,
+    });
+    _pendingReads.addAll({
+      for (final e in (value['pendingReads'] as Map? ?? {}).entries)
+        if (e.key is String && e.value is int && e.value > 0)
+          e.key as String: e.value as int,
+    });
     conversations = (value['conversations'] as List)
         .map((j) => Conversation.restore(j as Json))
         .toList();
@@ -357,6 +752,25 @@ class ChatController extends ChangeNotifier {
   final Map<String, Timer> _ackTimers = {};
   final Map<String, String> drafts = {};
   final Map<int, String> _memberNames = {};
+  String senderAvatar(int userId) => userId == session?.userId
+      ? session!.avatar
+      : _memberAvatars[userId] ??
+            api?.cachedFriends
+                ?.where((f) => f.userId == userId)
+                .firstOrNull
+                ?.avatar ??
+            '';
+  String conversationPreview(Conversation conversation) {
+    final last = (_messages[conversation.id] ?? [])
+        .where((m) => m.delivery == Delivery.sent)
+        .lastOrNull;
+    if (last?.isBurn == true) return '阅后即焚消息';
+    if (last?.burned == true || last?.recalled == true) {
+      return last!.displayContent;
+    }
+    return conversation.preview.isEmpty ? '开始交流' : conversation.preview;
+  }
+
   String senderName(int userId) {
     if (userId == session?.userId) return session!.nickname;
     if (_memberNames.containsKey(userId)) return _memberNames[userId]!;
@@ -395,7 +809,11 @@ class ChatController extends ChangeNotifier {
   List<ChatMessage> get messages =>
       _recoveryMode && _recoveryState?.phase != RecoveryPhase.onlineSafe
       ? const []
-      : List.unmodifiable(_messages[active?.id] ?? []);
+      : List.unmodifiable(
+          (_messages[active?.id] ?? []).where(
+            (m) => online || m.delivery != Delivery.sent,
+          ),
+        );
   bool get hasOlder => _hasOlder[active?.id] ?? false;
   RealtimeConnection? _realtime;
   Timer? _retryTimer, _listTimer;
@@ -407,6 +825,11 @@ class ChatController extends ChangeNotifier {
 
   void _notify() {
     if (!_disposed) notifyListeners();
+  }
+
+  void reportFailure(Object failure) {
+    error = describe(failure);
+    _notify();
   }
 
   void clearError() {
@@ -448,11 +871,13 @@ class ChatController extends ChangeNotifier {
       lastErrorCode = 'TIMEOUT';
       return '连接超时，请检查节点和网络后重试';
     }
-    if (failure is SocketException || failure is HandshakeException) {
-      lastErrorCode = failure is HandshakeException
-          ? 'TLS_ERROR'
-          : 'NETWORK_ERROR';
-      return '无法连接节点，请检查网络、地址或证书';
+    if (failure is HandshakeException) {
+      lastErrorCode = 'TLS_ERROR';
+      return '节点证书验证失败。请使用证书对应的域名，并请管理员检查证书有效期、完整证书链和设备信任；不会自动改用 HTTP。';
+    }
+    if (failure is SocketException) {
+      lastErrorCode = 'NETWORK_ERROR';
+      return '无法连接节点，请检查同一局域网、域名解析、端口和节点服务。';
     }
     lastErrorCode = 'UNKNOWN_ERROR';
     return '操作未完成，请重试';
@@ -595,6 +1020,7 @@ class ChatController extends ChangeNotifier {
                     targetId: c.targetId,
                     kind: c.kind,
                     title: c.title,
+                    avatar: c.avatar,
                   ),
                 )
                 .toList();
@@ -627,9 +1053,35 @@ class ChatController extends ChangeNotifier {
       return;
     }
     try {
+      final revision = _summaryRevision;
       final snapshot = await current.conversations();
       if (_disposed || generation != _generation) return;
-      if (!_recoveryMode) conversations = snapshot;
+      if (revision != _summaryRevision) {
+        _scheduleListRefresh();
+        return;
+      }
+      if (!_recoveryMode) {
+        final present = snapshot.map((c) => c.id).toSet();
+        // Only a current authoritative snapshot can restore a removed membership.
+        _removed.removeWhere(present.contains);
+        for (final id in _messages.keys.toList()) {
+          if (!present.contains(id)) _removeConversation(id);
+        }
+        conversations = snapshot.where((c) => !_removed.contains(c.id)).map((
+          next,
+        ) {
+          final old = conversations.where((c) => c.id == next.id).firstOrNull;
+          if (old != null &&
+              (next.lastSequence < old.lastSequence ||
+                  next.lastReadSequence < old.lastReadSequence)) {
+            return old;
+          }
+          return next;
+        }).toList();
+        _flushReads();
+        await _persist();
+        if (_disposed || generation != _generation) return;
+      }
       await _refreshFriendAccess(current, generation);
       _notify();
     } catch (failure) {
@@ -717,10 +1169,42 @@ class ChatController extends ChangeNotifier {
         targetId: friend.userId,
         kind: 'private',
         title: friend.displayName,
+        avatar: friend.avatar,
       );
       conversations = [conversation, ...conversations];
     }
     await select(conversation);
+  }
+
+  final _rooms = <int, TemporaryRoom>{};
+  Future<void> openTemporaryRoom(TemporaryRoom room) async {
+    final current = api, generation = _generation;
+    if (current == null) return;
+    try {
+      final verified = await current.temporaryRoom(room.id);
+      if (_disposed || generation != _generation) return;
+      _rooms[room.id] = verified;
+      final conversation =
+          conversations
+              .where((c) => c.id == verified.conversationId)
+              .firstOrNull ??
+          Conversation(
+            id: verified.conversationId,
+            targetId: verified.id,
+            kind: 'temporary',
+            title: verified.name,
+          );
+      if (!conversations.any((c) => c.id == conversation.id)) {
+        conversations = [conversation, ...conversations];
+      }
+      _removed.remove(conversation.id);
+      await select(conversation);
+    } catch (failure) {
+      if (!_disposed && generation == _generation) {
+        error = describe(failure);
+        _notify();
+      }
+    }
   }
 
   Future<void> openGroupConversation(MeshXGroup group) async {
@@ -738,6 +1222,7 @@ class ChatController extends ChangeNotifier {
         targetId: group.id,
         kind: 'group',
         title: group.name,
+        avatar: group.avatar,
       );
       conversations = [conversation, ...conversations];
     }
@@ -746,6 +1231,7 @@ class ChatController extends ChangeNotifier {
 
   Future<void> confirmOwnGroupLeave(int groupId) async {
     final id = 'group:$groupId';
+    _removeConversation(id);
     for (final message in _messages[id] ?? const <ChatMessage>[]) {
       _ackTimers.remove(message.clientMsgId)?.cancel();
     }
@@ -772,16 +1258,45 @@ class ChatController extends ChangeNotifier {
   }
 
   Future<void> select(Conversation conversation) async {
+    if (active?.id != conversation.id) {
+      focusedMessageId = null;
+      focusedSequence = null;
+    }
+    _readTracker = null;
+    if (_removed.contains(conversation.id)) return;
     active = conversation;
     error = null;
     _notify();
-    await _catchUp(conversation.id);
     final current = api, generation = _generation;
+    if (current != null && conversation.kind == 'temporary') {
+      try {
+        final room = await current.temporaryRoom(conversation.targetId);
+        if (_disposed ||
+            generation != _generation ||
+            _removed.contains(conversation.id)) {
+          return;
+        }
+        _rooms[room.id] = room;
+      } catch (failure) {
+        if (!_disposed && generation == _generation) {
+          error = describe(failure);
+          _notify();
+        }
+        return;
+      }
+    }
+    await _catchUp(conversation.id);
     if (current != null && conversation.kind == 'group') {
       try {
-        final names = await current.groupMemberNames(conversation.targetId);
-        if (!_disposed && generation == _generation) {
-          _memberNames.addAll(names);
+        final revision = _accessRevisions[conversation.id] ?? 0;
+        final members = await current.groupMembers(conversation.targetId);
+        if (!_disposed &&
+            generation == _generation &&
+            revision == (_accessRevisions[conversation.id] ?? 0)) {
+          _memberNames.addAll({
+            for (final m in members) m.userId: m.displayName,
+          });
+          _memberAvatars.addAll({for (final m in members) m.userId: m.avatar});
           _notify();
         }
       } catch (_) {
@@ -791,6 +1306,10 @@ class ChatController extends ChangeNotifier {
   }
 
   void leaveConversation() {
+    focusedMessageId = null;
+    focusedSequence = null;
+    sendTyping(false);
+    _readTracker = null;
     active = null;
     _notify();
   }
@@ -834,6 +1353,7 @@ class ChatController extends ChangeNotifier {
     String id,
     int generation,
   ) async {
+    final revision = _accessRevisions[id] ?? 0, epoch = _socketEpoch;
     final old = _messages[id] ?? [];
     final confirmed = old.where((m) => m.sequence > 0).map((m) => m.sequence);
     final oldTail = confirmed.isEmpty
@@ -841,10 +1361,14 @@ class ChatController extends ChangeNotifier {
         : confirmed.reduce((a, b) => a > b ? a : b);
     try {
       var page = await current.history(id);
-      if (_disposed || generation != _generation) return;
+      if (!_valid(generation, epoch) ||
+          revision != (_accessRevisions[id] ?? 0) ||
+          _removed.contains(id)) {
+        return;
+      }
       _hasOlder[id] = page.length == 50;
       while (true) {
-        _messages[id] = mergeMessages(_messages[id] ?? [], page);
+        _merge(id, page);
         final sequences = page
             .where((m) => m.sequence > 0)
             .map((m) => m.sequence);
@@ -852,7 +1376,11 @@ class ChatController extends ChangeNotifier {
         final first = sequences.reduce((a, b) => a < b ? a : b);
         if (first <= oldTail) break;
         page = await current.history(id, before: first);
-        if (_disposed || generation != _generation) return;
+        if (!_valid(generation, epoch) ||
+            revision != (_accessRevisions[id] ?? 0) ||
+            _removed.contains(id)) {
+          return;
+        }
       }
       if (!_disposed && generation == _generation) await _persist();
       // This prototype intentionally doesn't emit read receipts based on page loading.
@@ -870,6 +1398,7 @@ class ChatController extends ChangeNotifier {
         .where((m) => m.sequence > 0)
         .map((m) => m.sequence);
     if (values.isEmpty) return;
+    final revision = _accessRevisions[id] ?? 0, epoch = _socketEpoch;
     loadingHistory = true;
     error = null;
     _notify();
@@ -879,7 +1408,12 @@ class ChatController extends ChangeNotifier {
         before: values.reduce((a, b) => a < b ? a : b),
       );
       if (_disposed || generation != _generation) return;
-      _messages[id] = mergeMessages(_messages[id] ?? [], page);
+      if (!_valid(generation, epoch) ||
+          revision != (_accessRevisions[id] ?? 0) ||
+          _removed.contains(id)) {
+        return;
+      }
+      _merge(id, page);
       _hasOlder[id] = page.length == 50;
       await _persist();
     } catch (failure) {
@@ -969,6 +1503,9 @@ class ChatController extends ChangeNotifier {
                 },
                 onPublish: (state, image) {
                   if (!_valid(generation, epoch) || _recoveryAgain) return;
+                  _removed.removeWhere(
+                    (cid) => state.access[cid]?.readAllowed == true,
+                  );
                   _recoveryNotifications = image.notificationRecovery;
                   _liveNotificationCandidates.clear();
                   _messages.clear();
@@ -1019,6 +1556,7 @@ class ChatController extends ChangeNotifier {
                       targetId: c.targetId,
                       kind: c.kind,
                       title: c.title,
+                      avatar: c.avatar,
                       preview: summary.preview,
                       unread: summary.unread,
                     );
@@ -1185,6 +1723,17 @@ class ChatController extends ChangeNotifier {
       }
       await refreshConversations();
       if (!_valid(generation, epoch) || _paused) return;
+      for (final id in _messages.keys.toList()) {
+        for (final m in _messages[id]!.where(
+          (m) => m.delivery == Delivery.sent,
+        )) {
+          _revalidateIds[m.messageId] = id;
+        }
+        _messages[id] = _messages[id]!
+            .where((m) => m.delivery != Delivery.sent)
+            .toList();
+      }
+      _positions.clear();
       // Use bounded one-conversation pages, avoiding the server's global 100/200 cap.
       for (final conversation in conversations.toList()) {
         final id = conversation.id;
@@ -1193,11 +1742,9 @@ class ChatController extends ChangeNotifier {
           final before = _positions[id] ?? 0;
           final response = await connection.synchronize({id: before});
           if (!_valid(generation, epoch) || _paused) return;
+          if (_removed.contains(id)) break;
           if ((response['deniedConversationIds'] as List).contains(id)) {
-            _messages.remove(id);
-            _positions.remove(id);
-            conversations.removeWhere((c) => c.id == id);
-            if (active?.id == id) active = null;
+            _removeConversation(id);
             await _persist();
             break;
           }
@@ -1209,7 +1756,7 @@ class ChatController extends ChangeNotifier {
           )) {
             throw const FormatException('同步返回范围不匹配');
           }
-          _messages[id] = mergeMessages(_messages[id] ?? [], items);
+          _merge(id, items);
           // Authoritative ascending sync may cross physically deleted sequences.
           final latest = integer((response['latestPositions'] as Map)[id]);
           final after = items.isEmpty ? latest : items.last.sequence;
@@ -1223,7 +1770,23 @@ class ChatController extends ChangeNotifier {
       }
       await _inbound;
       if (!_valid(generation, epoch) || _paused) return;
+      final presentIds = {
+        for (final rows in _messages.values)
+          for (final m in rows) m.messageId,
+      };
+      for (final entry in _revalidateIds.entries) {
+        if (!presentIds.contains(entry.key)) {
+          _unavailableIds.add(entry.key);
+          _invalidations.add((
+            conversationId: entry.value,
+            messageId: entry.key,
+          ));
+        }
+      }
+      _revalidateIds.clear();
       online = true;
+      _readAttempts.clear();
+      _flushReads();
       _authRefreshAttempted = false;
       _attempt = 0;
       error = null;
@@ -1277,6 +1840,10 @@ class ChatController extends ChangeNotifier {
   }
 
   void _disconnected() {
+    _clearTyping();
+    final generation = _generation;
+    _readRetry?.cancel();
+    _readTracker?.cancel();
     _quarantineRecovery('DISCONNECTED');
     ++_socketEpoch;
     _connecting = false;
@@ -1301,6 +1868,7 @@ class ChatController extends ChangeNotifier {
     if (!_recoveryMode) {
       unawaited(
         _persist().catchError((Object failure) {
+          if (_disposed || generation != _generation) return;
           error = describe(failure);
           _notify();
         }),
@@ -1310,10 +1878,21 @@ class ChatController extends ChangeNotifier {
     _notify();
   }
 
-  bool send(String text, {ChatMessage? retry}) => _sendContent(
+  bool send(
+    String text, {
+    ChatMessage? retry,
+    String? replyToId,
+    Set<int> mentions = const {},
+    bool burn = false,
+  }) => _sendContent(
     content: retry?.content ?? text.trim(),
     contentType: retry?.contentType ?? 'text',
     retry: retry,
+    isBurn: retry?.isBurn ?? burn,
+    replyToId: retry?.replyToId ?? replyToId,
+    mentionUserIds:
+        retry?.mentionUserIds ??
+        (mentions.isEmpty ? null : (mentions.toList()..sort()).join(',')),
   );
 
   bool sendAttachment(
@@ -1331,6 +1910,42 @@ class ChatController extends ChangeNotifier {
     );
   }
 
+  Future<bool> queueTransferredAttachment(
+    AttachmentData attachment, {
+    required String conversationId,
+    required String clientMsgId,
+  }) async {
+    if (active?.id != conversationId) return false;
+    final generation = _generation;
+    final accepted = _sendContent(
+      content: attachment.encode(),
+      contentType: attachment.image ? 'image' : 'file',
+      stableClientId: clientMsgId,
+    );
+    if (!accepted) return false;
+    await _persist();
+    return !_disposed && generation == _generation;
+  }
+
+  bool requestRecall(ChatMessage message) {
+    if (!online ||
+        !allowsMessage(message) ||
+        message.fromUserId != session?.userId ||
+        message.delivery != Delivery.sent) {
+      return false;
+    }
+    try {
+      _realtime!.send('CHAT_RECALL', {
+        'messageId': message.messageId,
+      }, conversationId: message.conversationId);
+      return true;
+    } catch (failure) {
+      error = describe(failure);
+      _notify();
+      return false;
+    }
+  }
+
   bool retryMessage(ChatMessage message) => _sendContent(
     content: message.content,
     contentType: message.contentType,
@@ -1341,6 +1956,10 @@ class ChatController extends ChangeNotifier {
     required String content,
     required String contentType,
     ChatMessage? retry,
+    String? replyToId,
+    String? mentionUserIds,
+    bool isBurn = false,
+    String? stableClientId,
   }) {
     final conversation = active;
     if (_recoveryMode &&
@@ -1351,7 +1970,9 @@ class ChatController extends ChangeNotifier {
       _notify();
       return false;
     }
-    if (conversation == null || session == null) {
+    if (conversation == null ||
+        session == null ||
+        _removed.contains(conversation.id)) {
       error = '连接恢复后可以重试发送';
       _notify();
       return false;
@@ -1371,6 +1992,8 @@ class ChatController extends ChangeNotifier {
       return false;
     }
     if (content.isEmpty) return false;
+    focusedMessageId = null;
+    focusedSequence = null;
     if (contentType == 'text' && content.length > 4000) {
       error = '每条消息最多 4000 个字符';
       _notify();
@@ -1382,7 +2005,16 @@ class ChatController extends ChangeNotifier {
       _notify();
       return false;
     }
-    if (!{'private', 'group'}.contains(conversation.kind)) {
+    if (conversation.kind == 'temporary' &&
+        (!online ||
+            (contentType != 'text' &&
+                _rooms[conversation.targetId]?.allowFileUpload != true) ||
+            _rooms[conversation.targetId]?.available != true)) {
+      error = '临时房间已到期、离线或未允许发送文件';
+      _notify();
+      return false;
+    }
+    if (!{'private', 'group', 'temporary'}.contains(conversation.kind)) {
       error = '此类会话暂不支持发送';
       _notify();
       return false;
@@ -1394,11 +2026,24 @@ class ChatController extends ChangeNotifier {
       _notify();
       return false;
     }
+    if (stableClientId != null) {
+      final existing = (_messages[conversation.id] ?? [])
+          .where(
+            (m) =>
+                m.clientMsgId == stableClientId &&
+                m.fromUserId == session!.userId,
+          )
+          .firstOrNull;
+      if (existing != null) {
+        return existing.content == content &&
+            existing.contentType == contentType;
+      }
+    }
     final message =
         retry?.withDelivery(Delivery.queued) ??
         ChatMessage(
           messageId: '',
-          clientMsgId: requestId(),
+          clientMsgId: stableClientId ?? requestId(),
           conversationId: conversation.id,
           fromUserId: session!.userId,
           content: content,
@@ -1406,6 +2051,9 @@ class ChatController extends ChangeNotifier {
           sequence: 0,
           createdAt: DateTime.now(),
           delivery: Delivery.queued,
+          replyToId: replyToId,
+          mentionUserIds: mentionUserIds,
+          isBurn: isBurn,
         );
     if (message.recoveryDisposition != null) {
       error = '此待发消息已停止重试，请确认权限后新建消息';
@@ -1491,6 +2139,12 @@ class ChatController extends ChangeNotifier {
                     true))) {
       return;
     }
+    if (_removed.contains(conversation.id) ||
+        (conversation.kind == 'temporary' &&
+            _rooms[conversation.targetId]?.available != true)) {
+      _setDelivery(conversation.id, message.clientMsgId, Delivery.failed);
+      return;
+    }
     _setDelivery(conversation.id, message.clientMsgId, Delivery.sending);
     try {
       _realtime!.send(
@@ -1502,7 +2156,9 @@ class ChatController extends ChangeNotifier {
           groupId: conversation.kind == 'group' ? conversation.targetId : null,
           contentType: message.contentType,
           content: message.content,
-          isBurn: false,
+          isBurn: message.isBurn,
+          replyToId: message.replyToId,
+          mentionUserIds: message.mentionUserIds,
         ).toJson(),
         clientMsgId: message.clientMsgId,
         conversationId: conversation.id,
@@ -1552,10 +2208,13 @@ class ChatController extends ChangeNotifier {
         {
           'CHAT_ACK',
           'CHAT_DELIVER',
+          'CHAT_READ',
           'CHAT_RECALL',
           'CHAT_BURN',
           'MUTATION_AVAILABLE',
           'FRIEND_CHANGED',
+          'CONVERSATION_REMOVED',
+          'CONVERSATION_CHANGED',
         }.contains(event['event'])) {
       if (event['event'] == 'CHAT_DELIVER' &&
           _recoveryState?.phase == RecoveryPhase.onlineSafe) {
@@ -1577,12 +2236,99 @@ class ChatController extends ChangeNotifier {
       unawaited(_runRecovery());
       return; // Legacy bodies and ACK are scheduling hints, never version proofs.
     }
+    if ('${event['event']}'.startsWith('FILE_TRANSFER_')) {
+      _transferEvents.add(event);
+    }
     final payload = event['payload'] as Json? ?? {};
     final id =
         (event['conversationId'] ?? payload['conversationId']) as String?;
     final clientId =
         (event['clientMsgId'] ?? payload['clientMsgId']) as String?;
     switch (event['event']) {
+      case 'TYPING_START':
+      case 'TYPING_STOP':
+        final user = integer(payload['userId']);
+        if (id == null ||
+            user <= 0 ||
+            user == session?.userId ||
+            _removed.contains(id)) {
+          break;
+        }
+        final users = _typing.putIfAbsent(id, () => {});
+        if (event['event'] == 'TYPING_STOP') {
+          users.remove(user);
+        } else {
+          users[user] = DateTime.now().add(const Duration(seconds: 6));
+        }
+        _typingExpiry ??= Timer.periodic(const Duration(seconds: 1), (timer) {
+          final now = DateTime.now();
+          for (final users in _typing.values) {
+            users.removeWhere((_, end) => !end.isAfter(now));
+          }
+          _typing.removeWhere((_, users) => users.isEmpty);
+          if (_typing.isEmpty) {
+            timer.cancel();
+            _typingExpiry = null;
+          }
+          _notify();
+        });
+
+      case 'CONVERSATION_REMOVED':
+        if (id != null) _removeConversation(id);
+      case 'CONVERSATION_CHANGED':
+        if (id != null) {
+          _accessRevisions[id] = (_accessRevisions[id] ?? 0) + 1;
+          _removed.remove(id);
+          _conversationChanges.add(id);
+          _scheduleListRefresh();
+        }
+      case 'CHAT_RECALL':
+      case 'CHAT_BURN':
+        if (id != null &&
+            payload['messageId'] is String &&
+            !_removed.contains(id)) {
+          _terminalEvent(
+            id,
+            payload['messageId'],
+            event['event'] == 'CHAT_BURN',
+          );
+        }
+      case 'CHAT_READ':
+        if (id == null || integer(payload['userId']) != session?.userId) break;
+        final last = payload['lastSequence'],
+            read = payload['lastReadSequence'],
+            unread = payload['unreadCount'];
+        if (last is! int ||
+            read is! int ||
+            unread is! int ||
+            read < 0 ||
+            last < read ||
+            unread < 0) {
+          break;
+        }
+        final previous = conversations.where((c) => c.id == id).firstOrNull;
+        if (previous == null) {
+          _scheduleListRefresh();
+          break;
+        }
+        if (read < previous.lastReadSequence) break;
+        ++_summaryRevision;
+        if (last < previous.lastSequence) {
+          _scheduleListRefresh();
+          break;
+        }
+        conversations = conversations
+            .map(
+              (c) => c.id == id
+                  ? c.withReadState(
+                      lastSequence: last,
+                      lastReadSequence: read,
+                      unread: unread,
+                    )
+                  : c,
+            )
+            .toList();
+        if ((_pendingReads[id] ?? 0) <= read) _pendingReads.remove(id);
       case 'CHAT_ACK':
         if (id != null && clientId != null) {
           _ackTimers.remove(clientId)?.cancel();
@@ -1598,6 +2344,24 @@ class ChatController extends ChangeNotifier {
         }
       case 'CHAT_DELIVER':
         final message = ChatMessage.fromJson(payload);
+        if (_removed.contains(message.conversationId)) break;
+        ++_summaryRevision;
+        conversations = conversations.map((c) {
+          if (c.id != message.conversationId ||
+              message.sequence <= c.lastSequence) {
+            return c;
+          }
+          return c.withReadState(
+            lastSequence: message.sequence,
+            lastReadSequence: c.lastReadSequence,
+            unread:
+                c.unread +
+                (message.fromUserId != session?.userId &&
+                        message.sequence > c.lastReadSequence
+                    ? 1
+                    : 0),
+          );
+        }).toList();
         final alreadyStored = (_messages[message.conversationId] ?? []).any(
           (old) =>
               (message.messageId.isNotEmpty &&
@@ -1612,10 +2376,7 @@ class ChatController extends ChangeNotifier {
           _ackTimers.remove(message.clientMsgId)?.cancel();
         }
         {
-          _messages[message.conversationId] = mergeMessages(
-            _messages[message.conversationId] ?? [],
-            [message],
-          );
+          _merge(message.conversationId, [message]);
         }
         final position = _positions[message.conversationId] ?? 0;
         _positions[message.conversationId] = advanceContiguousSequence(
@@ -1657,6 +2418,8 @@ class ChatController extends ChangeNotifier {
 
   Future<void> pause() async {
     if (_paused || _disposed) return;
+    _readRetry?.cancel();
+    _readTracker?.cancel();
     final resumeDiscovery = scanning || _resumeDiscovery;
     _paused = true;
     _quarantineRecovery('BACKGROUND');
@@ -1696,6 +2459,19 @@ class ChatController extends ChangeNotifier {
   }
 
   Future<void> logout({bool revokeRemote = true, String? reason}) async {
+    _clearTyping();
+    _draftTimer?.cancel();
+    _revalidateIds.clear();
+    _unavailableIds.clear();
+    _rooms.clear();
+    _removed.clear();
+    _accessRevisions.clear();
+    _terminals.clear();
+    _memberAvatars.clear();
+    _readRetry?.cancel();
+    _pendingReads.clear();
+    _readAttempts.clear();
+    _readTracker = null;
     _quarantineRecovery('SIGNED_OUT');
     _recoveryMode = false;
     _recoveryState = null;
@@ -1726,6 +2502,8 @@ class ChatController extends ChangeNotifier {
     _syncAgain.clear();
     loadingHistory = false;
     drafts.clear();
+    focusedMessageId = null;
+    focusedSequence = null;
     _memberNames.clear();
     _friendIds = {};
     _friendAccessLoaded = false;
@@ -1756,6 +2534,12 @@ class ChatController extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_transferEvents.close());
+    _clearTyping();
+    _readRetry?.cancel();
+    _draftTimer?.cancel();
+    unawaited(_conversationChanges.close());
+    unawaited(_invalidations.close());
     _quarantineRecovery('DISPOSED');
     _disposed = true;
     unawaited(stopScan());

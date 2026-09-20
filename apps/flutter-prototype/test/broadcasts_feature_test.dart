@@ -131,6 +131,7 @@ class FakeBroadcastApi extends MeshXApi {
   Future<BroadcastReceiverState> completeBroadcast(
     int broadcastId, {
     List<int> imageFileIds = const [],
+    Map<String, dynamic>? location,
   }) async {
     completes++;
     current = BroadcastDetail.fromJson(
@@ -780,7 +781,7 @@ void main() {
   );
 
   test(
-    'location proof is read-only and never calls confirm or complete',
+    'location proof cannot submit without a location provider',
     () async {
       final api = FakeBroadcastApi()
         ..current = BroadcastDetail.fromJson(detailJson(location: true));
@@ -799,7 +800,7 @@ void main() {
       expect(await controller.complete(), isFalse);
       expect(api.confirms, 0);
       expect(api.completes, 0);
-      expect(controller.error, contains('Web'));
+      expect(controller.error, contains('定位'));
     },
   );
 

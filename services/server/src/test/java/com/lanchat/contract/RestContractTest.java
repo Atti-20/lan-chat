@@ -54,6 +54,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @MockitoBean(types = {org.springframework.security.core.userdetails.UserDetailsService.class, AuthorizationService.class, BroadcastService.class, ChatMessageService.class, ChatWebSocketHandler.class, ControlAdminOperationService.class, ControlAuditService.class, ControlServerInfoService.class, ConversationService.class, DeviceManagementService.class, FileService.class, FriendService.class, GroupService.class, JwtUtil.class, LanChatPrivateDeploymentProperties.class, LanNodeDiscoveryService.class, NodeDiagnosticsService.class, OrganizationPolicyService.class, ResumableUploadService.class, RoleManagementService.class, RuntimeLogService.class, TemporaryRoomService.class, UserService.class})
 @org.springframework.test.context.ContextConfiguration(classes = RestContractTest.MvcContractContext.class)
 class RestContractTest {
+    @MockitoBean com.lanchat.push.MobilePushService mobilePushService;
+    @MockitoBean com.lanchat.push.PushConfiguration pushConfiguration;
     @MockitoBean com.lanchat.recovery.RecoveryResumeSessions recoverySessions;
     @MockitoBean com.lanchat.recovery.RecoverySnapshotManifest recoveryManifests;
     @MockitoBean com.lanchat.recovery.RecoverySnapshotPages recoveryPages;

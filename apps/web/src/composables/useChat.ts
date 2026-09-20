@@ -160,6 +160,10 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
   const burnConversationIds = new Map<string, string>()
   const runtimePositions = new Map<string, number>()
   const pendingReadPositions = new Map<string, number>()
+  // The DOM proves a message was visible; the server remains the authority
+  // that commits its read position and unread count.
+  const ordinaryReadProofRevision = shallowRef(0)
+  let ordinaryReadTracker: VisibleReadTracker | undefined
   const recoveryReadBaselines = shallowRef(new Map<string, number>())
   let recoveryReadTracker: VisibleReadTracker | undefined
   let recoveryReadSent = 0
@@ -168,7 +172,95 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
     return c && recoveryState.value?.phase==='ONLINE_SAFE' && selected.value?.conversationId
       ? JSON.stringify([c.origin,c.userId,c.streamEpoch,c.generation,recoveryState.value.cursor,selected.value.conversationId]) : ''
   })
-  onMounted(()=>{watch(()=>options.isConversationVisible?.() ?? true,()=>recoveryReadTracker?.cancel(),{flush:'sync'})})
+
+  const ordinaryReadScope = computed(() => {
+    if (recoveryEnabled.value) return ''
+    const conversationId = selected.value?.conversationId
+    const user = currentUser.value
+    if (!conversationId || !user || !ws.connected.value) return ''
+    const summary = getConversationSummary(conversationId)
+    if (!summary) return ''
+    const rows = messages.value
+      .filter((message) => message.conversationId === conversationId
+        && Number.isSafeInteger(message.sequence)
+        && (message.sequence || 0) > 0)
+      .map((message) => [
+        message.messageId,
+        message.sequence,
+        message.fromUserId === user.id ? 1 : 0,
+      ])
+    return JSON.stringify([
+      user.id,
+      conversationId,
+      summary.lastReadSequence,
+      runtimePositions.get(conversationId) || 0,
+      ordinaryReadProofRevision.value,
+      rows,
+    ])
+  })
+
+  const readScope = computed(() => recoveryEnabled.value
+    ? recoveryReadScope.value
+    : ordinaryReadScope.value)
+
+  onMounted(()=>{watch(()=>options.isConversationVisible?.() ?? true,()=>{
+    ordinaryReadTracker?.cancel()
+    recoveryReadTracker?.cancel()
+  },{flush:'sync'})})
+
+  function observeOrdinaryRead(scope: string, sequences: readonly number[]): void {
+    const conversationId = selected.value?.conversationId
+    const summary = conversationId ? getConversationSummary(conversationId) : undefined
+    const eligible = Boolean(
+      scope
+      && scope === ordinaryReadScope.value
+      && conversationId
+      && summary
+      && !loadingMessages.value
+      && ws.connected.value
+      && isAppForeground()
+      && (options.isConversationVisible?.() ?? true),
+    )
+    if (!eligible || !conversationId || !summary) {
+      ordinaryReadTracker?.cancel()
+      return
+    }
+
+    if (ordinaryReadTracker?.scope !== scope) {
+      const rows = new Map<number, { sequence: number; own: boolean }>()
+      messages.value.forEach((message) => {
+        const sequence = message.sequence || 0
+        if (message.conversationId !== conversationId
+          || !Number.isSafeInteger(sequence)
+          || sequence <= 0) return
+        rows.set(sequence, {
+          sequence,
+          own: message.fromUserId === currentUser.value?.id,
+        })
+      })
+      ordinaryReadTracker = new VisibleReadTracker(
+        scope,
+        summary.lastReadSequence,
+        [...rows.values()],
+        runtimePositions.get(conversationId) || 0,
+      )
+    }
+
+    const position = ordinaryReadTracker.sample(
+      scope,
+      performance.now(),
+      new Set(sequences),
+      true,
+    )
+    if (position <= Math.max(
+      summary.lastReadSequence,
+      pendingReadPositions.get(conversationId) || 0,
+    )) return
+
+    pendingReadPositions.set(conversationId, position)
+    flushPendingReadPositions()
+  }
+
   function observeRecoveryRead(scope: string, sequences: readonly number[]): void {
     const cid=selected.value?.conversationId,state=recoveryState.value,image=recoveredImage.value
     const eligible=Boolean(scope && scope===recoveryReadScope.value && cid && state?.phase==='ONLINE_SAFE' && image
@@ -182,6 +274,14 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
     }
     const position=recoveryReadTracker.sample(scope,performance.now(),new Set(sequences),true)
     if(position>recoveryReadSent && ws.connected.value && ws.sendEvent('CHAT_READ',{lastReadSequence:position},{requestId:createRequestId(),conversationId:cid})) recoveryReadSent=position
+  }
+
+  function observeReadVisibility(scope: string, sequences: readonly number[]): void {
+    if (recoveryEnabled.value) {
+      observeRecoveryRead(scope, sequences)
+      return
+    }
+    observeOrdinaryRead(scope, sequences)
   }
 
   const inaccessibleConversationIds = new Set<string>()
@@ -215,9 +315,6 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
 
   function acknowledgeVisibleConversation(): void {
     if (!canReadSelectedConversation() || loadingMessages.value) return
-    const conversationId = selected.value?.conversationId
-    if (!conversationId) return
-    sendReadPosition(conversationId, messages.value)
     scheduleBurnCountdowns(messages.value)
   }
 
@@ -737,7 +834,9 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
       selectionToken,
       selected.value?.conversationId,
     )
-    selected.value = { ...conversation, conversationId, unreadCount: 0 }
+    // Selecting a row changes the workspace, never the authoritative unread
+    // count. It is updated only by CHAT_READ or a fresh server snapshot.
+    selected.value = { ...conversation, conversationId }
     loadingMessages.value = true
     typingLabel.value = ''
     messages.value = []
@@ -769,7 +868,6 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
       messages.value = mergeMessages(messages.value, nextMessages)
       scheduleBurnCountdowns(messages.value)
       members.value = nextMembers
-      sendReadPosition(conversationId, normalized)
     } catch {
       if (!isCurrentSelection()) return
       const nextMembers = conversation.kind === 'group'
@@ -1111,14 +1209,13 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
     // selection decision across an await into another conversation's UI.
     if (inaccessibleConversationIds.has(conversationId)) return
     const isCurrentConversation = belongsToSelected(delivered)
-    updateConversationPreview(delivered, isCurrentConversation && canReadSelectedConversation(conversationId))
+    // A delivered row is a real incoming message, but it has not yet earned a
+    // visible-read proof. Preserve its unread state until CHAT_READ commits.
+    updateConversationPreview(delivered, false)
     if (isCurrentConversation) {
       mergeCurrentMessages([delivered])
       if (isIncomingMessage && canReadSelectedConversation(conversationId)) {
         startBurnCountdown(delivered)
-        if (!hasSequenceGap) {
-          sendReadPosition(conversationId, [delivered])
-        }
       }
     } else if (isIncomingMessage && !isDuplicateDelivery) {
       if (!conversation?.muted) {
@@ -1174,7 +1271,7 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
         registerSystemNotificationAccount(message)
       }
       const before = getConversationSummary(message.conversationId)?.unreadCount || 0
-      updateConversationPreview(message, isCurrentConversation && canReadSelectedConversation(message.conversationId))
+      updateConversationPreview(message, false)
       const after = getConversationSummary(message.conversationId)?.unreadCount || 0
       const unreadDelta = Math.max(0, after - before)
       synchronizedUnreadCount += unreadDelta
@@ -1194,11 +1291,6 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
     if (selectedItems.length > 0) {
       mergeCurrentMessages(selectedItems)
       scheduleBurnCountdowns(selectedItems)
-      const selectedConversationId = selected.value?.conversationId
-      if (selectedConversationId
-        && selectedItems.some((message) => message.fromUserId !== currentUser.value?.id)) {
-        sendReadPosition(selectedConversationId, selectedItems)
-      }
     }
     if (synchronizedUnreadCount > 0) {
       toast.push(
@@ -1290,6 +1382,9 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
         return
       }
       recordSummaryDelta({ kind: 'read', value: readDelta })
+      if ((pendingReadPositions.get(conversationId) || 0) <= lastReadSequence) {
+        pendingReadPositions.delete(conversationId)
+      }
       if (selected.value?.conversationId === conversationId) {
         selected.value = {
           ...selected.value,
@@ -1775,43 +1870,14 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
         pendingReadPositions.delete(conversationId)
         return
       }
-      if (transmitReadPosition(conversationId, lastReadSequence)) {
+      const committed = getConversationSummary(conversationId)?.lastReadSequence || 0
+      if (committed >= lastReadSequence) {
         pendingReadPositions.delete(conversationId)
+        return
       }
-    })
-  }
-
-  function sendReadPosition(conversationId: string, source: readonly ChatMessage[]): void {
-    if (!canReadSelectedConversation(conversationId)) return
-    const lastReadSequence = source.reduce(
-      (maximum, message) => Math.max(maximum, message.sequence || 0),
-      0,
-    )
-    if (lastReadSequence <= 0) return
-    const sent = transmitReadPosition(conversationId, lastReadSequence)
-    if (!sent) {
-      // 重连 SYNC 阶段 connected 仍为 false；挂起读位点，转为 ONLINE 后统一补发，
-      // 否则服务端和其他设备会残留幻影未读。
-      pendingReadPositions.set(
-        conversationId,
-        Math.max(pendingReadPositions.get(conversationId) || 0, lastReadSequence),
-      )
-    } else if ((pendingReadPositions.get(conversationId) || 0) <= lastReadSequence) {
-      pendingReadPositions.delete(conversationId)
-    }
-    const currentUserId = currentUser.value?.id
-    const current = getConversationSummary(conversationId)
-    if (!currentUserId || !current) return
-    recordSummaryDelta({
-      kind: 'read',
-      value: {
-        conversationId,
-        readerId: currentUserId,
-        currentUserId,
-        lastSequence: Math.max(current.lastSequence, lastReadSequence),
-        lastReadSequence,
-        unreadCount: lastReadSequence >= current.lastSequence ? 0 : current.unreadCount,
-      },
+      // Keep the position until the matching CHAT_READ event arrives. Sending
+      // a frame is transport progress, not permission to clear a badge.
+      transmitReadPosition(conversationId, lastReadSequence)
     })
   }
 
@@ -1874,6 +1940,7 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
       runtimePositions.get(conversationId) || 0,
       sequence,
     ))
+    ordinaryReadProofRevision.value += 1
     await savePosition(conversationId, sequence).catch(() => undefined)
   }
 
@@ -2079,8 +2146,8 @@ export function useChat(options: { isConversationVisible?: () => boolean; enable
     usesMutationRecovery: readonly(recoveryEnabled),
     recoveryPhase: computed(()=>recoveryState.value?.phase),
     recoveryNotificationRouteAllowed,
-    recoveryReadScope,
-    observeRecoveryRead,
+    readScope,
+    observeReadVisibility,
     recoveryTerminals: computed(()=>recoveryState.value?.phase !== 'ONLINE_SAFE' ? [] :
       (recoveredImage.value?.tombstones ?? []).flatMap(item=>{
         const sequence=Number(item.messageSequence)

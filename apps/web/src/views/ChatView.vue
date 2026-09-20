@@ -70,8 +70,8 @@ const {
   loadingMessages,
   recoveryStatus,
   recoveryTerminals,
-  recoveryReadScope,
-  observeRecoveryRead,
+  readScope,
+  observeReadVisibility,
   recoveryCanSend,
   typingLabel,
   mentionReceiptRefreshRevision,
@@ -974,8 +974,8 @@ function reanchorMobileViewportAfterComposerSubmit(): void {
         :loading-messages="loadingMessages"
         :recovery-status="recoveryStatus"
         :recovery-terminals="recoveryTerminals"
-        :recovery-read-scope="recoveryReadScope"
-        @read-visibility="observeRecoveryRead"
+        :read-scope="readScope"
+        @read-visibility="observeReadVisibility"
         :typing-label="typingLabel"
         :mention-receipt-refresh-revision="mentionReceiptRefreshRevision"
         :connected="connected"

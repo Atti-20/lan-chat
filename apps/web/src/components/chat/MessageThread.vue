@@ -14,7 +14,7 @@ interface Props {
   user: User
   members: readonly GroupMember[]
   loading?: boolean
-  recoveryReadScope?: string
+  readScope?: string
   recoveryStatus?: string
   recoveryTerminals?: readonly RecoveryTerminal[]
   typingLabel?: string
@@ -23,7 +23,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   loading: false,
-  recoveryReadScope: '',
+  readScope: '',
   recoveryStatus: '',
   recoveryTerminals: () => [],
   typingLabel: '',
@@ -46,7 +46,11 @@ const threadRef = useTemplateRef<HTMLDivElement>('thread')
 const messageListRef = useTemplateRef<HTMLOListElement>('messageList')
 let readVisibilityTimer: number | undefined
 onMounted(()=>{readVisibilityTimer=window.setInterval(()=>{
-  if(!props.recoveryReadScope) return
+  const scope = props.readScope
+  if (!scope) {
+    emit('readVisibility', '', [])
+    return
+  }
   const visible:number[]=[],viewport=threadRef.value?.getBoundingClientRect()
   if(viewport && document.visibilityState==='visible' && !props.recoveryStatus) {
     for(const row of messageListRef.value?.querySelectorAll<HTMLElement>('[data-message-sequence]') ?? []) {
@@ -58,9 +62,9 @@ onMounted(()=>{readVisibilityTimer=window.setInterval(()=>{
       if(hit && content.contains(hit)) visible.push(Number(row.dataset.messageSequence))
     }
   }
-  emit('readVisibility',props.recoveryReadScope,visible)
+  emit('readVisibility',scope,visible)
 },100)})
-onBeforeUnmount(()=>{window.clearInterval(readVisibilityTimer);emit('readVisibility',props.recoveryReadScope,[])})
+onBeforeUnmount(()=>{window.clearInterval(readVisibilityTimer);emit('readVisibility',props.readScope,[])})
 
 const memberMap = computed(() => new Map(props.members.map((member) => [member.userId, member])))
 const senderCanSeeMentionReadState = computed(() => props.conversation.kind === 'group'

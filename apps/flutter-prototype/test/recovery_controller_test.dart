@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meshx_flutter_probe/ui/app.dart';
 import 'package:meshx_flutter_probe/ui/theme.dart';
+import 'package:meshx_flutter_probe/ui/glass_chrome.dart';
 import 'package:meshx_flutter_probe/chat_controller.dart';
 import 'package:meshx_flutter_probe/application/recovery_coordinator.dart';
 import 'package:meshx_flutter_probe/core/recovery.dart';
@@ -380,7 +381,7 @@ void main() {
         expect(find.text('verified body'), findsNothing);
         expect(
           tester
-              .widget<IconButton>(find.byKey(const Key('send-message')))
+              .widget<MeshXGlassButton>(find.byKey(const Key('send-message')))
               .onPressed,
           isNull,
         );

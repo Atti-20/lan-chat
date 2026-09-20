@@ -180,8 +180,8 @@ class BroadcastsController extends ChangeNotifier {
     if (normalized == 'EXECUTED' &&
         (current.broadcast.requireImageProof || current.locationReadOnly)) {
       error = current.locationReadOnly
-          ? '该广播需要定位凭证，请使用 Web 端办理'
-          : '该广播需要图片凭证，请使用“上传图片并完成”';
+          ? '该广播需要定位凭证，请使用完成操作'
+          : '该广播需要图片凭证，请使用完成操作';
       notifyListeners();
       return false;
     }
@@ -193,11 +193,6 @@ class BroadcastsController extends ChangeNotifier {
   Future<bool> complete() async {
     final current = detail;
     if (busy || current == null || !current.canSubmit) return false;
-    if (current.locationReadOnly) {
-      error = '该广播需要定位凭证，移动端仅可查看，请使用 Web 端办理';
-      notifyListeners();
-      return false;
-    }
     busy = true;
     ++_detailGeneration;
     error = null;
@@ -265,8 +260,33 @@ class BroadcastsController extends ChangeNotifier {
       }
       await coordinator.clearFile();
     }
+    LocationProof? location;
+    if (current.broadcast.requireLocationProof) {
+      final port = platform?.location;
+      if (port == null) {
+        error = '当前设备不可用定位能力';
+        notifyListeners();
+        return false;
+      }
+      final captured = await port.currentLocation();
+      if (_disposed ||
+          chat.api != api ||
+          detail?.broadcast.id != current.broadcast.id) {
+        return false;
+      }
+      if (!captured.ok || captured.value?.fresh != true) {
+        error = '未获得有效定位：${capabilityMessage(captured.status)}，请检查定位权限后重试';
+        notifyListeners();
+        return false;
+      }
+      location = captured.value;
+    }
     return _submit(
-      () => api.completeBroadcast(current.broadcast.id, imageFileIds: imageIds),
+      () => api.completeBroadcast(
+        current.broadcast.id,
+        imageFileIds: imageIds,
+        location: location?.toJson(),
+      ),
       ownsBusy: true,
     );
   }

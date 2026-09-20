@@ -55,10 +55,11 @@ class AttachmentData {
     this.thumbnailUrl,
     this.originalUrl,
     this.transferPath = 'NODE_RELAY',
+    this.transferId,
   });
 
   final String url, name, mime, fileHash, transferPath;
-  final String? thumbnailUrl, originalUrl;
+  final String? thumbnailUrl, originalUrl, transferId;
   final int size;
 
   bool get image => mime.toLowerCase().startsWith('image/');
@@ -66,9 +67,27 @@ class AttachmentData {
 
   factory AttachmentData.fromJson(Json value) {
     final transferPath = _optionalString(value, 'transferPath') ?? 'NODE_RELAY';
-    if (transferPath != 'NODE_RELAY') {
-      throw const FormatException('当前设备没有直传文件副本');
+    if (transferPath == 'PEER_TO_PEER') {
+      final id = _requiredString(value, 'transferId'),
+          hash = _requiredString(value, 'fileHash');
+      final size = integer(value['size']);
+      if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(id) ||
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(hash) ||
+          size <= 0 ||
+          size > attachmentByteLimit) {
+        throw const FormatException('直传附件信息无效');
+      }
+      return AttachmentData(
+        url: '',
+        name: _requiredString(value, 'name'),
+        size: size,
+        mime: _requiredString(value, 'mime'),
+        fileHash: hash,
+        transferId: id,
+        transferPath: transferPath,
+      );
     }
+    if (transferPath != 'NODE_RELAY') throw const FormatException('附件传输类型无效');
     final url = _requiredString(value, 'url');
     final originalUrl = _optionalString(value, 'originalUrl');
     storedFileName(originalUrl ?? url);
@@ -105,7 +124,8 @@ class AttachmentData {
   }
 
   Json toJson() => {
-    'url': url,
+    if (url.isNotEmpty) 'url': url,
+    if (transferId != null) 'transferId': transferId,
     if (originalUrl != null) 'originalUrl': originalUrl,
     if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
     'name': name,

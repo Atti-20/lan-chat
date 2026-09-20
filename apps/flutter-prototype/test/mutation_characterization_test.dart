@@ -1,5 +1,4 @@
-// Tests pin observed gaps so protocol work has a reproducible starting point.
-// Green characterization tests do NOT mean the safety targets are implemented.
+// Former gap vectors now assert ordinary-path redaction and ownership safety.
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -81,7 +80,7 @@ class MutationConnection extends CapturingConnection {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   for (final vector in vectors['cases'] as List) {
-    test('v1 characterization: ${vector['id']}', () async {
+    test('v1 terminal regression: ${vector['id']}', () async {
       final api = MutationApi(), wire = MutationConnection(MutationApi());
       if (vector['id'] == 'mutation-before-original') wire.seed = false;
       final c = ChatController(
@@ -108,7 +107,7 @@ void main() {
         await c.select(
           room,
         ); // Current latest-50 history fallback also misses old A.
-        expect(wire.requests.last[room.id], 62);
+        expect(wire.requests.last[room.id], 0);
       } else {
         for (final op in vector['order'] as List) {
           if (op == 'original') {
@@ -122,20 +121,29 @@ void main() {
         }
       }
       await Future<void>.delayed(const Duration(milliseconds: 25));
-      expect(
-        c.messages
-            .firstWhere((m) => m.messageId == original().messageId)
-            .displayContent,
-        original().content,
-        reason:
-            'Known CLIENT_GAP / reconnect PROTOCOL_GAP; this is not a redaction acceptance assertion.',
-      );
-      if (vector['id'] == 'removed-conversation') expect(c.active?.id, room.id);
+      final found = c.messages
+          .where((m) => m.messageId == original().messageId)
+          .firstOrNull;
+      switch (vector['id']) {
+        case 'reconnect-mutation':
+        case 'stale-connection-mutation':
+        case 'removed-conversation':
+          expect(found, isNull);
+        case 'unknown-mutation':
+          expect(
+            found?.content,
+            original().content,
+          ); // Unknown WS events have no invented v1 semantics.
+        default:
+          expect(found?.content, isEmpty);
+          expect(found!.recalled || found.burned, isTrue);
+      }
+      if (vector['id'] == 'removed-conversation') expect(c.active, isNull);
     });
   }
 
   test(
-    'cached recall/burn remains stale through a real file and controller restart',
+    'cold restart revalidates old bodies and removes deleted messages from disk',
     () async {
       final dir = await Directory.systemTemp.createTemp('meshx-a07-mutation-');
       addTearDown(() => dir.delete(recursive: true));
@@ -164,19 +172,17 @@ void main() {
       await second.restore();
       second.active = room;
       expect(second.online, isTrue);
-      expect(wire.requests.single[room.id], 62);
-      expect(second.messages.first.displayContent, original().content);
+      expect(wire.requests.single[room.id], 0);
+      expect(second.messages, isEmpty);
       expect(
-        (await store.load(
-          accountScope(api.origin, 1),
-        ))!['messages'][room.id][0]['content'],
-        original().content,
+        (await store.load(accountScope(api.origin, 1)))!['messages'][room.id],
+        isEmpty,
       );
     },
   );
 
   test(
-    'removed summary skips denied SYNC and retains disk cache plus queued message',
+    'removed summary purges disk cache, pending messages and selection',
     () async {
       final dir = await Directory.systemTemp.createTemp('meshx-a07-access-');
       addTearDown(() => dir.delete(recursive: true));
@@ -205,15 +211,10 @@ void main() {
         wire.frames,
         isEmpty,
       ); // No current send, but no permanent discard rule.
-      expect(c.active?.id, room.id);
-      expect(c.positions[room.id], 62);
+      expect(c.active, isNull);
+      expect(c.positions[room.id], isNull);
       final disk = await store.load(accountScope(api.origin, 1));
-      expect(
-        (disk!['messages'][room.id] as List).any(
-          (m) => m['delivery'] == 'queued',
-        ),
-        isTrue,
-      );
+      expect((disk!['messages'] as Map).containsKey(room.id), isFalse);
     },
   );
 
@@ -240,7 +241,7 @@ void main() {
   );
 
   test(
-    'read characterization: visible, unselected, background, reconnect/history never emit CHAT_READ',
+    'history, background and reconnect without visibility samples never emit CHAT_READ',
     () async {
       final api = MutationApi(), wire = MutationConnection(MutationApi());
       final c = ChatController(
@@ -262,18 +263,19 @@ void main() {
       await c.resume();
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(wire.frames.where((f) => f['event'] == 'CHAT_READ'), isEmpty);
-      // Unselected/background negative rule PASS; visible positive requirement CLIENT_GAP.
+      // Positive visible-read semantics are covered by ordinary_read_test.dart.
     },
   );
 
   test(
-    'unknown restricted snapshot currently defaults to visible text: CLIENT_GAP',
+    'unknown snapshot status redacts body and persists only unsupported content',
     () {
       final m = ChatMessage.fromJson({
         ...copy(vectors['original']),
         'status': 99,
       });
-      expect(m.displayContent, original().content);
+      expect(m.content, isEmpty);
+      expect(m.contentType, 'unsupported');
       expect(m.toJson().containsKey('status'), isFalse);
     },
   );

@@ -1,0 +1,5 @@
+// Opt-in for a signed device build with Push Notifications enabled for the App ID.
+// Include from the selected local configuration, not simulator defaults.
+CODE_SIGN_ENTITLEMENTS = Runner/Push.entitlements
+MESHX_APNS_ENVIRONMENT = development
+// Use production for a distribution profile; set server apns-sandbox=false.

@@ -33,6 +33,44 @@
       },
       "spec": "docs/design/component-specs/button.md"
     },
+    "badge": {
+      "title": "状态徽章",
+      "tokens": [
+        "component.badge.min-size",
+        "component.badge.padding-inline",
+        "component.badge.font-size",
+        "shape.radius.pill",
+        "color.action.danger",
+        "color.text.on-accent",
+        "color.interaction.selected"
+      ],
+      "states": [
+        "default",
+        "unread",
+        "pending",
+        "hover",
+        "focus",
+        "pressed",
+        "selected",
+        "loading",
+        "error",
+        "disabled"
+      ],
+      "rule": "未读数只能来自真实 conversation unread 状态；点击会话不会把徽章本地清零。",
+      "stateCoverage": {
+        "default": "implemented",
+        "unread": "implemented",
+        "pending": "implemented",
+        "hover": "not-applicable",
+        "focus": "not-applicable",
+        "pressed": "not-applicable",
+        "selected": "composed",
+        "loading": "not-applicable",
+        "error": "composed",
+        "disabled": "not-applicable"
+      },
+      "spec": "docs/design/component-specs/badge.md"
+    },
     "input": {
       "title": "输入框",
       "tokens": [
@@ -63,7 +101,7 @@
         "focus": "implemented",
         "pressed": "not-applicable",
         "selected": "not-applicable",
-        "loading": "composed",
+        "loading": "implemented",
         "error": "composed",
         "disabled": "implemented",
         "readOnly": "implemented"
@@ -169,21 +207,43 @@
     "composer": {
       "title": "消息输入区",
       "tokens": [
-        "fill",
-        "ink",
-        "space-3",
-        "control-height",
-        "radius-control"
+        "component.composer.min-height",
+        "component.composer.radius",
+        "color.background.fill",
+        "color.text.primary",
+        "spacing.3",
+        "size.control.icon"
       ],
       "states": [
         "empty",
         "ready",
         "sending",
         "offline",
-        "readOnly"
+        "readOnly",
+        "hover",
+        "focus",
+        "pressed",
+        "selected",
+        "loading",
+        "error",
+        "disabled"
       ],
-      "rule": "本地草稿不因断线丢失；发送不可用时给出原因；恢复连接后补同步，不隐式复制发送。",
-      "scope": "existing-catalog-only; not expanded by A04"
+      "rule": "本地草稿不因断线丢失；照片与文件入口复用安全上传管线；恢复连接后补同步，不隐式复制发送。",
+      "stateCoverage": {
+        "empty": "implemented",
+        "ready": "implemented",
+        "sending": "implemented",
+        "offline": "implemented",
+        "readOnly": "implemented",
+        "hover": "implemented",
+        "focus": "implemented",
+        "pressed": "implemented",
+        "selected": "not-applicable",
+        "loading": "composed",
+        "error": "composed",
+        "disabled": "implemented"
+      },
+      "spec": "docs/design/component-specs/composer.md"
     },
     "connection": {
       "title": "连接状态",
@@ -231,6 +291,40 @@
       },
       "spec": "docs/design/component-specs/connection.md"
     },
+    "iconButton": {
+      "title": "图标按钮",
+      "tokens": [
+        "component.icon-button.size",
+        "component.icon-button.icon-size",
+        "component.icon-button.press-scale",
+        "shape.radius.control",
+        "color.text.primary",
+        "color.interaction.control-hover",
+        "color.focus.ring"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus",
+        "pressed",
+        "selected",
+        "loading",
+        "error",
+        "disabled"
+      ],
+      "rule": "没有可见文字的操作必须有准确 aria-label；禁用不得只靠灰色或 CSS 阻断。",
+      "stateCoverage": {
+        "default": "implemented",
+        "hover": "implemented",
+        "focus": "implemented",
+        "pressed": "implemented",
+        "selected": "implemented",
+        "loading": "implemented",
+        "error": "composed",
+        "disabled": "implemented"
+      },
+      "spec": "docs/design/component-specs/icon-button.md"
+    },
     "collection": {
       "title": "内容区域",
       "tokens": [
@@ -275,6 +369,7 @@
         "color.text.on-accent",
         "color.presence.online",
         "color.background.surface",
+        "shape.radius.pill",
         "color.highlight.default",
         "color.shadow.default"
       ],
