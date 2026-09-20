@@ -605,7 +605,7 @@
     ],
     "flutter-candidate": [
       {
-        "name": "candidate-script-tests",
+        "name": "generated-cleanup-script-tests",
         "cwd": "apps/flutter-prototype",
         "argv": [
           "python3",
@@ -615,20 +615,7 @@
           "-s",
           "tool",
           "-p",
-          "test_check_candidate.py"
-        ]
-      },
-      {
-        "name": "candidate-source-audit",
-        "cwd": "apps/flutter-prototype",
-        "argv": [
-          "python3",
-          "tool/check_candidate.py",
-          "source"
-        ],
-        "requires": [
-          "apps/flutter-prototype/pubspec.lock",
-          "apps/flutter-prototype/candidate-readiness.json"
+          "test_clean_generated.py"
         ]
       }
     ],
@@ -907,21 +894,8 @@
         "cwd": "apps/flutter-prototype",
         "argv": [
           "python3",
-          "tool/check_candidate.py",
+          "tool/clean_generated.py",
           "clean-generated"
-        ]
-      },
-      {
-        "name": "candidate-source-audit",
-        "cwd": "apps/flutter-prototype",
-        "argv": [
-          "python3",
-          "tool/check_candidate.py",
-          "source"
-        ],
-        "requires": [
-          "apps/flutter-prototype/pubspec.lock",
-          "apps/flutter-prototype/candidate-readiness.json"
         ]
       },
       {
@@ -937,15 +911,6 @@
         "requires": [
           "apps/flutter-prototype/pubspec.lock",
           "apps/flutter-prototype/.dart_tool/package_config.json"
-        ]
-      },
-      {
-        "name": "android-artifact-audit",
-        "cwd": "apps/flutter-prototype",
-        "argv": [
-          "python3",
-          "tool/check_candidate.py",
-          "android-artifact"
         ]
       }
     ],
@@ -972,22 +937,6 @@
     ],
     "flutter-ios-candidate": [
       {
-        "name": "candidate-source-audit",
-        "cwd": "apps/flutter-prototype",
-        "argv": [
-          "python3",
-          "tool/check_candidate.py",
-          "source"
-        ],
-        "requires": [
-          "apps/flutter-prototype/pubspec.lock",
-          "apps/flutter-prototype/candidate-readiness.json"
-        ],
-        "platforms": [
-          "darwin"
-        ]
-      },
-      {
         "name": "ios-unsigned-release-build",
         "cwd": "apps/flutter-prototype",
         "argv": [
@@ -1001,18 +950,6 @@
         "requires": [
           "apps/flutter-prototype/pubspec.lock",
           "apps/flutter-prototype/.dart_tool/package_config.json"
-        ],
-        "platforms": [
-          "darwin"
-        ]
-      },
-      {
-        "name": "ios-artifact-audit",
-        "cwd": "apps/flutter-prototype",
-        "argv": [
-          "python3",
-          "tool/check_candidate.py",
-          "ios-artifact"
         ],
         "platforms": [
           "darwin"

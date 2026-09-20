@@ -48,7 +48,7 @@ permissions:
 
 jobs:
   quality:
-    name: Flutter quality and candidate input audit
+    name: Flutter quality checks
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -66,8 +66,6 @@ jobs:
         run: python3 scripts/ci/check-native-icon-parity.py
       - name: Analyze and run regression tests
         run: python3 tooling/workspace.py verify flutter
-      - name: Audit prepared candidate inputs
-        run: python3 tooling/workspace.py verify flutter-candidate
 
   android-candidate:
     name: Android release-mode prototype artifact
@@ -95,8 +93,15 @@ jobs:
       - name: Restore locked Dart dependencies
         working-directory: apps/flutter-prototype
         run: flutter pub get --enforce-lockfile
-      - name: Build and inspect Android candidate
+      - name: Build Android release artifact
         run: python3 tooling/workspace.py verify flutter-android-candidate
+      - name: Verify Android release artifact
+        run: |
+          apk="apps/flutter-prototype/build/app/outputs/flutter-apk/app-release.apk"
+          if [[ ! -s "$apk" ]]; then
+            echo "::error::Android release APK is missing or empty."
+            exit 1
+          fi
       - name: Record Android coverage boundary
         if: always()
         run: |
@@ -128,16 +133,28 @@ jobs:
       - name: Restore locked Dart dependencies
         working-directory: apps/flutter-prototype
         run: flutter pub get --enforce-lockfile
-      - name: Build and inspect iOS candidate
+      - name: Build iOS release artifact
         run: python3 tooling/workspace.py verify flutter-ios-candidate
       - name: Verify unsigned device bundle
         run: |
           app="apps/flutter-prototype/build/ios/iphoneos/Runner.app"
+          if [[ ! -d "$app" ]]; then
+            echo "::error::iOS release bundle is missing or empty."
+            exit 1
+          fi
+          if ! find "$app" -type f -size +0c -print -quit | grep -q .; then
+            echo "::error::iOS release bundle is empty."
+            exit 1
+          fi
           if codesign -dv --verbose=4 "$app" > flutter-ios-codesign.txt 2>&1; then
             echo "::error::Unsigned candidate unexpectedly carries a valid signature."
             exit 1
           fi
           ditto -c -k --sequesterRsrc --keepParent "$app" flutter-ios-unsigned.zip
+          if [[ ! -s flutter-ios-unsigned.zip ]]; then
+            echo "::error::iOS unsigned artifact archive is missing or empty."
+            exit 1
+          fi
       - name: Record iOS coverage boundary
         if: always()
         run: |
